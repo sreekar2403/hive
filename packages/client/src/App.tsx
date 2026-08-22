@@ -1,6 +1,11 @@
 import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './pages/Dashboard';
+import { OfficeFloorPage } from './pages/OfficeFloorPage';
+import { ChatPage } from './pages/ChatPage';
+import { KanbanPage } from './pages/KanbanPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { LogsPage } from './pages/LogsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 function Layout() {
@@ -20,16 +25,16 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
-          <Route path="office" element={<PlaceholderPage title="Office" />} />
-          <Route path="chat" element={<PlaceholderPage title="Chat" />} />
-          <Route path="kanban" element={<PlaceholderPage title="Kanban" />} />
-          <Route path="workflows" element={<PlaceholderPage title="Workflows" />} />
-          <Route path="schedule" element={<PlaceholderPage title="Schedule" />} />
+          <Route path="office" element={<OfficeFloorPage />} />
+          <Route path="chat" element={<ChatPage />} />
+          <Route path="kanban" element={<KanbanPage />} />
+          <Route path="workflows" element={<PlaceholderPage title="Workflow Builder" />} />
+          <Route path="schedule" element={<PlaceholderPage title="Schedule Jobs" />} />
           <Route path="memory" element={<PlaceholderPage title="Memory" />} />
           <Route path="git-diff" element={<PlaceholderPage title="Git Diff" />} />
           <Route path="permissions" element={<PlaceholderPage title="Permissions" />} />
-          <Route path="logs" element={<PlaceholderPage title="Logs" />} />
-          <Route path="settings" element={<PlaceholderPage title="Settings" />} />
+          <Route path="logs" element={<LogsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
