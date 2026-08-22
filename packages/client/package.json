@@ -2,22 +2,29 @@
   "name": "@hive/client",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
+    "electron:dev": "concurrently \"pnpm dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "next export && electron-builder"
+  },
+  "main": "electron/main.js"
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
   },
   "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "lucide-react": "^0.460.0",
-    "next": "^15.0.0"
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@tailwindcss/cli": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0",
+    "concurrently": "^10.0.5",
+    "electron": "^43.4.1",
     "tailwindcss": "^3.4.0",
-    "@tailwindcss/cli": "^4.0.0"
+    "typescript": "^5.7.0",
+    "wait-on": "^9.1.0"
   }
 }
