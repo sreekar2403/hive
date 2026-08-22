@@ -1,12 +1,15 @@
-import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
-import { Sidebar } from './components/Sidebar';
-import { Dashboard } from './pages/Dashboard';
-import { OfficeFloorPage } from './pages/OfficeFloorPage';
-import { ChatPage } from './pages/ChatPage';
-import { KanbanPage } from './pages/KanbanPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { LogsPage } from './pages/LogsPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
+import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
+import { Sidebar } from "./components/Sidebar";
+import { Dashboard } from "./pages/Dashboard";
+import { OfficeFloorPage } from "./pages/OfficeFloorPage";
+import { ChatPage } from "./pages/ChatPage";
+import { KanbanPage } from "./pages/KanbanPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { LogsPage } from "./pages/LogsPage";
+import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { WorkflowBuilderPage } from "./pages/WorkflowBuilderPage";
+import { GitDiffPage } from "./pages/GitDiffPage";
+import { MemoryPage } from "./pages/MemoryPage";
 
 function Layout() {
   return (
@@ -28,11 +31,14 @@ function App() {
           <Route path="office" element={<OfficeFloorPage />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="kanban" element={<KanbanPage />} />
-          <Route path="workflows" element={<PlaceholderPage title="Workflow Builder" />} />
-          <Route path="schedule" element={<PlaceholderPage title="Schedule Jobs" />} />
-          <Route path="memory" element={<PlaceholderPage title="Memory" />} />
-          <Route path="git-diff" element={<PlaceholderPage title="Git Diff" />} />
-          <Route path="permissions" element={<PlaceholderPage title="Permissions" />} />
+          <Route path="workflows" element={<WorkflowBuilderPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
+          <Route path="memory" element={<MemoryPage />} />
+          <Route path="git-diff" element={<GitDiffPage />} />
+          <Route
+            path="permissions"
+            element={<PlaceholderPage title="Permissions" />}
+          />
           <Route path="logs" element={<LogsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
