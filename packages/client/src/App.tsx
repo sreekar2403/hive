@@ -6,10 +6,10 @@ import { ChatPage } from "./pages/ChatPage";
 import { KanbanPage } from "./pages/KanbanPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LogsPage } from "./pages/LogsPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { WorkflowBuilderPage } from "./pages/WorkflowBuilderPage";
 import { GitDiffPage } from "./pages/GitDiffPage";
 import { MemoryPage } from "./pages/MemoryPage";
+import { PermissionsPage } from "./pages/PermissionsPage";
 
 function Layout() {
   return (
@@ -35,10 +35,7 @@ function App() {
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="memory" element={<MemoryPage />} />
           <Route path="git-diff" element={<GitDiffPage />} />
-          <Route
-            path="permissions"
-            element={<PlaceholderPage title="Permissions" />}
-          />
+          <Route path="permissions" element={<PermissionsPage />} />
           <Route path="logs" element={<LogsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
