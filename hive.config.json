@@ -1,0 +1,30 @@
+{
+  "harnesses": {
+    "opencode": {
+      "enabled": true,
+      "defaultModel": "claude-sonnet-4"
+    },
+    "claude-code": {
+      "enabled": true,
+      "defaultModel": "claude-sonnet-4"
+    },
+    "pi": {
+      "enabled": true,
+      "defaultModel": "claude-sonnet-4"
+    }
+  },
+  "routing": {
+    "default": "opencode",
+    "fallback": "claude-code"
+  },
+  "permission": {
+    "enabled": true,
+    "timeout": 60000
+  },
+  "server": {
+    "port": 3001
+  },
+  "storage": {
+    "cacheDir": "./.hive-cache"
+  }
+}
