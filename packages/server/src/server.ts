@@ -6,6 +6,8 @@ import { Orchestrator } from './orchestrator';
 import { Config } from './config';
 import { SharedMemory } from './sharedMemory';
 import { Harness } from '@hive/shared/harness';
+import scheduleRoutes from './routes/schedules';
+import workflowRoutes from './routes/workflows';
 
 const app = express();
 app.use(express.json());
@@ -98,6 +100,12 @@ class HiveServer {
       const memory = await this.sharedMemory.list(req.params.sessionId);
       res.json(memory);
     });
+
+    // Workflow CRUD endpoints
+    app.use('/api/workflows', workflowRoutes);
+
+    // Schedule CRUD endpoints
+    app.use('/api/schedules', scheduleRoutes);
 
     // Root - serve the chat UI
     app.get('/', (req, res) => {
