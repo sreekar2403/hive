@@ -10,12 +10,14 @@
 How should the permission system detect and gate destructive commands? The spec defines the patterns but not the enforcement mechanism.
 
 **Decision needed:**
+
 - When does detection happen (before execution? in output? after?);
 - How does the permission dialog flow work (WebSocket round-trip?)?
 - How are permissions persisted (session-only? file-based?)?
 - How does "always allow" work (regex match? exact match?)
 
 **Considerations:**
+
 - Must work with CLI harnesses that may already have the command ready to execute
 - The harness executes commands — Hive can only intercept before or after
 - "Before" detection means parsing the agent's planned actions (harder)
@@ -23,6 +25,7 @@ How should the permission system detect and gate destructive commands? The spec 
 - Need to think about harness-specific command formats
 
 **Options:**
+
 - A) Post-execution detection — catch in output, deny was too late
 - B) Pre-execution interception — harness declares commands before running
 - C) Output pattern matching — match patterns in stdout/stderr as they stream
@@ -44,38 +47,134 @@ Before sending a prompt to the harness, scan it for destructive patterns. If fou
 
 interface DestructivePattern {
   id: string;
-  category: 'git' | 'filesystem' | 'database' | 'deploy' | 'package';
+  category: "git" | "filesystem" | "database" | "deploy" | "package";
   pattern: RegExp;
   description: string;
-  severity: 'block' | 'warn';  // block = must ask, warn = log but allow
+  severity: "block" | "warn"; // block = must ask, warn = log but allow
 }
 
 const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
   // Git
-  { id: 'git-force-push', category: 'git', pattern: /git\s+push\s+--force/i, description: 'Force push', severity: 'block' },
-  { id: 'git-reset-hard', category: 'git', pattern: /git\s+reset\s+--hard/i, description: 'Hard reset', severity: 'block' },
-  { id: 'git-clean', category: 'git', pattern: /git\s+clean\s+-[a-z]*f/i, description: 'Force clean', severity: 'block' },
-  { id: 'git-branch-delete', category: 'git', pattern: /git\s+branch\s+-[dD]/i, description: 'Delete branch', severity: 'warn' },
-  { id: 'git-checkout-force', category: 'git', pattern: /git\s+checkout\s+--\s+\./i, description: 'Discard all changes', severity: 'block' },
+  {
+    id: "git-force-push",
+    category: "git",
+    pattern: /git\s+push\s+--force/i,
+    description: "Force push",
+    severity: "block",
+  },
+  {
+    id: "git-reset-hard",
+    category: "git",
+    pattern: /git\s+reset\s+--hard/i,
+    description: "Hard reset",
+    severity: "block",
+  },
+  {
+    id: "git-clean",
+    category: "git",
+    pattern: /git\s+clean\s+-[a-z]*f/i,
+    description: "Force clean",
+    severity: "block",
+  },
+  {
+    id: "git-branch-delete",
+    category: "git",
+    pattern: /git\s+branch\s+-[dD]/i,
+    description: "Delete branch",
+    severity: "warn",
+  },
+  {
+    id: "git-checkout-force",
+    category: "git",
+    pattern: /git\s+checkout\s+--\s+\./i,
+    description: "Discard all changes",
+    severity: "block",
+  },
 
   // Filesystem
-  { id: 'rm-rf', category: 'filesystem', pattern: /rm\s+-rf?\s+/i, description: 'Recursive force delete', severity: 'block' },
-  { id: 'rmdir-s', category: 'filesystem', pattern: /rmdir\s+\/s/i, description: 'Windows recursive delete', severity: 'block' },
-  { id: 'del-force', category: 'filesystem', pattern: /del\s+\/[sfq]/i, description: 'Windows force delete', severity: 'block' },
+  {
+    id: "rm-rf",
+    category: "filesystem",
+    pattern: /rm\s+-rf?\s+/i,
+    description: "Recursive force delete",
+    severity: "block",
+  },
+  {
+    id: "rmdir-s",
+    category: "filesystem",
+    pattern: /rmdir\s+\/s/i,
+    description: "Windows recursive delete",
+    severity: "block",
+  },
+  {
+    id: "del-force",
+    category: "filesystem",
+    pattern: /del\s+\/[sfq]/i,
+    description: "Windows force delete",
+    severity: "block",
+  },
 
   // Database
-  { id: 'drop-table', category: 'database', pattern: /DROP\s+TABLE/i, description: 'Drop table', severity: 'block' },
-  { id: 'delete-from', category: 'database', pattern: /DELETE\s+FROM/i, description: 'Delete from table', severity: 'block' },
-  { id: 'truncate', category: 'database', pattern: /TRUNCATE/i, description: 'Truncate table', severity: 'block' },
+  {
+    id: "drop-table",
+    category: "database",
+    pattern: /DROP\s+TABLE/i,
+    description: "Drop table",
+    severity: "block",
+  },
+  {
+    id: "delete-from",
+    category: "database",
+    pattern: /DELETE\s+FROM/i,
+    description: "Delete from table",
+    severity: "block",
+  },
+  {
+    id: "truncate",
+    category: "database",
+    pattern: /TRUNCATE/i,
+    description: "Truncate table",
+    severity: "block",
+  },
 
   // Deploy
-  { id: 'kubectl-delete', category: 'deploy', pattern: /kubectl\s+delete/i, description: 'Delete K8s resource', severity: 'block' },
-  { id: 'docker-rm', category: 'deploy', pattern: /docker\s+rm/i, description: 'Remove container', severity: 'warn' },
-  { id: 'docker-prune', category: 'deploy', pattern: /docker\s+system\s+prune/i, description: 'Prune Docker system', severity: 'block' },
+  {
+    id: "kubectl-delete",
+    category: "deploy",
+    pattern: /kubectl\s+delete/i,
+    description: "Delete K8s resource",
+    severity: "block",
+  },
+  {
+    id: "docker-rm",
+    category: "deploy",
+    pattern: /docker\s+rm/i,
+    description: "Remove container",
+    severity: "warn",
+  },
+  {
+    id: "docker-prune",
+    category: "deploy",
+    pattern: /docker\s+system\s+prune/i,
+    description: "Prune Docker system",
+    severity: "block",
+  },
 
   // Package
-  { id: 'npm-uninstall', category: 'package', pattern: /npm\s+ uninstall/i, description: 'Uninstall package', severity: 'warn' },
-  { id: 'pip-uninstall', category: 'package', pattern: /pip\s+uninstall/i, description: 'Uninstall package', severity: 'warn' },
+  {
+    id: "npm-uninstall",
+    category: "package",
+    pattern: /npm\s+ uninstall/i,
+    description: "Uninstall package",
+    severity: "warn",
+  },
+  {
+    id: "pip-uninstall",
+    category: "package",
+    pattern: /pip\s+uninstall/i,
+    description: "Uninstall package",
+    severity: "warn",
+  },
 ];
 ```
 
@@ -85,8 +184,8 @@ As harness output streams in, scan each chunk for destructive patterns. If found
 
 ```typescript
 export class PermissionSystem {
-  private whitelist: Set<string>;     // pattern IDs to always allow
-  private blacklist: Set<string>;     // pattern IDs to never allow
+  private whitelist: Set<string>; // pattern IDs to always allow
+  private blacklist: Set<string>; // pattern IDs to never allow
   private sessionAllowances: Map<string, Set<string>>; // sessionId → allowed pattern IDs
 
   constructor(config: PermissionConfig) {
@@ -103,16 +202,16 @@ export class PermissionSystem {
   // Phase 2: Scan output during streaming
   scanOutput(output: string, sessionId: string): DestructiveMatch[] {
     const matches = this.findMatches(output);
-    return matches.filter(m => !this.isAllowed(m, sessionId));
+    return matches.filter((m) => !this.isAllowed(m, sessionId));
   }
 
   private findMatches(text: string): DestructiveMatch[] {
-    return DESTRUCTIVE_PATTERNS
-      .filter(p => p.pattern.test(text))
-      .map(p => ({
+    return DESTRUCTIVE_PATTERNS.filter((p) => p.pattern.test(text)).map(
+      (p) => ({
         pattern: p,
-        match: text.match(p.pattern)?.[0] || '',
-      }));
+        match: text.match(p.pattern)?.[0] || "",
+      }),
+    );
   }
 
   private isAllowed(match: DestructiveMatch, sessionId: string): boolean {
@@ -134,13 +233,13 @@ export class PermissionSystem {
   async requestPermission(
     match: DestructiveMatch,
     sessionId: string,
-    broadcast: (msg: any) => void
+    broadcast: (msg: any) => void,
   ): Promise<PermissionResult> {
     const requestId = crypto.randomUUID();
 
     // Send request to UI
     broadcast({
-      type: 'permission:requested',
+      type: "permission:requested",
       sessionId,
       payload: {
         requestId,
@@ -153,7 +252,7 @@ export class PermissionSystem {
     // Wait for response (30s timeout)
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        resolve({ allowed: false, reason: 'timeout' });
+        resolve({ allowed: false, reason: "timeout" });
       }, 30000);
 
       // Response handler registered elsewhere
@@ -178,7 +277,10 @@ export class PermissionSystem {
       this.sessionAllowances.set(sessionId, sessionAllow);
     }
 
-    pending.resolve({ allowed, reason: allowed ? 'user-approved' : 'user-denied' });
+    pending.resolve({
+      allowed,
+      reason: allowed ? "user-approved" : "user-denied",
+    });
   }
 
   // --- Config ---
@@ -189,8 +291,8 @@ export class PermissionSystem {
       blacklist: Array.from(this.blacklist),
     };
     await writeFile(
-      join(process.cwd(), 'config', 'permissions.yaml'),
-      yaml.dump(config)
+      join(process.cwd(), "config", "permissions.yaml"),
+      yaml.dump(config),
     );
   }
 }
@@ -208,7 +310,7 @@ interface PermissionResult {
 interface PermissionConfig {
   whitelist?: string[];
   blacklist?: string[];
-  defaultTimeout?: number;  // ms, default 30000
+  defaultTimeout?: number; // ms, default 30000
 }
 ```
 

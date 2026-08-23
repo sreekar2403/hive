@@ -10,18 +10,21 @@
 What should the WebSocket message protocol look like between server and UI? This is the contract that makes real-time agent activity work.
 
 **Decision needed:**
+
 - What message types exist (agent-update, permission-request, chat-message, etc.)?
 - What is the payload shape for each type?
 - How does the UI know which session a message belongs to?
 - How does the server handle UI disconnection/reconnection?
 
 **Considerations:**
+
 - Must support multiple concurrent sessions
 - Must be typed (TypeScript interfaces for messages)
 - Must handle out-of-order delivery (WebSocket doesn't guarantee ordering)
 - Must be extensible for new message types
 
 **Options:**
+
 - A) Flat messages — each message has a `type` field, flat payload
 - B) Envelope pattern — outer envelope with session/id, inner payload
 - C) RPC-style — request/response with method names
@@ -40,11 +43,11 @@ Every message (both directions) uses the same envelope:
 // packages/shared/src/protocol.ts
 
 interface Envelope<T extends string = string, P = unknown> {
-  id: string;           // unique message ID for dedup/ordering
-  sessionId: string;    // which session this belongs to
-  type: T;              // message type discriminator
-  payload: P;           // type-specific payload
-  timestamp: number;    // Date.now()
+  id: string; // unique message ID for dedup/ordering
+  sessionId: string; // which session this belongs to
+  type: T; // message type discriminator
+  payload: P; // type-specific payload
+  timestamp: number; // Date.now()
 }
 ```
 
@@ -52,33 +55,59 @@ interface Envelope<T extends string = string, P = unknown> {
 
 ```typescript
 type ServerMessage =
-  | Envelope<'session:created', { sessionId: string; query: string }>
-  | Envelope<'session:routed', { harness: string; model: string; source: string }>
-  | Envelope<'agent:started', { agentId: string; harness: string; model: string }>
-  | Envelope<'agent:output', { agentId: string; chunk: string }>
-  | Envelope<'agent:completed', { agentId: string; summary: string; filesChanged: string[] }>
-  | Envelope<'agent:error', { agentId: string; error: string }>
-  | Envelope<'loop:iteration', { agentId: string; iteration: number; maxIterations: number; state: string }>
-  | Envelope<'loop:verify', { agentId: string; passed: boolean; reason: string }>
-  | Envelope<'permission:requested', { requestId: string; command: string; reason: string }>
-  | Envelope<'permission:timeout', { requestId: string }>
-  | Envelope<'session:pr', { prUrl: string; prNumber: number }>
-  | Envelope<'session:done', { success: boolean; summary: string }>
-  | Envelope<'session:error', { error: string }>
-  | Envelope<'session:status', { status: string }>
-  | Envelope<'chat:message', { role: 'assistant'; content: string }>;
+  | Envelope<"session:created", { sessionId: string; query: string }>
+  | Envelope<
+      "session:routed",
+      { harness: string; model: string; source: string }
+    >
+  | Envelope<
+      "agent:started",
+      { agentId: string; harness: string; model: string }
+    >
+  | Envelope<"agent:output", { agentId: string; chunk: string }>
+  | Envelope<
+      "agent:completed",
+      { agentId: string; summary: string; filesChanged: string[] }
+    >
+  | Envelope<"agent:error", { agentId: string; error: string }>
+  | Envelope<
+      "loop:iteration",
+      {
+        agentId: string;
+        iteration: number;
+        maxIterations: number;
+        state: string;
+      }
+    >
+  | Envelope<
+      "loop:verify",
+      { agentId: string; passed: boolean; reason: string }
+    >
+  | Envelope<
+      "permission:requested",
+      { requestId: string; command: string; reason: string }
+    >
+  | Envelope<"permission:timeout", { requestId: string }>
+  | Envelope<"session:pr", { prUrl: string; prNumber: number }>
+  | Envelope<"session:done", { success: boolean; summary: string }>
+  | Envelope<"session:error", { error: string }>
+  | Envelope<"session:status", { status: string }>
+  | Envelope<"chat:message", { role: "assistant"; content: string }>;
 ```
 
 ### UI → Server Messages
 
 ```typescript
 type ClientMessage =
-  | Envelope<'query:submit', { query: string }>
-  | Envelope<'query:cancel', {}>
-  | Envelope<'permission:respond', { requestId: string; allowed: boolean; remember?: boolean }>
-  | Envelope<'session:select', { sessionId: string }>
-  | Envelope<'session:list', {}>
-  | Envelope<'settings:update', { settings: Partial<Settings> }>;
+  | Envelope<"query:submit", { query: string }>
+  | Envelope<"query:cancel", {}>
+  | Envelope<
+      "permission:respond",
+      { requestId: string; allowed: boolean; remember?: boolean }
+    >
+  | Envelope<"session:select", { sessionId: string }>
+  | Envelope<"session:list", {}>
+  | Envelope<"settings:update", { settings: Partial<Settings> }>;
 ```
 
 ### Message Flow: Query → Response
@@ -150,8 +179,8 @@ UI resumes display
 ```typescript
 // packages/server/src/wsServer.ts
 
-import { WebSocketServer, WebSocket } from 'ws';
-import { Orchestrator } from './orchestrator';
+import { WebSocketServer, WebSocket } from "ws";
+import { Orchestrator } from "./orchestrator";
 
 export class HiveWSServer {
   private wss: WebSocketServer;
@@ -166,13 +195,13 @@ export class HiveWSServer {
   }
 
   private setupConnection(): void {
-    this.wss.on('connection', (ws) => {
-      ws.on('message', (data) => {
+    this.wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
         const msg: ClientMessage = JSON.parse(data.toString());
         this.handleClientMessage(ws, msg);
       });
 
-      ws.on('close', () => {
+      ws.on("close", () => {
         // find and remove client
         for (const [sessionId, client] of this.clients) {
           if (client === ws) {
@@ -186,39 +215,47 @@ export class HiveWSServer {
 
   private handleClientMessage(ws: WebSocket, msg: ClientMessage): void {
     switch (msg.type) {
-      case 'query:submit':
+      case "query:submit":
         this.clients.set(msg.sessionId, ws);
         this.orchestrator.handleQuery(msg.sessionId, msg.payload.query);
         break;
 
-      case 'query:cancel':
+      case "query:cancel":
         this.orchestrator.cancelSession(msg.sessionId);
         break;
 
-      case 'permission:respond':
+      case "permission:respond":
         this.orchestrator.respondPermission(
           msg.sessionId,
           msg.payload.requestId,
           msg.payload.allowed,
-          msg.payload.remember
+          msg.payload.remember,
         );
         break;
 
-      case 'session:list':
+      case "session:list":
         const sessions = this.orchestrator.getAllSessions();
-        ws.send(JSON.stringify({
-          id: crypto.randomUUID(),
-          sessionId: 'global',
-          type: 'session:list',
-          payload: { sessions: sessions.map(s => ({ id: s.id, query: s.query, status: s.status })) },
-          timestamp: Date.now(),
-        }));
+        ws.send(
+          JSON.stringify({
+            id: crypto.randomUUID(),
+            sessionId: "global",
+            type: "session:list",
+            payload: {
+              sessions: sessions.map((s) => ({
+                id: s.id,
+                query: s.query,
+                status: s.status,
+              })),
+            },
+            timestamp: Date.now(),
+          }),
+        );
         break;
     }
   }
 
   private setupOrchestratorEvents(): void {
-    this.orchestrator.on('*', (event: ServerMessage) => {
+    this.orchestrator.on("*", (event: ServerMessage) => {
       const client = this.clients.get(event.sessionId);
       if (client?.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(event));
@@ -238,6 +275,7 @@ export class HiveWSServer {
 ### Message IDs for Ordering
 
 Each message has a monotonically increasing `id` (UUID or counter). UI can:
+
 - Detect out-of-order delivery (check timestamps)
 - Dedup (if server retries)
 - Gap detection (if messages are missing, request replay)

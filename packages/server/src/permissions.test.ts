@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { PermissionManager } from './permissions';
-import { createDefaultConfig } from './config';
+import { describe, it, expect, beforeEach } from "vitest";
+import { PermissionManager } from "./permissions";
+import { createDefaultConfig } from "./config";
 
-describe('PermissionManager', () => {
+describe("PermissionManager", () => {
   let permissionManager: PermissionManager;
   const config = createDefaultConfig();
 
@@ -10,14 +10,14 @@ describe('PermissionManager', () => {
     permissionManager = new PermissionManager(config);
   });
 
-  describe('permission detection', () => {
-    it('detects destructive actions', () => {
+  describe("permission detection", () => {
+    it("detects destructive actions", () => {
       const destructiveActions = [
-        'rm -rf /tmp',
-        'git push --force',
-        'git reset --hard',
-        'delete important_file.txt',
-        'clean build artifacts',
+        "rm -rf /tmp",
+        "git push --force",
+        "git reset --hard",
+        "delete important_file.txt",
+        "clean build artifacts",
       ];
 
       destructiveActions.forEach((action) => {
@@ -25,13 +25,13 @@ describe('PermissionManager', () => {
       });
     });
 
-    it('allows safe actions', () => {
+    it("allows safe actions", () => {
       const safeActions = [
-        'echo hello',
-        'list files',
-        'npm install',
-        'run tests',
-        'read file.txt',
+        "echo hello",
+        "list files",
+        "npm install",
+        "run tests",
+        "read file.txt",
       ];
 
       safeActions.forEach((action) => {
@@ -39,7 +39,7 @@ describe('PermissionManager', () => {
       });
     });
 
-    it('detects all configured destructive patterns', () => {
+    it("detects all configured destructive patterns", () => {
       const patterns = config.permission.destructiveActions;
       patterns.forEach((pattern) => {
         const action = `some command ${pattern} more`;
@@ -47,37 +47,37 @@ describe('PermissionManager', () => {
       });
     });
 
-    it('is case insensitive', () => {
-      expect(permissionManager.isDestructive('RM -RF file')).toBe(true);
-      expect(permissionManager.isDestructive('DELETE file')).toBe(true);
-      expect(permissionManager.isDestructive('GIT PUSH --FORCE')).toBe(true);
+    it("is case insensitive", () => {
+      expect(permissionManager.isDestructive("RM -RF file")).toBe(true);
+      expect(permissionManager.isDestructive("DELETE file")).toBe(true);
+      expect(permissionManager.isDestructive("GIT PUSH --FORCE")).toBe(true);
     });
   });
 
-  describe('permission request lifecycle', () => {
-    it('checks permission for safe actions', () => {
+  describe("permission request lifecycle", () => {
+    it("checks permission for safe actions", () => {
       const result = permissionManager.checkPermission(
-        'session-1',
-        'echo hello',
-        'safe operation'
+        "session-1",
+        "echo hello",
+        "safe operation",
       );
 
       expect(result).toBeInstanceOf(Promise);
     });
 
-    it('tracks pending requests', async () => {
-      const permPromise = permissionManager.checkPermission(
-        'session-test',
-        'delete important_file.txt',
-        'remove old file'
+    it("tracks pending requests", async () => {
+      const _permPromise = permissionManager.checkPermission(
+        "session-test",
+        "delete important_file.txt",
+        "remove old file",
       );
 
       const pending = permissionManager.getPending();
       expect(pending.length).toBeGreaterThan(0);
-      expect(pending[0].action).toContain('delete');
+      expect(pending[0].action).toContain("delete");
     });
 
-    it('approves a pending request', async () => {
+    it("approves a pending request", async () => {
       const pending = permissionManager.getPending();
       if (pending.length > 0) {
         const result = permissionManager.approve(pending[0].id);
@@ -85,26 +85,26 @@ describe('PermissionManager', () => {
       }
     });
 
-    it('denies a pending request', async () => {
-      const permPromise = permissionManager.checkPermission(
-        'session-deny',
-        'push --force',
-        'force push to main'
+    it("denies a pending request", async () => {
+      const _permPromise = permissionManager.checkPermission(
+        "session-deny",
+        "push --force",
+        "force push to main",
       );
 
       const pending = permissionManager.getPending();
       const latestRequest = pending[pending.length - 1];
-      const result = permissionManager.deny(latestRequest.id, 'User declined');
+      const result = permissionManager.deny(latestRequest.id, "User declined");
       expect(result).toBe(true);
     });
 
-    it('clears pending requests after approval', async () => {
+    it("clears pending requests after approval", async () => {
       const beforeCount = permissionManager.getPending().length;
 
-      const permPromise = permissionManager.checkPermission(
-        'session-clear',
-        'clean build',
-        'remove build artifacts'
+      const _permPromise = permissionManager.checkPermission(
+        "session-clear",
+        "clean build",
+        "remove build artifacts",
       );
 
       const pending = permissionManager.getPending();

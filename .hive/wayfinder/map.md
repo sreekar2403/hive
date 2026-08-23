@@ -46,7 +46,7 @@ root for what actually exists today vs. what these Phase 1 tickets decided.
   shipped app, not a handoff spec. Still record the decision itself in the resolution comment.
 - **Reference UI:** github.com/chaitanyagiri/munder-difflin — Electron + Pixi.js office-floor + xterm.js
   terminals + Monaco git IDE + SQLite + kanban + memory search. Hive is adopting its functional surface
-  *and* its office-floor aesthetic, not its git-mailbox coordination protocol.
+  _and_ its office-floor aesthetic, not its git-mailbox coordination protocol.
 - **Harnesses:** opencode, claude-code, pi, hermes — all CLI-based, invoked via child_process (streaming
   approach TBD per-harness, see ticket 027).
 - **Local LLMs:** Ollama + LM Studio, VRAM-aware queuing so only one local-model task runs at a time
@@ -91,6 +91,14 @@ root for what actually exists today vs. what these Phase 1 tickets decided.
 
 <!-- Empty so far — no Phase 2 tickets closed yet. -->
 
+### Phase 3: Second Brain Layer (new effort)
+
+See [039-second-brain-layer](maps/039-second-brain-layer.md) for the full map and tickets. This effort
+adds a Second Brain layer to hive — a self-learning background agent that builds a user model + task
+model, feeds insights back via active API calls and a lightweight `soul.md`, with a unified graph for
+cross-domain insights. RAW → WIKI → RETRIEVE/USE/OUTPUT → UPDATE flow from the Second Brain Architecture
+reference diagram.
+
 ---
 
 ## Tickets
@@ -108,6 +116,12 @@ Tracker convention: local markdown, no native blocking, so each ticket states it
 - [026-electron-shell-and-transport-design](tickets/026-electron-shell-and-transport-design.md) — grilling
 - [037-test-framework-and-scaffolding](tickets/037-test-framework-and-scaffolding.md) — task
 - [038-build-and-module-system-fix](tickets/038-build-and-module-system-fix.md) — task
+- [039-01-raw-wiki-mapping](tickets/039-01-raw-wiki-mapping.md) — grilling, Second Brain
+- [039-02-soul-structure](tickets/039-02-soul-structure.md) — grilling, Second Brain
+- [039-03-learning-agent](tickets/039-03-learning-agent.md) — grilling, Second Brain
+- [039-04-knowledge-store](tickets/039-04-knowledge-store.md) — grilling, Second Brain
+- [039-05-agent-api](tickets/039-05-agent-api.md) — grilling, Second Brain
+- [039-06-integration](tickets/039-06-integration.md) — grilling, Second Brain
 
 ### Blocked (waiting on frontier)
 
@@ -144,6 +158,16 @@ Tracker convention: local markdown, no native blocking, so each ticket states it
 - Whether the swarm decomposer itself needs its own model/category assignment (a "planner model" choice
   in Settings) — depends on how 023 and 021 land.
 
+<!-- Phase 3 fog (Second Brain Layer) -->
+
+- How the Second Brain's RAW/WIKI categories map to hive's existing `.hive/wayfinder/tickets/` and
+  `.hive-cache/` — see ticket 039-01
+- Whether the learning agent should analyze harness output quality (not just failures) — see ticket 039-03
+- How `soul.md` updates are surfaced to the user for approval (silent vs. review) — see ticket 039-02
+- The exact graph schema for the unified knowledge graph — see ticket 039-04
+- Whether the Second Brain layer needs its own config or inherits `hive.config.json` — see ticket 039-06
+- How the Second Brain persists its own state across process restarts — see ticket 039-06
+
 ---
 
 ## Out of scope
@@ -158,3 +182,9 @@ Tracker convention: local markdown, no native blocking, so each ticket states it
   `Orchestrator.mergeToPR` remains the only path that touches git for real.
 - **Installer/packaging** (electron-builder distribution) — this map's destination is a source-run
   Electron app; packaging is a separate, later, mechanical effort.
+- **Real-time VRAM monitoring** — using cloud models for the Second Brain (Phase 3), VRAM complexity deferred.
+- **Multi-user/persona support** — single-user, local-first stays the default for the Second Brain layer.
+- **External integrations** (Notion, Obsidian, etc.) — may return as its own effort for the Second Brain.
+- **Webhook/event triggers** — Second Brain's event-driven means on-failure/on-correction, not external webhooks.
+- **Graphify integration** — graph building is a separate concern; the Second Brain layer uses graphify's
+  output format but doesn't depend on it at design time.

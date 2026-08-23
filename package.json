@@ -7,7 +7,8 @@
     "build": "tsc --build",
     "start": "node packages/server/dist/index.js",
     "dev:server": "tsx packages/server/src/index.ts",
-    "dev:client": "next dev packages/client",
+    "dev:client": "pnpm --filter @hive/client dev",
+    "dev:electron": "pnpm --filter @hive/client electron:dev",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest",
@@ -16,9 +17,12 @@
   "devDependencies": {
     "@vitest/ui": "^4.1.11",
     "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
     "prettier": "^3.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.11"
   },
   "packageManager": "pnpm@9.12.0",

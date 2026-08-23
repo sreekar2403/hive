@@ -1,424 +1,352 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { Shield, ShieldAlert } from "lucide-react";
 import {
-  Shield,
-  Plus,
-  Trash2,
-  Lock,
-  Unlock,
-  ToggleLeft,
-  ToggleRight,
-  FileText,
-  GitBranch,
-  Database,
-  AlertTriangle,
-} from "lucide-react";
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Field,
+  Input,
+  Modal,
+  PageHeader,
+  StatusDot,
+} from "../components/ui";
+import { API, subscribeToEvents } from "../lib/api";
+import { cn } from "../lib/cn";
 
-interface PermissionRule {
+interface PermissionRequest {
   id: string;
+  sessionId: string;
   action: string;
-  resource: string;
-  permission: "allow" | "deny";
-  scope: string;
-  enabled: boolean;
+  description: string;
+  command?: string;
+  files?: string[];
+  timestamp: number;
+  approved: boolean | null;
+  timeoutAt: number;
+  denyReason?: string;
 }
 
-const scopeOptions = [
-  { value: "global", label: "Global" },
-  { value: "src/**", label: "Source Files (src/**)" },
-  { value: "dist/**", label: "Build Output (dist/**)" },
-  { value: "*.json", label: "JSON Files" },
-  { value: "*.md", label: "Markdown Files" },
-  { value: "custom", label: "Custom..." },
-];
+type Decision = {
+  id: string;
+  action: string;
+  sessionId: string;
+  outcome: "approved" | "denied" | "timed out";
+  at: number;
+  reason?: string;
+};
 
-const initialRules: PermissionRule[] = [
-  {
-    id: "1",
-    action: "file write",
-    resource: "filesystem",
-    permission: "allow",
-    scope: "src/**",
-    enabled: true,
-  },
-  {
-    id: "2",
-    action: "git push",
-    resource: "git",
-    permission: "deny",
-    scope: "global",
-    enabled: true,
-  },
-  {
-    id: "3",
-    action: "database write",
-    resource: "database",
-    permission: "allow",
-    scope: "global",
-    enabled: true,
-  },
-  {
-    id: "4",
-    action: "destructive actions",
-    resource: "system",
-    permission: "deny",
-    scope: "global",
-    enabled: true,
-  },
-];
+const HISTORY_KEY = "hive.permissionHistory";
 
 export function PermissionsPage() {
-  const [rules, setRules] = useState<PermissionRule[]>(initialRules);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newRule, setNewRule] = useState({
-    action: "",
-    resource: "",
-    permission: "allow" as "allow" | "deny",
-    scope: "global",
-    customScope: "",
-  });
-
-  const handleAddRule = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newRule.action.trim() || !newRule.resource.trim()) return;
-
-    const scope = newRule.scope === "custom" ? newRule.customScope : newRule.scope;
-    if (newRule.scope === "custom" && !scope.trim()) return;
-
-    const newPermissionRule: PermissionRule = {
-      id: Date.now().toString(),
-      action: newRule.action.trim(),
-      resource: newRule.resource.trim(),
-      permission: newRule.permission,
-      scope,
-      enabled: true,
-    };
-
-    setRules((prev) => [...prev, newPermissionRule]);
-    setShowAddForm(false);
-    setNewRule({
-      action: "",
-      resource: "",
-      permission: "allow",
-      scope: "global",
-      customScope: "",
-    });
-  };
-
-  const handleDeleteRule = (id: string) => {
-    setRules((prev) => prev.filter((rule) => rule.id !== id));
-  };
-
-  const handleToggleEnabled = (id: string) => {
-    setRules((prev) =>
-      prev.map((rule) =>
-        rule.id === id ? { ...rule, enabled: !rule.enabled } : rule
-      )
-    );
-  };
-
-  const handlePermissionChange = (id: string, permission: "allow" | "deny") => {
-    setRules((prev) =>
-      prev.map((rule) =>
-        rule.id === id ? { ...rule, permission } : rule
-      )
-    );
-  };
-
-  const getResourceIcon = (resource: string) => {
-    switch (resource) {
-      case "filesystem":
-        return FileText;
-      case "git":
-        return GitBranch;
-      case "database":
-        return Database;
-      case "system":
-        return AlertTriangle;
-      default:
-        return Shield;
+  const [pending, setPending] = useState<PermissionRequest[]>([]);
+  const [history, setHistory] = useState<Decision[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]") as Decision[];
+    } catch {
+      return [];
     }
-  };
+  });
+  const [rules, setRules] = useState<string[]>([]);
+  const [denying, setDenying] = useState<PermissionRequest | null>(null);
+  const [denyReason, setDenyReason] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+
+  const record = useCallback((entry: Decision) => {
+    setHistory((prev) => {
+      const next = [entry, ...prev].slice(0, 50);
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        // History is a convenience; losing it is acceptable.
+      }
+      return next;
+    });
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      setPending(await API.get<PermissionRequest[]>("/api/permissions"));
+    } catch {
+      setPending([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+    const unsubscribe = subscribeToEvents(() => void load());
+    const poll = setInterval(() => void load(), 3000);
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      unsubscribe();
+      clearInterval(poll);
+      clearInterval(tick);
+    };
+  }, [load]);
+
+  // The configured trigger words, shown read-only for context.
+  useEffect(() => {
+    API.get<{ permission: { destructiveActions: string[] } }>("/api/settings")
+      .then((s) => setRules(s.permission.destructiveActions))
+      .catch(() => setRules([]));
+  }, []);
+
+  const decide = useCallback(
+    async (request: PermissionRequest, approve: boolean, reason?: string) => {
+      try {
+        await API.post(
+          `/api/permissions/${request.id}/${approve ? "approve" : "deny"}`,
+          approve ? undefined : { reason },
+        );
+        record({
+          id: request.id,
+          action: request.action,
+          sessionId: request.sessionId,
+          outcome: approve ? "approved" : "denied",
+          at: Date.now(),
+          reason,
+        });
+      } finally {
+        setDenying(null);
+        setDenyReason("");
+        await load();
+      }
+    },
+    [load, record],
+  );
 
   return (
-    <div className="p-6 max-w-6xl space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Shield className="w-6 h-6" /> Permissions
-        </h1>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Add Rule
-        </button>
-      </div>
+    <div className="p-6">
+      <PageHeader
+        eyebrow="Inspect"
+        title="Permissions"
+        description="Hive pauses an agent before destructive work and waits for your call."
+        actions={
+          pending.length > 0 ? (
+            <Badge tone="warn">
+              {pending.length} waiting
+            </Badge>
+          ) : null
+        }
+      />
 
-      {showAddForm && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Add New Permission Rule</h2>
-          <form onSubmit={handleAddRule} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Action</label>
-                <input
-                  type="text"
-                  value={newRule.action}
-                  onChange={(e) =>
-                    setNewRule((prev) => ({ ...prev, action: e.target.value }))
-                  }
-                  placeholder="e.g., file read, git commit, database delete"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Resource</label>
-                <input
-                  type="text"
-                  value={newRule.resource}
-                  onChange={(e) =>
-                    setNewRule((prev) => ({ ...prev, resource: e.target.value }))
-                  }
-                  placeholder="e.g., filesystem, git, database, system"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Permission</label>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      value="allow"
-                      checked={newRule.permission === "allow"}
-                      onChange={(e) =>
-                        setNewRule((prev) => ({
-                          ...prev,
-                          permission: e.target.value as "allow" | "deny",
-                        }))
-                      }
-                      className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-700 focus:ring-blue-500"
-                    />
-                    <span className="flex items-center gap-1 text-white">
-                      <Unlock className="w-4 h-4 text-green-500" /> Allow
+      <div className="flex flex-col gap-4 max-w-4xl">
+        {pending.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon={<Shield />}
+              title="No approvals waiting"
+              description="When a task mentions something destructive, it stops here until you approve or deny it."
+              className="py-10"
+            />
+          </Card>
+        ) : (
+          pending.map((request) => {
+            const remaining = Math.max(0, request.timeoutAt - now);
+            const expired = remaining === 0;
+            const total = Math.max(1, request.timeoutAt - request.timestamp);
+            const pct = (remaining / total) * 100;
+
+            return (
+              <Card
+                key={request.id}
+                className="border-warn/60 overflow-hidden"
+              >
+                <CardHeader
+                  eyebrow={request.sessionId}
+                  title={
+                    <span className="flex items-center gap-2">
+                      <ShieldAlert className="size-4 text-warn" />
+                      Approval needed
                     </span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      value="deny"
-                      checked={newRule.permission === "deny"}
-                      onChange={(e) =>
-                        setNewRule((prev) => ({
-                          ...prev,
-                          permission: e.target.value as "allow" | "deny",
-                        }))
-                      }
-                      className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-700 focus:ring-blue-500"
-                    />
-                    <span className="flex items-center gap-1 text-white">
-                      <Lock className="w-4 h-4 text-red-500" /> Deny
+                  }
+                  actions={
+                    <span
+                      className={cn(
+                        "font-mono text-[12px]",
+                        expired ? "text-danger" : "text-warn",
+                      )}
+                      data-numeric
+                    >
+                      {expired ? "Timed out" : `${Math.ceil(remaining / 1000)}s left`}
                     </span>
-                  </label>
+                  }
+                />
+
+                <div className="h-0.5 bg-surface-2">
+                  <div
+                    className={cn(
+                      "h-full transition-[width] duration-1000 ease-linear",
+                      expired ? "bg-danger" : "bg-warn",
+                    )}
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Scope</label>
-                <select
-                  value={newRule.scope}
-                  onChange={(e) =>
-                    setNewRule((prev) => ({ ...prev, scope: e.target.value }))
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                >
-                  {scopeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {newRule.scope === "custom" && (
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Custom Scope</label>
-                <input
-                  type="text"
-                  value={newRule.customScope}
-                  onChange={(e) =>
-                    setNewRule((prev) => ({ ...prev, customScope: e.target.value }))
-                  }
-                  placeholder="e.g., src/components/**, tests/**"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            )}
-            <div className="flex gap-3 pt-2">
-              <button
-                type="submit"
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm"
-              >
-                <Plus className="w-4 h-4" /> Add Rule
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddForm(false);
-                  setNewRule({
-                    action: "",
-                    resource: "",
-                    permission: "allow",
-                    scope: "global",
-                    customScope: "",
-                  });
-                }}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-white text-sm"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-800 border-b border-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Action
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Resource
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Permission
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Scope
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {rules.map((rule) => {
-                const ResourceIcon = getResourceIcon(rule.resource);
-                return (
-                  <tr key={rule.id} className="hover:bg-gray-800/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <ResourceIcon className="w-5 h-5 text-gray-400" aria-hidden="true" />
-                        <span className="text-sm text-white font-medium">{rule.action}</span>
+                <div className="p-4 flex flex-col gap-3">
+                  <div>
+                    <div className="eyebrow mb-1">Task</div>
+                    <p className="text-[13px] text-ink">{request.description}</p>
+                  </div>
+
+                  {matchedWords(request.description, rules).length > 0 ? (
+                    <div>
+                      <div className="eyebrow mb-1.5">Why it stopped</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {matchedWords(request.description, rules).map((w) => (
+                          <Badge key={w} tone="warn">
+                            {w}
+                          </Badge>
+                        ))}
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-gray-300 capitalize">{rule.resource}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() =>
-                            handlePermissionChange(
-                              rule.id,
-                              rule.permission === "allow" ? "deny" : "allow"
-                            )
-                          }
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                            rule.permission === "allow"
-                              ? "bg-green-900/30 text-green-400 hover:bg-green-900/50"
-                              : "bg-red-900/30 text-red-400 hover:bg-red-900/50"
-                          }`}
-                          aria-label={`Change permission to ${rule.permission === "allow" ? "deny" : "allow"}`}
-                        >
-                          {rule.permission === "allow" ? (
-                            <Unlock className="w-3.5 h-3.5" aria-hidden="true" />
-                          ) : (
-                            <Lock className="w-3.5 h-3.5" aria-hidden="true" />
-                          )}
-                          {rule.permission === "allow" ? "Allow" : "Deny"}
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-gray-300 font-mono">{rule.scope}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleToggleEnabled(rule.id)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                          rule.enabled
-                            ? "bg-green-900/30 text-green-400 hover:bg-green-900/50"
-                            : "bg-gray-800 text-gray-500 hover:bg-gray-700"
-                        }`}
-                        aria-label={rule.enabled ? "Disable rule" : "Enable rule"}
-                        aria-pressed={rule.enabled}
-                      >
-                        {rule.enabled ? (
-                          <ToggleRight className="w-3.5 h-3.5" aria-hidden="true" />
-                        ) : (
-                          <ToggleLeft className="w-3.5 h-3.5" aria-hidden="true" />
-                        )}
-                        {rule.enabled ? "Enabled" : "Disabled"}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => handleDeleteRule(rule.id)}
-                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
-                        aria-label="Delete rule"
-                      >
-                        <Trash2 className="w-4 h-4" aria-hidden="true" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {rules.length === 0 && (
-          <div className="p-12 text-center">
-            <Shield className="w-12 h-12 text-gray-700 mx-auto mb-4" aria-hidden="true" />
-            <p className="text-gray-500">No permission rules configured</p>
-            <p className="text-sm text-gray-600 mt-1">
-              Click "Add Rule" to create your first permission rule
-            </p>
-          </div>
+                    </div>
+                  ) : null}
+
+                  {request.files?.length ? (
+                    <div>
+                      <div className="eyebrow mb-1.5">Files</div>
+                      <ul className="font-mono text-[11px] text-muted flex flex-col gap-0.5">
+                        {request.files.map((f) => (
+                          <li key={f}>{f}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <Button
+                      variant="primary"
+                      onClick={() => void decide(request, true)}
+                      disabled={expired}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="danger"
+                      onClick={() => setDenying(request)}
+                      disabled={expired}
+                    >
+                      Deny
+                    </Button>
+                    {expired ? (
+                      <span className="text-[12px] text-muted">
+                        Nobody answered in time, so the task was denied.
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </Card>
+            );
+          })
         )}
+
+        <Card>
+          <CardHeader eyebrow="Audit" title="Recent decisions" />
+          {history.length === 0 ? (
+            <p className="px-4 py-5 text-[13px] text-muted">
+              Decisions you make will be listed here.
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {history.map((d) => (
+                <li key={`${d.id}-${d.at}`} className="flex items-center gap-3 px-4 py-2.5">
+                  <StatusDot tone={d.outcome === "approved" ? "ok" : "danger"} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] text-ink truncate">
+                      {d.action}
+                    </span>
+                    <span className="block font-mono text-[10px] text-faint truncate">
+                      {d.sessionId}
+                      {d.reason ? ` · ${d.reason}` : ""}
+                    </span>
+                  </span>
+                  <Badge tone={d.outcome === "approved" ? "ok" : "danger"}>
+                    {d.outcome}
+                  </Badge>
+                  <span className="text-[11px] text-faint whitespace-nowrap" data-numeric>
+                    {relativeTime(d.at, now)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader
+            eyebrow="Configured"
+            title="Words that trigger approval"
+            actions={
+              <Link to="/settings" className="text-[12px] text-accent hover:underline">
+                Edit in Settings
+              </Link>
+            }
+          />
+          <div className="p-4 flex flex-wrap gap-1.5">
+            {rules.length === 0 ? (
+              <span className="text-[13px] text-muted">
+                No trigger words configured — nothing will be gated.
+              </span>
+            ) : (
+              rules.map((r) => (
+                <span
+                  key={r}
+                  className="px-2 py-0.5 rounded-sm border border-line bg-surface-2 font-mono text-[11px] text-ink"
+                >
+                  {r}
+                </span>
+              ))
+            )}
+          </div>
+        </Card>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-          <Shield className="w-5 h-5" /> Legend
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-300">
-          <div className="flex items-center gap-2">
-            <Unlock className="w-4 h-4 text-green-500" aria-hidden="true" />
-            <span>Allow - Operation is permitted</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Lock className="w-4 h-4 text-red-500" aria-hidden="true" />
-            <span>Deny - Operation is blocked</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ToggleRight className="w-4 h-4 text-green-500" aria-hidden="true" />
-            <span>Enabled - Rule is active</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-500" aria-hidden="true" />
-            <span>Disabled - Rule is inactive</span>
-          </div>
-        </div>
-      </div>
+      <Modal
+        open={!!denying}
+        onClose={() => setDenying(null)}
+        title="Deny this task?"
+        description="The agent stops and the task is marked failed."
+        width="sm"
+        footer={
+          <>
+            <Button onClick={() => setDenying(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => denying && void decide(denying, false, denyReason || undefined)}
+            >
+              Deny task
+            </Button>
+          </>
+        }
+      >
+        <Field label="Reason" hint="Optional. Recorded in the audit list.">
+          {(id) => (
+            <Input
+              id={id}
+              value={denyReason}
+              onChange={(e) => setDenyReason(e.target.value)}
+              placeholder="Too risky on main"
+              autoFocus
+            />
+          )}
+        </Field>
+      </Modal>
     </div>
   );
+}
+
+function matchedWords(text: string, rules: string[]): string[] {
+  const lower = text.toLowerCase();
+  return rules.filter((r) => lower.includes(r.toLowerCase()));
+}
+
+function relativeTime(at: number, now: number): string {
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ago`;
 }

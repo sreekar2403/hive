@@ -25,7 +25,7 @@ pnpm format            # prettier --write .
   array and no matching `src/`, so it has nothing to build. To compile a single package, `cd` into it
   and run `tsc` directly (each of `packages/server`, `packages/shared` has its own working tsconfig).
 - **There is no test suite and no test script** anywhere in the repo.
-- The server has no on-disk config loading: `hive.config.json` at the repo root is *not* read by
+- The server has no on-disk config loading: `hive.config.json` at the repo root is _not_ read by
   `packages/server/src/index.ts` — it always calls `createDefaultConfig()` in `config.ts` instead. Edit
   `config.ts` (or wire up reading the JSON file) if you need to change defaults.
 - Run a single harness manually to sanity check it's on PATH: `opencode --version`, `claude --version`,
@@ -45,6 +45,7 @@ currently unused/aspirational) → `Orchestrator.createTask` + `executeTask`
 (`packages/server/src/orchestrator.ts`).
 
 `Orchestrator` wires together, per task:
+
 - **`Router`** (`router.ts`) — picks a harness via regex keyword matching against the prompt (e.g.
   `test|spec|assert` → opencode, `refactor|rename` → claude-code), falling back to the first available
   harness. No LLM-based routing despite what the wayfinder docs describe.

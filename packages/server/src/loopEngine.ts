@@ -1,26 +1,29 @@
-import { LoopState, RoutingDecision } from '@hive/shared';
-import { Harness } from '@hive/shared/harness';
-import { Config } from './config';
+import { LoopState, RoutingDecision } from "@hive/shared";
+import { Harness } from "@hive/shared/harness";
+import { Config } from "./config";
+import { Router } from "./router";
 
 export type LoopCallback = (
   iteration: number,
   output: string,
   success: boolean,
-  filesChanged?: string[]
+  filesChanged?: string[],
 ) => Promise<void>;
 
 export class LoopEngine {
   private state: LoopState;
   private config: Config;
   private harnesses: Map<string, Harness>;
+  private router: Router;
 
-  constructor(config: Config, harnesses: Map<string, Harness>) {
+  constructor(config: Config, harnesses: Map<string, Harness>, router?: Router) {
     this.config = config;
     this.harnesses = harnesses;
+    this.router = router || new Router(config, harnesses);
     this.state = {
       iteration: 0,
       maxIterations: config.loop.maxIterations,
-      currentPrompt: '',
+      currentPrompt: "",
       previousOutput: null,
       success: false,
       error: null,
@@ -65,19 +68,19 @@ export class LoopEngine {
         this.state.iteration,
         result.output,
         result.success,
-        result.filesChanged
+        result.filesChanged,
       );
 
       // Check if we're done
       if (result.success) {
         this.state.success = true;
-        this.state.currentPrompt = '';
+        this.state.currentPrompt = "";
         break;
       }
 
       // Update state for next iteration
       this.state.previousOutput = result.output;
-      this.state.error = result.stderr || 'Execution failed';
+      this.state.error = result.stderr || "Execution failed";
 
       // Check retry threshold
       if (this.shouldRetry(result)) {
@@ -95,30 +98,21 @@ export class LoopEngine {
     const parts: string[] = [this.state.currentPrompt];
 
     if (this.state.previousOutput) {
-      parts.push('\n--- Previous attempt output ---');
+      parts.push("\n--- Previous attempt output ---");
       parts.push(this.state.previousOutput);
     }
 
     if (this.state.iteration > 1) {
-      parts.push(`\n(Iteration ${this.state.iteration} of ${this.state.maxIterations})`);
+      parts.push(
+        `\n(Iteration ${this.state.iteration} of ${this.state.maxIterations})`,
+      );
     }
 
-    return parts.join('\n');
+    return parts.join("\n");
   }
 
   private route(): RoutingDecision {
-    const defaultHarness = this.config.routing.default;
-    const model = this.getHarnessModel(defaultHarness);
-
-    return {
-      harness: defaultHarness,
-      model,
-      reasoning: `Using default harness: ${defaultHarness}`,
-    };
-  }
-
-  private getHarnessModel(harnessName: string): string {
-    return this.config.harnesses[harnessName as keyof typeof this.config.harnesses]?.defaultModel || 'sonnet';
+    return this.router.route(this.state.currentPrompt);
   }
 
   private shouldRetry(result: { success: boolean; stderr: string }): boolean {
@@ -126,18 +120,20 @@ export class LoopEngine {
     if (!this.config.permission.enabled) return false;
 
     const retryableErrors = [
-      'syntax error',
-      'permission denied',
-      'not found',
-      'timeout',
-      'connection refused',
+      "syntax error",
+      "permission denied",
+      "not found",
+      "timeout",
+      "connection refused",
     ];
 
-    return retryableErrors.some((err) => result.stderr.toLowerCase().includes(err));
+    return retryableErrors.some((err) =>
+      result.stderr.toLowerCase().includes(err),
+    );
   }
 
   private buildRetryPrompt(result: { stderr: string; output: string }): string {
-    const error = result.stderr || result.output || 'Unknown error';
+    const error = result.stderr || result.output || "Unknown error";
     return `${this.state.currentPrompt}\n\nThe previous attempt failed with the following error:\n\`\`\`\n${error}\n\`\`\`\n\nPlease try a different approach.`;
   }
 
@@ -146,7 +142,7 @@ export class LoopEngine {
   }
 
   cancel(): void {
-    this.state.currentPrompt = '';
+    this.state.currentPrompt = "";
     this.state.success = false;
   }
 }

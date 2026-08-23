@@ -1,5 +1,5 @@
-export * from './harness';
-export * from './protocol';
+export * from "./harness";
+export * from "./protocol";
 
 // Domain types
 export interface Session {
@@ -8,7 +8,7 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   messages: Array<{
-    role: 'user' | 'assistant' | 'system';
+    role: "user" | "assistant" | "system";
     content: string;
     timestamp: number;
   }>;

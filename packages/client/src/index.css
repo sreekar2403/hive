@@ -1,0 +1,250 @@
+@import "tailwindcss";
+
+@import "@fontsource-variable/archivo";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+/*
+  HIVE DESIGN SYSTEM — "Ledger"
+  ------------------------------------------------------------------
+  Hive runs a swarm of AI agents that work like employees on your repo.
+  The material language is paper and ink: a paper company's manila
+  folder, a ledger book's ruled precision, a typewritten timestamp.
+  Honey/manila amber is the signature accent (hive -> honey; Dunder
+  Mifflin -> paper -> manila), and every semantic colour is drawn from
+  an office pen set rather than a generic UI palette.
+
+  Chrome stays quiet and precise. The Office floor is the one place
+  where the metaphor is allowed to be playful.
+*/
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---- Light: "paper" -------------------------------------------- */
+:root {
+  --hive-bg: #f3f3f0;
+  --hive-surface: #ffffff;
+  --hive-surface-2: #ecece8;
+  --hive-surface-3: #e2e2dd;
+  --hive-border: #dcdcd5;
+  --hive-border-strong: #c4c4ba;
+
+  --hive-text: #15181d;
+  --hive-text-muted: #6b7079;
+  --hive-text-faint: #9aa0a8;
+
+  --hive-accent: #a9701a;
+  --hive-accent-hover: #8d5c12;
+  --hive-accent-fg: #ffffff;
+  --hive-accent-soft: rgb(169 112 26 / 0.1);
+  --hive-accent-line: rgb(169 112 26 / 0.32);
+
+  --hive-success: #2f7a5a;
+  --hive-success-soft: rgb(47 122 90 / 0.12);
+  --hive-info: #3a63b0;
+  --hive-info-soft: rgb(58 99 176 / 0.12);
+  --hive-warn: #96690f;
+  --hive-warn-soft: rgb(150 105 15 / 0.13);
+  --hive-danger: #b23b31;
+  --hive-danger-soft: rgb(178 59 49 / 0.11);
+
+  --hive-shadow: 0 1px 2px rgb(21 24 29 / 0.06), 0 4px 12px rgb(21 24 29 / 0.05);
+  --hive-shadow-lg: 0 8px 32px rgb(21 24 29 / 0.14);
+
+  /* Agent identity colours — stable per harness, used by Office + charts */
+  --hive-agent-opencode: #1f8f77;
+  --hive-agent-claude: #c2532a;
+  --hive-agent-pi: #4f52c4;
+  --hive-agent-hive: #a9701a;
+
+  color-scheme: light;
+}
+
+/* ---- Dark: "after hours" --------------------------------------- */
+[data-theme="dark"] {
+  --hive-bg: #0e1013;
+  --hive-surface: #15181d;
+  --hive-surface-2: #1c2026;
+  --hive-surface-3: #242931;
+  --hive-border: #262b33;
+  --hive-border-strong: #39404b;
+
+  --hive-text: #e9e7e2;
+  --hive-text-muted: #8b919c;
+  --hive-text-faint: #656b75;
+
+  --hive-accent: #e8a33d;
+  --hive-accent-hover: #f2b354;
+  --hive-accent-fg: #16130c;
+  --hive-accent-soft: rgb(232 163 61 / 0.14);
+  --hive-accent-line: rgb(232 163 61 / 0.38);
+
+  --hive-success: #4fa97c;
+  --hive-success-soft: rgb(79 169 124 / 0.15);
+  --hive-info: #5b8dd9;
+  --hive-info-soft: rgb(91 141 217 / 0.15);
+  --hive-warn: #d9a441;
+  --hive-warn-soft: rgb(217 164 65 / 0.15);
+  --hive-danger: #d9584c;
+  --hive-danger-soft: rgb(217 88 76 / 0.15);
+
+  --hive-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.3);
+  --hive-shadow-lg: 0 10px 40px rgb(0 0 0 / 0.55);
+
+  --hive-agent-opencode: #35c9a6;
+  --hive-agent-claude: #ff8a5c;
+  --hive-agent-pi: #8b8ef0;
+  --hive-agent-hive: #e8a33d;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--hive-bg);
+  --color-surface: var(--hive-surface);
+  --color-surface-2: var(--hive-surface-2);
+  --color-surface-3: var(--hive-surface-3);
+  --color-line: var(--hive-border);
+  --color-line-strong: var(--hive-border-strong);
+
+  --color-ink: var(--hive-text);
+  --color-muted: var(--hive-text-muted);
+  --color-faint: var(--hive-text-faint);
+
+  --color-accent: var(--hive-accent);
+  --color-accent-hover: var(--hive-accent-hover);
+  --color-accent-fg: var(--hive-accent-fg);
+  --color-accent-soft: var(--hive-accent-soft);
+  --color-accent-line: var(--hive-accent-line);
+
+  --color-ok: var(--hive-success);
+  --color-ok-soft: var(--hive-success-soft);
+  --color-info: var(--hive-info);
+  --color-info-soft: var(--hive-info-soft);
+  --color-warn: var(--hive-warn);
+  --color-warn-soft: var(--hive-warn-soft);
+  --color-danger: var(--hive-danger);
+  --color-danger-soft: var(--hive-danger-soft);
+
+  --font-sans:
+    "Archivo Variable", "Archivo", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas,
+    monospace;
+
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --shadow-card: var(--hive-shadow);
+  --shadow-pop: var(--hive-shadow-lg);
+}
+
+@layer base {
+  * {
+    border-color: var(--hive-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--hive-bg);
+    color: var(--hive-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Ledger discipline: digits always line up. */
+  table,
+  time,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background: var(--hive-accent-soft);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--hive-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Scrollbars read as ruled margins, not chrome. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--hive-border-strong);
+    border: 3px solid var(--hive-bg);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--hive-text-faint);
+  }
+}
+
+@layer components {
+  /*
+    The eyebrow is the system's connective tissue: a typewritten label
+    that sits above every page title, panel heading, and metric.
+  */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--hive-text-faint);
+  }
+
+  .rule {
+    height: 1px;
+    background: var(--hive-border);
+  }
+
+  /* Faint ruled-paper grid, used behind canvases and empty states. */
+  .ruled {
+    background-image:
+      linear-gradient(var(--hive-border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hive-border) 1px, transparent 1px);
+    background-size: 24px 24px;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

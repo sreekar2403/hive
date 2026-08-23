@@ -10,6 +10,7 @@
 How should the loop engine implement the act→observe→verify→revise cycle? The spec defines the pattern but not the implementation details.
 
 **Decision needed:**
+
 - Is the loop a state machine, a recursive function, or a while-loop?
 - How does REVISE construct the next prompt? (prepend history? summarize? template?)
 - How does VERIFY evaluate success? (heuristics only? LLM-judge? both?)
@@ -17,12 +18,14 @@ How should the loop engine implement the act→observe→verify→revise cycle? 
 - How is the loop interrupted for permission requests?
 
 **Considerations:**
+
 - Must support streaming (UI sees progress in real-time)
 - Must be interruptible (permission dialog pauses the loop)
 - Must write to shared memory at each step
 - Must handle harness crashes gracefully (timeout, retry, fail)
 
 **Options:**
+
 - A) State machine — explicit states, transitions, event-driven
 - B) Async generator — yields at each step, caller controls flow
 - C) Simple while-loop — check conditions each iteration, simplest
@@ -66,14 +69,14 @@ How should the loop engine implement the act→observe→verify→revise cycle? 
 
 ```typescript
 type LoopState =
-  | 'idle'      // waiting to start
-  | 'act'       // executing harness command
-  | 'observe'   // capturing output
-  | 'verify'    // evaluating result against goal
-  | 'revise'    // constructing next prompt
-  | 'paused'    // waiting for permission
-  | 'done'      // task complete
-  | 'failed';   // unrecoverable error
+  | "idle" // waiting to start
+  | "act" // executing harness command
+  | "observe" // capturing output
+  | "verify" // evaluating result against goal
+  | "revise" // constructing next prompt
+  | "paused" // waiting for permission
+  | "done" // task complete
+  | "failed"; // unrecoverable error
 ```
 
 ### Loop Context
@@ -85,28 +88,28 @@ interface LoopContext {
   originalQuery: string;
   state: LoopState;
   iteration: number;
-  maxIterations: number;        // default: 5
-  history: LoopIteration[];     // full audit trail
+  maxIterations: number; // default: 5
+  history: LoopIteration[]; // full audit trail
   currentPrompt: string;
   harness: Harness;
-  timeout: number;              // ms per iteration, default: 300000
+  timeout: number; // ms per iteration, default: 300000
 }
 
 interface LoopIteration {
   iteration: number;
-  action: string;               // the prompt sent to harness
-  observation: string;          // harness output
+  action: string; // the prompt sent to harness
+  observation: string; // harness output
   verification: VerificationResult;
-  revision?: string;            // failure reason + next approach
+  revision?: string; // failure reason + next approach
   timestamp: Date;
-  duration: number;             // ms
+  duration: number; // ms
 }
 
 interface VerificationResult {
   passed: boolean;
-  method: 'heuristic' | 'llm_judge';
+  method: "heuristic" | "llm_judge";
   reason: string;
-  confidence: number;           // 0-1, for LLM-judge
+  confidence: number; // 0-1, for LLM-judge
 }
 ```
 
@@ -114,48 +117,47 @@ interface VerificationResult {
 
 ```typescript
 async function runLoop(ctx: LoopContext): Promise<LoopResult> {
-  while (ctx.state !== 'done' && ctx.state !== 'failed') {
+  while (ctx.state !== "done" && ctx.state !== "failed") {
     switch (ctx.state) {
-
-      case 'idle':
-        ctx.state = 'act';
+      case "idle":
+        ctx.state = "act";
         break;
 
-      case 'act':
+      case "act":
         // Build prompt from history (or original for first iteration)
         ctx.currentPrompt = buildPrompt(ctx);
-        ctx.state = 'observe';
+        ctx.state = "observe";
         break;
 
-      case 'observe':
+      case "observe":
         // Stream harness output, check for destructive commands
         const output = await streamHarness(ctx);
         if (output.blocked) {
-          ctx.state = 'paused';
+          ctx.state = "paused";
           await requestPermission(output.blockedCommand);
         } else {
-          ctx.state = 'verify';
+          ctx.state = "verify";
         }
         break;
 
-      case 'verify':
+      case "verify":
         const result = await verifyGoal(ctx, output);
         ctx.history.push({ ...iteration, verification: result });
         if (result.passed) {
-          ctx.state = 'done';
+          ctx.state = "done";
         } else if (ctx.iteration >= ctx.maxIterations) {
-          ctx.state = 'done'; // partial success
+          ctx.state = "done"; // partial success
         } else {
-          ctx.state = 'revise';
+          ctx.state = "revise";
         }
         break;
 
-      case 'revise':
+      case "revise":
         ctx.iteration++;
-        ctx.state = 'act';
+        ctx.state = "act";
         break;
 
-      case 'paused':
+      case "paused":
         // wait for permission response via WebSocket
         // on allow: ctx.state = 'observe'
         // on deny: inject denial, ctx.state = 'revise'
@@ -169,12 +171,14 @@ async function runLoop(ctx: LoopContext): Promise<LoopResult> {
 ### VERIFY: Two-Phase Evaluation
 
 **Phase 1 — Heuristic (fast, free):**
+
 - Exit code = 0? → likely success
 - Output contains error patterns? → likely failure
 - Output contains expected result patterns? → likely success
 - If confidence > 0.8 → use heuristic result
 
 **Phase 2 — LLM-judge (when heuristic is uncertain):**
+
 - Send to haiku or local small model:
   ```
   Goal: {ctx.originalQuery}

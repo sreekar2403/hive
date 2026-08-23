@@ -10,18 +10,21 @@
 How should the context compactor summarize agent output? The spec defines what to compact and what to preserve, but not the summarization approach.
 
 **Decision needed:**
+
 - What model is used for summarization (haiku? local small model?)?
 - How is the summary generated (prompt template? chain of prompts?)?
 - How is token counting done (tiktoken? approximation?)?
 - What if the compactor itself fails (truncate as fallback?)?
 
 **Considerations:**
+
 - Compactor runs after each agent iteration, so it must be fast
 - Must not use the same model as the agent (resource contention)
 - Token counting needs to be accurate enough for budget enforcement
 - Compactor failure shouldn't block the loop
 
 **Options:**
+
 - A) LLM summarizer — use haiku with a prompt template
 - B) Rule-based — regex + heuristics, no LLM
 - C) Hybrid — rule-based first, LLM for remaining
@@ -72,23 +75,26 @@ Write compacted result to shared memory
 ```typescript
 // packages/server/src/compactor.ts
 
-import { SharedMemory, AgentResult } from './sharedMemory';
+import { SharedMemory, AgentResult } from "./sharedMemory";
 
 interface CompactorConfig {
-  tokenBudgetPerAgent: number;   // default: 10000
-  compactorModel: string;        // default: 'haiku'
-  fallbackAction: 'truncate' | 'error';  // default: 'truncate'
+  tokenBudgetPerAgent: number; // default: 10000
+  compactorModel: string; // default: 'haiku'
+  fallbackAction: "truncate" | "error"; // default: 'truncate'
 }
 
 export class ContextCompactor {
   private config: CompactorConfig;
   private callLLM: (model: string, prompt: string) => Promise<string>;
 
-  constructor(config: CompactorConfig, callLLM: (model: string, prompt: string) => Promise<string>) {
+  constructor(
+    config: CompactorConfig,
+    callLLM: (model: string, prompt: string) => Promise<string>,
+  ) {
     this.config = {
       tokenBudgetPerAgent: config.tokenBudgetPerAgent ?? 10000,
-      compactorModel: config.compactorModel ?? 'haiku',
-      fallbackAction: config.fallbackAction ?? 'truncate',
+      compactorModel: config.compactorModel ?? "haiku",
+      fallbackAction: config.fallbackAction ?? "truncate",
     };
     this.callLLM = callLLM;
   }
@@ -114,7 +120,7 @@ export class ContextCompactor {
         sharedMemory.setAgentResult(agentId, compacted);
       } catch (err) {
         // Compactor failed — fallback to truncation
-        if (this.config.fallbackAction === 'truncate') {
+        if (this.config.fallbackAction === "truncate") {
           const truncated = this.truncateResult(agentId, result, rawTokens);
           sharedMemory.setAgentResult(agentId, truncated);
         }
@@ -129,7 +135,7 @@ export class ContextCompactor {
   private async compactResult(
     agentId: string,
     result: AgentResult,
-    rawTokens: number
+    rawTokens: number,
   ): Promise<AgentResult> {
     const prompt = this.buildCompactionPrompt(result);
     const summary = await this.callLLM(this.config.compactorModel, prompt);
@@ -147,7 +153,7 @@ export class ContextCompactor {
       compactedTokens: summaryTokens,
       wasCompacted: true,
       summary,
-      fullOutput: undefined,  // remove full output to save memory
+      fullOutput: undefined, // remove full output to save memory
     };
   }
 
@@ -184,10 +190,10 @@ Provide a concise summary that fits within ${this.config.tokenBudgetPerAgent} to
   private truncateResult(
     agentId: string,
     result: AgentResult,
-    rawTokens: number
+    rawTokens: number,
   ): AgentResult {
     // Keep first 20% and last 80% of the output
-    const lines = result.fullOutput!.split('\n');
+    const lines = result.fullOutput!.split("\n");
     const keepFromStart = Math.ceil(lines.length * 0.2);
     const keepFromEnd = Math.floor(lines.length * 0.8);
 
@@ -195,7 +201,7 @@ Provide a concise summary that fits within ${this.config.tokenBudgetPerAgent} to
       ...lines.slice(0, keepFromStart),
       `\n... [truncated ${lines.length - keepFromStart - keepFromEnd} lines] ...`,
       ...lines.slice(-keepFromEnd),
-    ].join('\n');
+    ].join("\n");
 
     const truncatedTokens = this.countTokens(truncated);
 
@@ -216,8 +222,8 @@ Provide a concise summary that fits within ${this.config.tokenBudgetPerAgent} to
   private countTokens(text: string): number {
     try {
       // tiktoken for accurate counting
-      const { encoding_for_model } = require('tiktoken');
-      const enc = encoding_for_model('gpt-4');  // cl100k_base encoding
+      const { encoding_for_model } = require("tiktoken");
+      const enc = encoding_for_model("gpt-4"); // cl100k_base encoding
       const tokens = enc.encode(text);
       enc.free();
       return tokens.length;
@@ -237,7 +243,7 @@ compaction:
   enabled: true
   token_budget_per_agent: 10000
   compactor_model: haiku
-  fallback: truncate  # truncate | error
+  fallback: truncate # truncate | error
 ```
 
 ### Integration with Loop Engine
@@ -269,14 +275,16 @@ The compactor runs after every iteration, but the REVISE prompt also respects th
 ```typescript
 function buildPrompt(ctx: LoopContext): string {
   const budget = compactorConfig.tokenBudgetPerAgent;
-  const history = ctx.history.map(h => `- ${h.action}: ${h.observation}`).join('\n');
+  const history = ctx.history
+    .map((h) => `- ${h.action}: ${h.observation}`)
+    .join("\n");
 
   // Ensure total prompt stays within budget
   const historyTokens = countTokens(history);
   if (historyTokens > budget * 0.5) {
     // Only include last 2 iterations in prompt
     const recent = ctx.history.slice(-2);
-    return `Goal: ${ctx.goal}\n\nRecent:\n${recent.map(h => `- ${h.observation}`).join('\n')}`;
+    return `Goal: ${ctx.goal}\n\nRecent:\n${recent.map((h) => `- ${h.observation}`).join("\n")}`;
   }
 
   return `Goal: ${ctx.goal}\n\nHistory:\n${history}`;

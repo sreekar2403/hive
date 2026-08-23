@@ -17,6 +17,9 @@ export interface HarnessExecutionResult {
 export interface Harness {
   name: string;
   isAvailable(): Promise<boolean>;
-  execute(prompt: string, options?: HarnessOptions): Promise<HarnessExecutionResult>;
+  execute(
+    prompt: string,
+    options?: HarnessOptions,
+  ): Promise<HarnessExecutionResult>;
   isCompatible(model: string): boolean;
 }

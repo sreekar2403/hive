@@ -1,34 +1,34 @@
 // Client -> Server messages
 export interface QuerySubmit {
-  type: 'query:submit';
+  type: "query:submit";
   payload: { query: string; sessionId?: string };
   id: string;
   timestamp: number;
 }
 
 export interface QueryCancel {
-  type: 'query:cancel';
+  type: "query:cancel";
   payload: { sessionId: string };
   id: string;
   timestamp: number;
 }
 
 export interface SessionCreate {
-  type: 'session:create';
+  type: "session:create";
   payload: { name?: string };
   id: string;
   timestamp: number;
 }
 
 export interface SessionDelete {
-  type: 'session:delete';
+  type: "session:delete";
   payload: { sessionId: string };
   id: string;
   timestamp: number;
 }
 
 export interface PermissionReply {
-  type: 'permission:reply';
+  type: "permission:reply";
   payload: {
     requestId: string;
     sessionId: string;
@@ -40,7 +40,7 @@ export interface PermissionReply {
 }
 
 export interface SettingsUpdate {
-  type: 'settings:update';
+  type: "settings:update";
   payload: { settings: Record<string, unknown> };
   id: string;
   timestamp: number;
@@ -56,10 +56,10 @@ export type ClientMessage =
 
 // Server -> Client messages
 export interface ChatMessage {
-  type: 'chat:message';
+  type: "chat:message";
   sessionId: string;
   payload: {
-    role: 'user' | 'assistant' | 'system';
+    role: "user" | "assistant" | "system";
     content: string;
   };
   id: string;
@@ -67,7 +67,7 @@ export interface ChatMessage {
 }
 
 export interface SessionDone {
-  type: 'session:done';
+  type: "session:done";
   sessionId: string;
   payload: {
     success: boolean;
@@ -80,7 +80,7 @@ export interface SessionDone {
 }
 
 export interface SessionError {
-  type: 'session:error';
+  type: "session:error";
   sessionId: string;
   payload: {
     error: string;
@@ -91,7 +91,7 @@ export interface SessionError {
 }
 
 export interface IterationStart {
-  type: 'iteration:start';
+  type: "iteration:start";
   sessionId: string;
   payload: {
     iteration: number;
@@ -102,7 +102,7 @@ export interface IterationStart {
 }
 
 export interface IterationComplete {
-  type: 'iteration:complete';
+  type: "iteration:complete";
   sessionId: string;
   payload: {
     iteration: number;
@@ -115,7 +115,7 @@ export interface IterationComplete {
 }
 
 export interface PermissionRequest {
-  type: 'permission:request';
+  type: "permission:request";
   sessionId: string;
   payload: {
     requestId: string;
@@ -129,7 +129,7 @@ export interface PermissionRequest {
 }
 
 export interface SessionList {
-  type: 'session:list';
+  type: "session:list";
   payload: {
     sessions: Array<{ id: string; name: string; createdAt: number }>;
   };
@@ -138,7 +138,7 @@ export interface SessionList {
 }
 
 export interface Ready {
-  type: 'ready';
+  type: "ready";
   payload: {
     harnesses: Array<{ name: string; available: boolean }>;
   };

@@ -10,18 +10,21 @@
 How should the React app be set up? The spec calls for React + Vite + TailwindCSS with a sidebar, chat, agent panel, and settings.
 
 **Decision needed:**
+
 - Component hierarchy (App → Layout → Sidebar + Main?)
 - State management (React context? Zustand? Redux?)
 - Styling approach (Tailwind utility classes? CSS modules?)
 - Routing (React Router for settings page? or modal?)
 
 **Considerations:**
+
 - Must support real-time updates (WebSocket state)
 - Must be responsive (sidebar collapse on small screens)
 - Settings is a sub-page, not a separate route
 - Agent activity panel is expandable, not a separate page
 
 **Options:**
+
 - A) React Context + useState — simplest, no extra deps
 - B) Zustand — lightweight state management, good for real-time
 - C) Redux Toolkit — overkill but structured
@@ -69,12 +72,12 @@ App
 ```typescript
 // packages/ui/src/stores/sessions.ts
 
-import { create } from 'zustand';
+import { create } from "zustand";
 
 interface Session {
   id: string;
   query: string;
-  status: 'routing' | 'looping' | 'compacting' | 'merging' | 'done' | 'failed';
+  status: "routing" | "looping" | "compacting" | "merging" | "done" | "failed";
   agents: AgentInfo[];
   prUrl?: string;
 }
@@ -96,7 +99,11 @@ interface SessionsStore {
   addSession: (session: Session) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
   removeSession: (id: string) => void;
-  updateAgent: (sessionId: string, agentId: string, updates: Partial<AgentInfo>) => void;
+  updateAgent: (
+    sessionId: string,
+    agentId: string,
+    updates: Partial<AgentInfo>,
+  ) => void;
 }
 
 export const useSessionsStore = create<SessionsStore>((set) => ({
@@ -104,22 +111,29 @@ export const useSessionsStore = create<SessionsStore>((set) => ({
   activeSessionId: null,
   setActive: (id) => set({ activeSessionId: id }),
   addSession: (session) => set((s) => ({ sessions: [...s.sessions, session] })),
-  updateSession: (id, updates) => set((s) => ({
-    sessions: s.sessions.map(sess => sess.id === id ? { ...sess, ...updates } : sess),
-  })),
-  removeSession: (id) => set((s) => ({
-    sessions: s.sessions.filter(sess => sess.id !== id),
-    activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
-  })),
-  updateAgent: (sessionId, agentId, updates) => set((s) => ({
-    sessions: s.sessions.map(sess => {
-      if (sess.id !== sessionId) return sess;
-      return {
-        ...sess,
-        agents: sess.agents.map(a => a.id === agentId ? { ...a, ...updates } : a),
-      };
-    }),
-  })),
+  updateSession: (id, updates) =>
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === id ? { ...sess, ...updates } : sess,
+      ),
+    })),
+  removeSession: (id) =>
+    set((s) => ({
+      sessions: s.sessions.filter((sess) => sess.id !== id),
+      activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
+    })),
+  updateAgent: (sessionId, agentId, updates) =>
+    set((s) => ({
+      sessions: s.sessions.map((sess) => {
+        if (sess.id !== sessionId) return sess;
+        return {
+          ...sess,
+          agents: sess.agents.map((a) =>
+            a.id === agentId ? { ...a, ...updates } : a,
+          ),
+        };
+      }),
+    })),
 }));
 ```
 
@@ -140,7 +154,8 @@ export const useUIStore = create<UIStore>((set) => ({
   agentPanelExpanded: false,
   settingsOpen: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-  toggleAgentPanel: () => set((s) => ({ agentPanelExpanded: !s.agentPanelExpanded })),
+  toggleAgentPanel: () =>
+    set((s) => ({ agentPanelExpanded: !s.agentPanelExpanded })),
   toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
 }));
 ```
@@ -151,27 +166,28 @@ export const useUIStore = create<UIStore>((set) => ({
 interface ChatMessage {
   id: string;
   sessionId: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
   agentId?: string;
-  type?: 'permission_request' | 'permission_response' | 'status';
+  type?: "permission_request" | "permission_response" | "status";
 }
 
 interface MessagesStore {
-  messages: Map<string, ChatMessage[]>;  // sessionId → messages
+  messages: Map<string, ChatMessage[]>; // sessionId → messages
   addMessage: (sessionId: string, message: ChatMessage) => void;
   getMessages: (sessionId: string) => ChatMessage[];
 }
 
 export const useMessagesStore = create<MessagesStore>((set, get) => ({
   messages: new Map(),
-  addMessage: (sessionId, message) => set((s) => {
-    const existing = s.messages.get(sessionId) || [];
-    const updated = new Map(s.messages);
-    updated.set(sessionId, [...existing, message]);
-    return { messages: updated };
-  }),
+  addMessage: (sessionId, message) =>
+    set((s) => {
+      const existing = s.messages.get(sessionId) || [];
+      const updated = new Map(s.messages);
+      updated.set(sessionId, [...existing, message]);
+      return { messages: updated };
+    }),
   getMessages: (sessionId) => get().messages.get(sessionId) || [],
 }));
 ```
@@ -181,9 +197,9 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 ```typescript
 // packages/ui/src/hooks/useWebSocket.ts
 
-import { useEffect, useRef } from 'react';
-import { useSessionsStore } from '../stores/sessions';
-import { useMessagesStore } from '../stores/messages';
+import { useEffect, useRef } from "react";
+import { useSessionsStore } from "../stores/sessions";
+import { useMessagesStore } from "../stores/messages";
 
 export function useWebSocket(url: string) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -198,41 +214,41 @@ export function useWebSocket(url: string) {
       const msg = JSON.parse(event.data);
 
       switch (msg.type) {
-        case 'session:created':
+        case "session:created":
           addSession({
             id: msg.sessionId,
             query: msg.payload.query,
-            status: 'routing',
+            status: "routing",
             agents: [],
           });
           break;
 
-        case 'session:routed':
-          updateSession(msg.sessionId, { status: 'looping' });
+        case "session:routed":
+          updateSession(msg.sessionId, { status: "looping" });
           addMessage(msg.sessionId, {
             id: msg.id,
             sessionId: msg.sessionId,
-            role: 'system',
+            role: "system",
             content: `Routed to ${msg.payload.harness}/${msg.payload.model}`,
             timestamp: msg.timestamp,
           });
           break;
 
-        case 'agent:started':
+        case "agent:started":
           // add agent to session
           break;
 
-        case 'agent:output':
+        case "agent:output":
           updateAgent(msg.sessionId, msg.payload.agentId, {
             output: (prev) => prev + msg.payload.chunk,
           });
           break;
 
-        case 'loop:verify':
+        case "loop:verify":
           addMessage(msg.sessionId, {
             id: msg.id,
             sessionId: msg.sessionId,
-            role: 'system',
+            role: "system",
             content: msg.payload.passed
               ? `Verification passed: ${msg.payload.reason}`
               : `Verification failed: ${msg.payload.reason}`,
@@ -240,23 +256,25 @@ export function useWebSocket(url: string) {
           });
           break;
 
-        case 'permission:requested':
+        case "permission:requested":
           addMessage(msg.sessionId, {
             id: msg.id,
             sessionId: msg.sessionId,
-            role: 'system',
+            role: "system",
             content: `Permission requested: ${msg.payload.command}`,
             timestamp: msg.timestamp,
-            type: 'permission_request',
+            type: "permission_request",
           });
           break;
 
-        case 'session:done':
-          updateSession(msg.sessionId, { status: msg.payload.success ? 'done' : 'failed' });
+        case "session:done":
+          updateSession(msg.sessionId, {
+            status: msg.payload.success ? "done" : "failed",
+          });
           addMessage(msg.sessionId, {
             id: msg.id,
             sessionId: msg.sessionId,
-            role: 'assistant',
+            role: "assistant",
             content: msg.payload.summary,
             timestamp: msg.timestamp,
           });
@@ -274,17 +292,17 @@ export function useWebSocket(url: string) {
 ```javascript
 // packages/ui/tailwind.config.js
 export default {
-  content: ['./src/**/*.{js,ts,jsx,tsx}'],
-  darkMode: 'class',
+  content: ["./src/**/*.{js,ts,jsx,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
         hive: {
-          50: '#f0fdf4',
-          500: '#22c55e',
-          600: '#16a34a',
-          700: '#15803d',
-          900: '#14532d',
+          50: "#f0fdf4",
+          500: "#22c55e",
+          600: "#16a34a",
+          700: "#15803d",
+          900: "#14532d",
         },
       },
     },

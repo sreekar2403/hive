@@ -10,18 +10,21 @@
 How should the branch manager handle git operations? The spec defines the strategy but not the implementation.
 
 **Decision needed:**
+
 - How are branch names generated (query ID? timestamp? human-readable?)?
 - How does conflict detection work in parallel mode (git diff? file locking?)
 - How is the PR body composed (auto-generated from agent summaries?)?
 - How does the system handle repos that aren't on GitHub (GitLab, local-only)?
 
 **Considerations:**
+
 - simple-git library is the chosen tool
 - Must handle Windows paths and PowerShell
 - PR creation depends on hosting platform (GitHub API, GitLab API, or just git commands)
 - For personal use, might not need PR at all — just merge locally
 
 **Options:**
+
 - A) GitHub-only — use gh CLI for PR creation
 - B) Git-agnostic — use git commands only, PR is optional
 - C) Plugin-based — support multiple platforms via adapters
@@ -50,9 +53,9 @@ Temporary (during merge):
 ```typescript
 // packages/server/src/branchManager.ts
 
-import simpleGit, { SimpleGit, StatusResult } from 'simple-git';
-import { join } from 'path';
-import { SharedMemory } from './sharedMemory';
+import simpleGit, { SimpleGit, StatusResult } from "simple-git";
+import { join } from "path";
+import { SharedMemory } from "./sharedMemory";
 
 export class BranchManager {
   private git: SimpleGit;
@@ -77,7 +80,7 @@ export class BranchManager {
   async getMainBranch(): Promise<string> {
     const branches = await this.git.branchLocal();
     // prefer 'main', fallback to 'master'
-    return branches.all.includes('main') ? 'main' : 'master';
+    return branches.all.includes("main") ? "main" : "master";
   }
 
   // --- Branch Creation ---
@@ -100,19 +103,29 @@ export class BranchManager {
 
   // --- Agent Work ---
 
-  async commitWork(agentId: string, message: string, files: string[]): Promise<void> {
+  async commitWork(
+    agentId: string,
+    message: string,
+    files: string[],
+  ): Promise<void> {
     await this.git.add(files);
     await this.git.commit(`[${agentId}] ${message}`);
   }
 
   async getChangedFiles(): Promise<string[]> {
     const status = await this.git.status();
-    return status.modified.concat(status.created, status.renamed.map(r => r.to));
+    return status.modified.concat(
+      status.created,
+      status.renamed.map((r) => r.to),
+    );
   }
 
   // --- Sequential Mode: Merge All Branches ---
 
-  async mergeSequential(queryId: string, agentIds: string[]): Promise<MergeResult> {
+  async mergeSequential(
+    queryId: string,
+    agentIds: string[],
+  ): Promise<MergeResult> {
     const main = await this.getMainBranch();
     const results: MergeResult = { success: true, conflicts: [], merged: [] };
 
@@ -133,7 +146,7 @@ export class BranchManager {
         results.success = false;
 
         // Abort merge, try next agent
-        await this.git.merge(['--abort']);
+        await this.git.merge(["--abort"]);
       }
     }
 
@@ -151,7 +164,10 @@ export class BranchManager {
 
   // --- Parallel Mode: Detect Conflicts ---
 
-  async detectConflicts(queryId: string, agents: Map<string, string[]>): Promise<ConflictReport> {
+  async detectConflicts(
+    queryId: string,
+    agents: Map<string, string[]>,
+  ): Promise<ConflictReport> {
     const report: ConflictReport = { hasConflicts: false, conflicts: [] };
     const fileOwnership = new Map<string, string>(); // filePath → agentId
 
@@ -174,9 +190,12 @@ export class BranchManager {
 
   // --- PR Creation (Optional) ---
 
-  async createPR(queryId: string, summaries: AgentSummary[]): Promise<PRInfo | null> {
+  async createPR(
+    queryId: string,
+    summaries: AgentSummary[],
+  ): Promise<PRInfo | null> {
     // Check if gh CLI is available
-    const hasGH = await this.checkCommand('gh');
+    const hasGH = await this.checkCommand("gh");
     if (!hasGH) return null;
 
     const body = this.composePRBody(queryId, summaries);
@@ -185,32 +204,30 @@ export class BranchManager {
     try {
       // Use gh CLI for PR creation
       const result = await this.exec(
-        `gh pr create --title "Hive: ${queryId}" --body "${body}" --base main --head ${branchName}`
+        `gh pr create --title "Hive: ${queryId}" --body "${body}" --base main --head ${branchName}`,
       );
-      return { url: result, number: parseInt(result.match(/\/(\d+)$/)?.[1] || '0') };
+      return {
+        url: result,
+        number: parseInt(result.match(/\/(\d+)$/)?.[1] || "0"),
+      };
     } catch {
       return null;
     }
   }
 
   private composePRBody(queryId: string, summaries: AgentSummary[]): string {
-    const lines = [
-      `## Hive Query: ${queryId}`,
-      '',
-      '### Agent Work',
-      '',
-    ];
+    const lines = [`## Hive Query: ${queryId}`, "", "### Agent Work", ""];
 
     for (const s of summaries) {
       lines.push(`#### ${s.agentId} (${s.harness}/${s.model})`);
       lines.push(s.summary);
       if (s.filesChanged.length > 0) {
-        lines.push(`\nFiles changed: ${s.filesChanged.join(', ')}`);
+        lines.push(`\nFiles changed: ${s.filesChanged.join(", ")}`);
       }
-      lines.push('');
+      lines.push("");
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   // --- Helpers ---
@@ -258,6 +275,7 @@ interface PRInfo {
 ### Flow
 
 **Sequential mode:**
+
 ```
 orchestrator creates agent branches
     │
@@ -278,6 +296,7 @@ optionally create PR via gh CLI
 ```
 
 **Parallel mode:**
+
 ```
 orchestrator creates shared branch hive/{queryId}/shared
     │

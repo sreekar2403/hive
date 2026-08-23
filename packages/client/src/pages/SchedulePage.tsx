@@ -11,6 +11,7 @@ import {
   X,
   Check,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 type ViewMode = "calendar" | "list";
@@ -241,7 +242,7 @@ export function SchedulePage() {
       );
     } else {
       const newSchedule: Schedule = {
-        id: Date.now().toString(),
+        id: crypto.randomUUID(),
         ...formData,
       };
       setSchedules([...schedules, newSchedule]);

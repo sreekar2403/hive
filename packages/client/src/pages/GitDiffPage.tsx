@@ -5,7 +5,6 @@ import {
   FileMinus,
   FileEdit,
   RefreshCw,
-  ChevronRight,
 } from "lucide-react";
 
 type DiffType = "unstaged" | "staged";
@@ -308,9 +307,7 @@ index 0000000..a1b2c3d
   ],
 };
 
-function parseDiff(
-  diff: string,
-): {
+function parseDiff(diff: string): {
   lineNumber: number;
   type: "context" | "add" | "remove" | "header";
   content: string;
@@ -382,7 +379,7 @@ export function GitDiffPage() {
   const [selectedFile, setSelectedFile] = useState<DiffFile | null>(null);
   const [files, setFiles] = useState<DiffFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
 
   const fetchDiff = async () => {
     setLoading(true);
@@ -407,7 +404,11 @@ export function GitDiffPage() {
   };
 
   useEffect(() => {
+    // Standard fetch-on-mount-and-on-dependency-change effect; fetchDiff is
+    // intentionally omitted from deps since it's redefined every render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDiff();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diffType]);
 
   const parsedDiff = selectedFile ? parseDiff(selectedFile.diff) : [];

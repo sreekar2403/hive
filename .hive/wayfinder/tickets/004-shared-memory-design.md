@@ -10,18 +10,21 @@
 How should the shared memory store work in practice? The spec defines the TypeScript interfaces but not the runtime behavior.
 
 **Decision needed:**
+
 - Is shared memory a singleton, per-session, or per-query?
 - How do agents read/write concurrently (async locking? optimistic? just trust Node.js event loop)?
 - How is shared memory persisted (JSON snapshots? in-memory only with session save?)?
 - How do agents discover what other agents have written?
 
 **Considerations:**
+
 - Node.js single-threaded event loop means no true race conditions
 - But async operations can interleave — need to think about read-modify-write
 - Shared memory is the communication backbone; if it breaks, everything breaks
 - Must be lightweight — don't want memory overhead per agent per iteration
 
 **Options:**
+
 - A) In-memory Map with session snapshots — fast, simple, loses state on crash
 - B) JSON file-backed — persistent, but file I/O on every write
 - C) In-memory with periodic snapshots — fast writes, crash recovery
@@ -72,8 +75,8 @@ Agents discover each other's work two ways:
 2. **Message subscription:** Agents subscribe to messages via EventEmitter:
 
 ```typescript
-sharedMemory.on('message', (msg) => {
-  if (msg.to === myAgentId || msg.to === 'broadcast') {
+sharedMemory.on("message", (msg) => {
+  if (msg.to === myAgentId || msg.to === "broadcast") {
     // handle message
   }
 });
@@ -84,15 +87,15 @@ sharedMemory.on('message', (msg) => {
 ```typescript
 // packages/server/src/sharedMemory.ts
 
-import { EventEmitter } from 'events';
-import { writeFile, readFile } from 'fs/promises';
-import { join } from 'path';
+import { EventEmitter } from "events";
+import { writeFile, readFile } from "fs/promises";
+import { join } from "path";
 
 interface TaskContext {
   id: string;
   originalQuery: string;
   goal: string;
-  status: 'routing' | 'looping' | 'done' | 'failed';
+  status: "routing" | "looping" | "done" | "failed";
   createdAt: Date;
 }
 
@@ -124,15 +127,15 @@ interface LoopState {
 interface BranchInfo {
   name: string;
   agent: string;
-  status: 'active' | 'merged' | 'conflict';
+  status: "active" | "merged" | "conflict";
   filesChanged: string[];
 }
 
 interface Message {
   id: string;
   from: string;
-  to: string | 'broadcast';
-  type: 'result' | 'request' | 'blocking';
+  to: string | "broadcast";
+  type: "result" | "request" | "blocking";
   payload: any;
   timestamp: Date;
 }
@@ -152,7 +155,9 @@ export class SharedMemory extends EventEmitter {
   }
 
   // --- Task Context ---
-  getTaskContext(): Readonly<TaskContext> { return this.taskContext; }
+  getTaskContext(): Readonly<TaskContext> {
+    return this.taskContext;
+  }
   updateTaskContext(updates: Partial<TaskContext>): void {
     Object.assign(this.taskContext, updates);
   }
@@ -163,7 +168,7 @@ export class SharedMemory extends EventEmitter {
   }
   setAgentResult(agentId: string, result: AgentResult): void {
     this.agentResults.set(agentId, result);
-    this.emit('agent-result', { agentId, result });
+    this.emit("agent-result", { agentId, result });
   }
   getAllAgentResults(): Map<string, AgentResult> {
     return new Map(this.agentResults);
@@ -194,18 +199,27 @@ export class SharedMemory extends EventEmitter {
   }
 
   // --- Messages ---
-  sendMessage(from: string, to: string | 'broadcast', type: Message['type'], payload: any): void {
+  sendMessage(
+    from: string,
+    to: string | "broadcast",
+    type: Message["type"],
+    payload: any,
+  ): void {
     const msg: Message = {
       id: crypto.randomUUID(),
-      from, to, type, payload,
+      from,
+      to,
+      type,
+      payload,
       timestamp: new Date(),
     };
     this.messages.push(msg);
-    this.emit('message', msg);
+    this.emit("message", msg);
   }
   getMessages(filter?: { to?: string; type?: string }): Message[] {
-    return this.messages.filter(m => {
-      if (filter?.to && m.to !== filter.to && m.to !== 'broadcast') return false;
+    return this.messages.filter((m) => {
+      if (filter?.to && m.to !== filter.to && m.to !== "broadcast")
+        return false;
       if (filter?.type && m.type !== filter.type) return false;
       return true;
     });
@@ -217,27 +231,27 @@ export class SharedMemory extends EventEmitter {
   }
 
   async snapshot(): Promise<void> {
-    const dir = join(process.cwd(), '.hive', 'snapshots');
+    const dir = join(process.cwd(), ".hive", "snapshots");
     await writeFile(
       join(dir, `${this.taskContext.id}.json`),
-      JSON.stringify(this.serialize(), null, 2)
+      JSON.stringify(this.serialize(), null, 2),
     );
   }
 
   async save(): Promise<void> {
     if (this.snapshotTimer) clearInterval(this.snapshotTimer);
-    const dir = join(process.cwd(), '.hive', 'sessions');
+    const dir = join(process.cwd(), ".hive", "sessions");
     await writeFile(
       join(dir, `${this.taskContext.id}.json`),
-      JSON.stringify(this.serialize(), null, 2)
+      JSON.stringify(this.serialize(), null, 2),
     );
   }
 
   static async load(queryId: string): Promise<SharedMemory | null> {
     try {
       const data = await readFile(
-        join(process.cwd(), '.hive', 'sessions', `${queryId}.json`),
-        'utf-8'
+        join(process.cwd(), ".hive", "sessions", `${queryId}.json`),
+        "utf-8",
       );
       const parsed = JSON.parse(data);
       const sm = new SharedMemory(parsed.taskContext);

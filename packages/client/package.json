@@ -2,33 +2,58 @@
   "name": "@hive/client",
   "version": "0.1.0",
   "private": true,
-  "main": "electron/main.ts",
+  "main": "electron/dist/main.js",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "electron:dev": "concurrently -k \"pnpm dev\" \"wait-on http://localhost:3000 && pnpm tsx electron/main.ts\"",
-    "electron:build": "next build && next export && electron-builder"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:dev": "pnpm run electron:compile && concurrently -k \"pnpm dev\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "pnpm run build && pnpm run electron:compile && electron-builder"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@xyflow/react": "^12.11.3",
     "lucide-react": "^0.460.0",
-    "next": "^15.0.0",
     "pixi.js": "^8.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.11.2",
-    "@tailwindcss/cli": "^4.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.0",
     "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
     "electron": "^43.4.1",
     "electron-builder": "^24.0.0",
-    "tailwindcss": "^3.4.0",
-    "tsx": "^4.0.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.7.0",
+    "vite": "^8.2.2",
     "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.hive.desktop",
+    "productName": "Hive",
+    "files": [
+      "dist/**/*",
+      "electron/dist/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }

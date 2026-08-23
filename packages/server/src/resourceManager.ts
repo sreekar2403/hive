@@ -1,20 +1,18 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { Config } from './config';
+import { Config } from "./config";
 
 export interface FileLock {
   sessionId: string;
   filePath: string;
   acquiredAt: number;
   expiresAt: number;
-  mode: 'read' | 'write';
+  mode: "read" | "write";
 }
 
 export interface TaskContext {
   taskId: string;
   branchName: string;
   files: string[];
-  status: 'pending' | 'running' | 'completed' | 'cancelled';
+  status: "pending" | "running" | "completed" | "cancelled";
   startedAt: number;
   completedAt: number | null;
 }
@@ -33,7 +31,7 @@ export class ResourceManager {
   async acquireLock(
     sessionId: string,
     filePath: string,
-    mode: 'read' | 'write' = 'read'
+    mode: "read" | "write" = "read",
   ): Promise<boolean> {
     const lockKey = `${sessionId}:${filePath}`;
 
@@ -41,7 +39,7 @@ export class ResourceManager {
     const existing = this.locks.get(lockKey);
     if (existing) {
       // Write locks are exclusive
-      if (existing.mode === 'write' || existing.sessionId === sessionId) {
+      if (existing.mode === "write" || existing.sessionId === sessionId) {
         return true;
       }
       return false;
@@ -67,13 +65,13 @@ export class ResourceManager {
   async createTask(
     taskId: string,
     branchName: string,
-    files: string[]
+    files: string[],
   ): Promise<TaskContext> {
     const task: TaskContext = {
       taskId,
       branchName,
       files,
-      status: 'pending',
+      status: "pending",
       startedAt: Date.now(),
       completedAt: null,
     };
@@ -81,12 +79,15 @@ export class ResourceManager {
     return task;
   }
 
-  async updateTaskStatus(taskId: string, status: TaskContext['status']): Promise<void> {
+  async updateTaskStatus(
+    taskId: string,
+    status: TaskContext["status"],
+  ): Promise<void> {
     const task = this.tasks.get(taskId);
     if (!task) return;
 
     task.status = status;
-    if (status === 'completed') {
+    if (status === "completed") {
       task.completedAt = Date.now();
     }
   }
@@ -95,7 +96,7 @@ export class ResourceManager {
     return this.tasks.get(taskId) || null;
   }
 
-  async getSessionTasks(sessionId: string): Promise<TaskContext[]> {
+  async getSessionTasks(_sessionId: string): Promise<TaskContext[]> {
     const tasks: TaskContext[] = [];
     for (const task of this.tasks.values()) {
       // Session tasks are tracked separately, return all for now
@@ -117,7 +118,7 @@ export class ResourceManager {
     // Clean completed tasks older than 1 hour
     for (const [key, task] of this.tasks) {
       if (
-        task.status === 'completed' &&
+        task.status === "completed" &&
         task.completedAt &&
         now - task.completedAt > 3600000
       ) {

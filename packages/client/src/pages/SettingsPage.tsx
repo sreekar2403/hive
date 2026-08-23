@@ -1,86 +1,211 @@
-﻿import { useState } from 'react';
-import { Save, Key, Bot, Clock } from 'lucide-react';
+import { useState } from "react";
+import {
+  Boxes,
+  KeyRound,
+  Route,
+  Shield,
+  SlidersHorizontal,
+  SettingsIcon,
+} from "lucide-react";
+import { Button, EmptyState, PageHeader } from "../components/ui";
+import { cn } from "../lib/cn";
+import { useSettings } from "./settings/useSettings";
+import { ProvidersSection } from "./settings/ProvidersSection";
+import { HarnessesSection } from "./settings/HarnessesSection";
+import { RoutingSection } from "./settings/RoutingSection";
+import {
+  ExecutionSection,
+  GeneralSection,
+  PermissionsSection,
+} from "./settings/SystemSections";
+import type { SettingsSectionId } from "./settings/types";
+
+const SECTIONS: Array<{
+  id: SettingsSectionId;
+  label: string;
+  description: string;
+  icon: typeof KeyRound;
+}> = [
+  {
+    id: "providers",
+    label: "Providers",
+    description: "Model providers and API keys",
+    icon: KeyRound,
+  },
+  {
+    id: "harnesses",
+    label: "Harnesses",
+    description: "The CLI agents Hive drives",
+    icon: Boxes,
+  },
+  {
+    id: "routing",
+    label: "Task routing",
+    description: "Which model handles which work",
+    icon: Route,
+  },
+  {
+    id: "execution",
+    label: "Execution",
+    description: "Retries, timeouts, concurrency",
+    icon: SlidersHorizontal,
+  },
+  {
+    id: "permissions",
+    label: "Permissions",
+    description: "Approval before destructive work",
+    icon: Shield,
+  },
+  {
+    id: "general",
+    label: "General",
+    description: "Theme, defaults, storage",
+    icon: SettingsIcon,
+  },
+];
 
 export function SettingsPage() {
-  const [settings, setSettings] = useState({
-    appName: 'Hive',
-    theme: 'dark',
-    maxIterations: 5,
-    timeout: 120,
-    apiKey: '',
-    model: 'gpt-4',
-  });
+  const [section, setSection] = useState<SettingsSectionId>("providers");
+  const {
+    draft,
+    keyDrafts,
+    loading,
+    error,
+    saving,
+    dirty,
+    update,
+    setProviderKeyDraft,
+    discard,
+    save,
+    reload,
+  } = useSettings();
 
-  const update = (key: string, value: string | number) =>
-    setSettings((prev) => ({ ...prev, [key]: value }));
+  const active = SECTIONS.find((s) => s.id === section)!;
 
-  const handleSave = () => {
-    alert('Settings saved (local state only for now)');
-  };
+  if (loading) {
+    return (
+      <div className="p-6">
+        <PageHeader eyebrow="Inspect" title="Settings" />
+        <p className="text-[13px] text-muted">Loading settings…</p>
+      </div>
+    );
+  }
+
+  if (!draft) {
+    return (
+      <div className="p-6 h-full flex flex-col">
+        <PageHeader eyebrow="Inspect" title="Settings" />
+        <EmptyState
+          icon={<SettingsIcon />}
+          title="Settings are unavailable"
+          description={error ?? "The Hive server isn't reachable right now."}
+          action={<Button onClick={reload}>Try again</Button>}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 max-w-3xl space-y-6">
-      <h1 className="text-2xl font-bold">Settings</h1>
-
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-        <h2 className="text-lg font-semibold flex items-center gap-2"><Bot className="w-5 h-5" /> General</h2>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">App Name</label>
-            <input value={settings.appName} onChange={(e) => update('appName', e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Theme</label>
-            <select value={settings.theme} onChange={(e) => update('theme', e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </div>
-        </div>
+    <div className="h-full flex flex-col">
+      <div className="px-6 pt-6">
+        <PageHeader
+          eyebrow="Inspect"
+          title="Settings"
+          description="Wire up providers, choose which model does which kind of work, and set the limits the swarm runs under."
+        />
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-        <h2 className="text-lg font-semibold flex items-center gap-2"><Clock className="w-5 h-5" /> Agent Config</h2>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Max Iterations</label>
-            <input type="number" value={settings.maxIterations} onChange={(e) => update('maxIterations', parseInt(e.target.value) || 0)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" />
+      <div className="flex-1 min-h-0 flex border-t border-line">
+        <nav className="w-56 shrink-0 border-r border-line bg-surface p-2 overflow-y-auto">
+          {SECTIONS.map(({ id, label, description, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setSection(id)}
+              aria-current={section === id ? "page" : undefined}
+              className={cn(
+                "w-full flex items-start gap-2.5 px-2.5 py-2 rounded-md text-left transition-colors mb-0.5",
+                section === id
+                  ? "bg-accent-soft text-ink"
+                  : "text-muted hover:bg-surface-2 hover:text-ink",
+              )}
+            >
+              <Icon
+                className={cn(
+                  "size-4 shrink-0 mt-0.5",
+                  section === id ? "text-accent" : "text-faint",
+                )}
+                aria-hidden="true"
+              />
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium">{label}</span>
+                <span className="block text-[11px] text-faint leading-snug">
+                  {description}
+                </span>
+              </span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-4xl">
+              <div className="mb-5">
+                <div className="eyebrow mb-1">Settings</div>
+                <h2 className="text-[17px] font-semibold text-ink">{active.label}</h2>
+              </div>
+
+              {error ? (
+                <div className="mb-4 px-3 py-2 rounded-md border border-danger bg-danger-soft text-[13px] text-danger">
+                  {error}
+                </div>
+              ) : null}
+
+              {section === "providers" ? (
+                <ProvidersSection
+                  draft={draft}
+                  keyDrafts={keyDrafts}
+                  onChange={update}
+                  onKeyChange={setProviderKeyDraft}
+                />
+              ) : null}
+              {section === "harnesses" ? (
+                <HarnessesSection draft={draft} onChange={update} />
+              ) : null}
+              {section === "routing" ? (
+                <RoutingSection draft={draft} onChange={update} />
+              ) : null}
+              {section === "execution" ? (
+                <ExecutionSection draft={draft} onChange={update} />
+              ) : null}
+              {section === "permissions" ? (
+                <PermissionsSection draft={draft} onChange={update} />
+              ) : null}
+              {section === "general" ? (
+                <GeneralSection draft={draft} onChange={update} />
+              ) : null}
+            </div>
           </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Timeout (seconds)</label>
-            <input type="number" value={settings.timeout} onChange={(e) => update('timeout', parseInt(e.target.value) || 0)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" />
-          </div>
+
+          {/* Only appears once something has actually changed. */}
+          {dirty ? (
+            <div className="shrink-0 border-t border-line bg-surface px-6 py-3 flex items-center justify-between gap-4">
+              <span className="text-[13px] text-muted">You have unsaved changes.</span>
+              <div className="flex items-center gap-2">
+                <Button onClick={discard} disabled={saving}>
+                  Discard
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => void save().catch(() => undefined)}
+                  disabled={saving}
+                >
+                  {saving ? "Saving…" : "Save changes"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
-
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-        <h2 className="text-lg font-semibold flex items-center gap-2"><Key className="w-5 h-5" /> Model Settings</h2>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">API Key</label>
-            <input type="password" value={settings.apiKey} onChange={(e) => update('apiKey', e.target.value)} placeholder="sk-..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Model</label>
-            <select value={settings.model} onChange={(e) => update('model', e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
-              <option value="gpt-4">GPT-4</option>
-              <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-              <option value="claude-3-opus">Claude 3 Opus</option>
-              <option value="claude-3-sonnet">Claude 3 Sonnet</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm">
-        <Save className="w-4 h-4" /> Save Settings
-      </button>
     </div>
   );
 }

@@ -5,6 +5,7 @@ Use when the user wants to build a multi-agent swarm, orchestrate agents across 
 ## What it is
 
 A framework for orchestrating AI agents across different harnesses (OpenCode, Claude Code, Pi) with:
+
 - Loop engineering for self-correction
 - Permission system for destructive actions
 - Branch/PR management

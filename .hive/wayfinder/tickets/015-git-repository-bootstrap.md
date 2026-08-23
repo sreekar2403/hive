@@ -12,3 +12,6 @@ work today. Resolve by initializing the repo (`git init`, initial commit of the 
 initial commit history matters (e.g. should Phase 1's work land as one commit, or should we preserve
 today's working tree as-is with no attempt at retroactive history). Confirm `gh` CLI auth status too,
 since `mergeToPR`'s PR-creation path depends on it.
+
+## Resolution (decision note)
+Repo already bootstrapped at resolution time: branch `master`, 5 commits, `.gitignore` present and valid — no initialization needed. `gh` CLI is authenticated but no git remote is configured, so `Orchestrator.mergeToPR`'s `git push`/`gh pr create` path cannot reach GitHub today. DECISION: Hive commits in-app via branch-per-task + local commits; PR creation to GitHub remains unsupported until a remote is pushed and CI is enabled. This resolves the decision portion of the ticket; no further code work required from this ticket.

@@ -74,11 +74,12 @@ Core runtime pattern: act → observe → verify → revise.
 - **ACT** — Orchestrator constructs a prompt with task + shared memory context, shells out to the chosen CLI harness, streams output
 - **OBSERVE** — Captures CLI output (stdout, stderr, exit code) and writes to shared memory
 - **VERIFY** — Evaluates result against the original goal:
-  - *Automatic:* Heuristics (exit code, output contains expected pattern, no errors)
-  - *LLM-judge:* Asks a lightweight model "did this achieve the goal?"
+  - _Automatic:_ Heuristics (exit code, output contains expected pattern, no errors)
+  - _LLM-judge:_ Asks a lightweight model "did this achieve the goal?"
 - **REVISE** — If verification failed, constructs a new prompt with failure reason and previous attempt, loops back to ACT
 
 **Safety rails:**
+
 - Max loop iterations (default: 5, configurable per task)
 - Timeout per iteration (default: 5 min)
 - Destructive action detection → pause and ask for permission
@@ -115,6 +116,7 @@ routing:
 ```
 
 **Override syntax in chat:**
+
 - `@opus` — force model
 - `@pi` — force harness
 - `@opus@pi` — both
@@ -145,29 +147,35 @@ interface SharedMemory {
     id: string;
     originalQuery: string;
     goal: string;
-    status: 'routing' | 'looping' | 'done' | 'failed';
+    status: "routing" | "looping" | "done" | "failed";
     createdAt: Date;
   };
   agentResults: Map<string, AgentResult>;
-  loopState: Map<string, {
-    iteration: number;
-    history: Array<{
-      action: string;
-      observation: string;
-      passed: boolean;
-      revision: string;
-    }>;
-  }>;
-  branches: Map<string, {
-    name: string;
-    agent: string;
-    status: 'active' | 'merged' | 'conflict';
-    filesChanged: string[];
-  }>;
+  loopState: Map<
+    string,
+    {
+      iteration: number;
+      history: Array<{
+        action: string;
+        observation: string;
+        passed: boolean;
+        revision: string;
+      }>;
+    }
+  >;
+  branches: Map<
+    string,
+    {
+      name: string;
+      agent: string;
+      status: "active" | "merged" | "conflict";
+      filesChanged: string[];
+    }
+  >;
   messages: Array<{
     from: string;
-    to: string | 'broadcast';
-    type: 'result' | 'request' | 'blocking';
+    to: string | "broadcast";
+    type: "result" | "request" | "blocking";
     payload: any;
   }>;
 }
@@ -189,6 +197,7 @@ interface AgentResult {
 ```
 
 **Access rules:**
+
 - Read: Any agent can read any key
 - Write: Agents own their own keys
 - Cross-write: Via messages (logged, auditable)
@@ -197,17 +206,20 @@ interface AgentResult {
 ### 6. Branch & PR Management
 
 **Sequential mode (default):**
+
 - Each agent gets its own branch: `swarm/<query-id>/<agent-id>`
 - All agents finish → one PR merging all branches into main
 - Conflict resolution: orchestrator flags overlapping files, asks user
 
 **Parallel mode:**
+
 - All agents work on single branch: `swarm/<query-id>/shared`
 - Shared memory tracks who's editing what
 - File locking before modification
 - One PR at the end
 
 **Safety:**
+
 - Never pushes to main directly
 - PR body includes which agent did what
 - Destructive git operations always require permission
@@ -238,6 +250,7 @@ destructive_patterns:
 ```
 
 **Permission levels:**
+
 - Ask every time (default)
 - Allow for session
 - Always allow (whitelist)
@@ -247,6 +260,7 @@ destructive_patterns:
 ### 8. Web UI
 
 **Layout:**
+
 ```
 ┌────────┬──────────────────────────────────────────┐
 │        │  Swarm Agent                    [Settings]│
@@ -270,6 +284,7 @@ destructive_patterns:
 ```
 
 **Features:**
+
 - Sidebar: session list with status icons, search/filter, new session button
 - Agent Activity Panel: expandable, shows each agent's harness, model, iteration progress
 - Chat: streaming responses, inline permission dialogs, override chips
@@ -279,15 +294,15 @@ destructive_patterns:
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Runtime | Node.js + TypeScript |
-| Web UI | React + Vite + TailwindCSS |
-| WebSocket | ws |
-| Git | simple-git |
-| Process | child_process |
-| Storage | JSON files (sessions) + in-memory (shared memory) |
-| Local LLM | ollama npm package + LM Studio REST API |
+| Layer     | Technology                                        |
+| --------- | ------------------------------------------------- |
+| Runtime   | Node.js + TypeScript                              |
+| Web UI    | React + Vite + TailwindCSS                        |
+| WebSocket | ws                                                |
+| Git       | simple-git                                        |
+| Process   | child_process                                     |
+| Storage   | JSON files (sessions) + in-memory (shared memory) |
+| Local LLM | ollama npm package + LM Studio REST API           |
 
 ---
 
@@ -345,5 +360,6 @@ hive/
 ## Future Approaches (Logged for Reference)
 
 See `docs/approaches/` for:
+
 - **Approach B: Process-per-concern** — separate processes communicating via local HTTP/IPC
 - **Approach C: Plugin architecture** — core orchestrator with pluggable harness system

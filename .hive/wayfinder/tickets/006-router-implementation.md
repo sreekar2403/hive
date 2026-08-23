@@ -10,18 +10,21 @@
 How should the router match queries to harnesses and models? The spec defines the routing table but not the matching algorithm.
 
 **Decision needed:**
+
 - Is pattern matching keyword-based, regex, or LLM-classified?
 - How are ties broken (multiple patterns match)?
 - How does the user override work in practice (parse @syntax from query)?
 - How does the router learn from past decisions?
 
 **Considerations:**
+
 - Keyword matching is fast but dumb (no semantic understanding)
 - LLM classification is smart but slow and costs tokens
 - Need a hybrid: fast path for obvious cases, slow path for ambiguous ones
 - Override syntax must be parsed before routing
 
 **Options:**
+
 - A) Pure regex — simple, fast, no intelligence
 - B) Keyword + score — count keyword matches, highest score wins
 - C) Keyword first, LLM tiebreaker — fast for obvious, smart for ambiguous
@@ -67,9 +70,9 @@ User query
 
 ```typescript
 interface ParsedQuery {
-  text: string;              // query with overrides stripped
-  modelOverride?: string;    // e.g., 'opus', 'sonnet'
-  harnessOverride?: string;  // e.g., 'pi', 'opencode'
+  text: string; // query with overrides stripped
+  modelOverride?: string; // e.g., 'opus', 'sonnet'
+  harnessOverride?: string; // e.g., 'pi', 'opencode'
 }
 
 function parseOverrides(query: string): ParsedQuery {
@@ -78,14 +81,14 @@ function parseOverrides(query: string): ParsedQuery {
   let modelOverride: string | undefined;
   let harnessOverride: string | undefined;
 
-  const knownModels = ['opus', 'sonnet', 'haiku', 'turbo'];
-  const knownHarnesses = ['opencode', 'claude-code', 'pi'];
+  const knownModels = ["opus", "sonnet", "haiku", "turbo"];
+  const knownHarnesses = ["opencode", "claude-code", "pi"];
 
   for (const override of overrides) {
     const name = override.slice(1); // remove @
     if (knownModels.includes(name)) modelOverride = name;
     if (knownHarnesses.includes(name)) harnessOverride = name;
-    text = text.replace(override, '');
+    text = text.replace(override, "");
   }
 
   return { text: text.trim(), modelOverride, harnessOverride };
@@ -100,53 +103,102 @@ interface RoutingRule {
   keywords: string[];
   harness: string;
   model: string;
-  weight: number;  // default 1.0, higher = stronger signal
+  weight: number; // default 1.0, higher = stronger signal
 }
 
 const ROUTING_TABLE: RoutingRule[] = [
   {
-    name: 'frontend',
-    keywords: ['component', 'ui', 'css', 'style', 'layout', 'responsive', 'accessibility', 'tailwind', 'react', 'jsx', 'tsx'],
-    harness: 'opencode',
-    model: 'sonnet',
+    name: "frontend",
+    keywords: [
+      "component",
+      "ui",
+      "css",
+      "style",
+      "layout",
+      "responsive",
+      "accessibility",
+      "tailwind",
+      "react",
+      "jsx",
+      "tsx",
+    ],
+    harness: "opencode",
+    model: "sonnet",
     weight: 1.0,
   },
   {
-    name: 'backend',
-    keywords: ['api', 'endpoint', 'server', 'database', 'auth', 'middleware', 'express', 'fastify'],
-    harness: 'claude-code',
-    model: 'sonnet',
+    name: "backend",
+    keywords: [
+      "api",
+      "endpoint",
+      "server",
+      "database",
+      "auth",
+      "middleware",
+      "express",
+      "fastify",
+    ],
+    harness: "claude-code",
+    model: "sonnet",
     weight: 1.0,
   },
   {
-    name: 'architecture',
-    keywords: ['design', 'architect', 'system', 'structure', 'refactor', 'scale', 'pattern', 'module'],
-    harness: 'opencode',
-    model: 'opus',
-    weight: 1.2,  // architecture tasks get extra weight
+    name: "architecture",
+    keywords: [
+      "design",
+      "architect",
+      "system",
+      "structure",
+      "refactor",
+      "scale",
+      "pattern",
+      "module",
+    ],
+    harness: "opencode",
+    model: "opus",
+    weight: 1.2, // architecture tasks get extra weight
   },
   {
-    name: 'devops',
-    keywords: ['deploy', 'ci', 'docker', 'nginx', 'server', 'infra', 'kubernetes', 'pipeline'],
-    harness: 'claude-code',
-    model: 'sonnet',
+    name: "devops",
+    keywords: [
+      "deploy",
+      "ci",
+      "docker",
+      "nginx",
+      "server",
+      "infra",
+      "kubernetes",
+      "pipeline",
+    ],
+    harness: "claude-code",
+    model: "sonnet",
     weight: 1.0,
   },
   {
-    name: 'research',
-    keywords: ['find', 'search', 'compare', 'evaluate', 'investigate', 'research', 'lookup'],
-    harness: 'pi',
-    model: 'haiku',
-    weight: 0.8,  // lower weight, more likely to hit tiebreaker
+    name: "research",
+    keywords: [
+      "find",
+      "search",
+      "compare",
+      "evaluate",
+      "investigate",
+      "research",
+      "lookup",
+    ],
+    harness: "pi",
+    model: "haiku",
+    weight: 0.8, // lower weight, more likely to hit tiebreaker
   },
 ];
 
-function scoreRules(query: string): Array<{ rule: RoutingRule; score: number }> {
+function scoreRules(
+  query: string,
+): Array<{ rule: RoutingRule; score: number }> {
   const lower = query.toLowerCase();
   const words = lower.split(/\s+/);
 
-  return ROUTING_TABLE.map(rule => {
-    const matches = rule.keywords.filter(kw => words.includes(kw)).length;
+  return ROUTING_TABLE.map((rule) => {
+    const matches = rule.keywords.filter((kw) => words.includes(kw)).length;
     const score = (matches / rule.keywords.length) * rule.weight;
     return { rule, score };
   }).sort((a, b) => b.score - a.score);
@@ -158,7 +210,9 @@ function scoreRules(query: string): Array<{ rule: RoutingRule; score: number }> 
 When keyword score is below threshold (0.7) or top two are close (delta < 0.1):
 
 ```typescript
-async function llmClassify(query: string): Promise<{ harness: string; model: string }> {
+async function llmClassify(
+  query: string,
+): Promise<{ harness: string; model: string }> {
   const prompt = `Classify this coding query into exactly one category.
 Categories: frontend, backend, architecture, devops, research
 
@@ -167,11 +221,13 @@ Query: "${query}"
 Respond with JSON: { "category": "<category>" }`;
 
   // Use haiku (cheap, fast) for classification
-  const response = await callLLM('haiku', prompt);
+  const response = await callLLM("haiku", prompt);
   const { category } = JSON.parse(response);
 
-  const rule = ROUTING_TABLE.find(r => r.name === category);
-  return rule ? { harness: rule.harness, model: rule.model } : { harness: 'opencode', model: 'sonnet' };
+  const rule = ROUTING_TABLE.find((r) => r.name === category);
+  return rule
+    ? { harness: rule.harness, model: rule.model }
+    : { harness: "opencode", model: "sonnet" };
 }
 ```
 
@@ -188,7 +244,7 @@ async function route(query: string): Promise<Route> {
       harness: parsed.harnessOverride,
       model: parsed.modelOverride || getDefaultModel(parsed.harnessOverride),
       query: parsed.text,
-      source: 'override',
+      source: "override",
     };
   }
 
@@ -203,7 +259,7 @@ async function route(query: string): Promise<Route> {
       harness: top.rule.harness,
       model: parsed.modelOverride || top.rule.model,
       query: parsed.text,
-      source: 'keyword',
+      source: "keyword",
     };
   }
 
@@ -213,15 +269,15 @@ async function route(query: string): Promise<Route> {
     harness: llmResult.harness,
     model: parsed.modelOverride || llmResult.model,
     query: parsed.text,
-    source: 'llm',
+    source: "llm",
   };
 }
 
 interface Route {
   harness: string;
   model: string;
-  query: string;  // stripped of overrides
-  source: 'override' | 'keyword' | 'llm';
+  query: string; // stripped of overrides
+  source: "override" | "keyword" | "llm";
 }
 ```
 

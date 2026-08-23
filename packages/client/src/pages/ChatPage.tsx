@@ -1,117 +1,369 @@
-﻿import { useState } from 'react';
-import { Send, Plus, MessageSquare } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MessageSquare, Plus, RotateCcw, Send } from "lucide-react";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  IconButton,
+  Select,
+  StatusDot,
+  Textarea,
+} from "../components/ui";
+import { API, subscribeToEvents } from "../lib/api";
+import { cn } from "../lib/cn";
 
-interface Message {
+interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
+  harness?: string;
+  status?: "completed" | "failed";
 }
 
-interface Session {
+interface ChatSession {
   id: string;
+  /** Null until the server assigns one on the first send. */
+  serverId: string | null;
   name: string;
-  messages: Message[];
+  messages: ChatMessage[];
+}
+
+interface ChatResponse {
+  sessionId: string;
+  taskId: string;
+  status: "completed" | "failed";
+  output: string;
+}
+
+const STORAGE_KEY = "hive.chatSessions";
+const EXAMPLES = [
+  "Add tests for the router's keyword matching",
+  "Explain how the loop engine decides to retry",
+  "Rename detectFilesChanged to listChangedFiles across the server",
+];
+
+function newSession(): ChatSession {
+  return {
+    id: crypto.randomUUID(),
+    serverId: null,
+    name: "New chat",
+    messages: [],
+  };
 }
 
 export function ChatPage() {
-  const [sessions, setSessions] = useState<Session[]>([
-    { id: '1', name: 'New Chat', messages: [] },
-  ]);
-  const [activeSessionId, setActiveSessionId] = useState('1');
-  const [input, setInput] = useState('');
-
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
-
-  const handleNewChat = () => {
-    const id = Date.now().toString();
-    setSessions((prev) => [{ id, name: 'New Chat', messages: [] }, ...prev]);
-    setActiveSessionId(id);
-  };
-
-  const handleSend = async () => {
-    if (!input.trim() || !activeSession) return;
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: input };
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeSessionId ? { ...s, messages: [...s.messages, userMsg] } : s
-      )
-    );
-    setInput('');
-
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
     try {
-      const res = await fetch('http://localhost:3001/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: input, sessionId: activeSessionId }),
-      });
-      const data = await res.json();
-      const assistantMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: data.result || data.error || 'No response' };
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSessionId ? { ...s, name: input.slice(0, 30), messages: [...s.messages, assistantMsg] } : s
-        )
-      );
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as ChatSession[]) : [];
+      if (parsed.length) return parsed;
     } catch {
-      const errMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Error connecting to server' };
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSessionId ? { ...s, messages: [...s.messages, errMsg] } : s
-        )
-      );
+      // Corrupt or unavailable storage — start fresh.
     }
-  };
+    return [newSession()];
+  });
+  const [activeId, setActiveId] = useState(() => sessions[0].id);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [pinnedHarness, setPinnedHarness] = useState("");
+  const [progress, setProgress] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const active = sessions.find((s) => s.id === activeId) ?? sessions[0];
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    } catch {
+      // Not fatal — the conversation just won't survive a reload.
+    }
+  }, [sessions]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [active?.messages.length, progress]);
+
+  // Live progress while a task runs, so the UI isn't frozen mid-request.
+  useEffect(() => {
+    if (!sending) return;
+    const unsubscribe = subscribeToEvents((type, data) => {
+      const d = data as { harness?: string; phase?: string } | undefined;
+      if (type === "task:started") setProgress("Routing to a harness…");
+      if (type === "agent:update") {
+        setProgress(
+          d?.harness ? `${d.harness} working${d.phase ? ` · ${d.phase}` : ""}` : "Working…",
+        );
+      }
+    });
+    return unsubscribe;
+  }, [sending]);
+
+  const patchActive = useCallback(
+    (fn: (s: ChatSession) => ChatSession) => {
+      setSessions((prev) => prev.map((s) => (s.id === activeId ? fn(s) : s)));
+    },
+    [activeId],
+  );
+
+  const send = useCallback(
+    async (text: string) => {
+      const prompt = text.trim();
+      if (!prompt || sending) return;
+
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: prompt,
+      };
+      patchActive((s) => ({
+        ...s,
+        name: s.messages.length === 0 ? prompt.slice(0, 40) : s.name,
+        messages: [...s.messages, userMsg],
+      }));
+      setInput("");
+      setSending(true);
+      setProgress("Sending…");
+
+      try {
+        // The server expects `message` and answers with `output`.
+        const data = await API.post<ChatResponse>("/api/chat", {
+          message: prompt,
+          sessionId: active?.serverId ?? undefined,
+          harness: pinnedHarness || undefined,
+        });
+        patchActive((s) => ({
+          ...s,
+          serverId: data.sessionId,
+          messages: [
+            ...s.messages,
+            {
+              id: data.taskId,
+              role: "assistant",
+              content: data.output,
+              status: data.status,
+            },
+          ],
+        }));
+      } catch (err) {
+        patchActive((s) => ({
+          ...s,
+          messages: [
+            ...s.messages,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content:
+                err instanceof Error
+                  ? err.message
+                  : "Could not reach the Hive server.",
+              status: "failed",
+            },
+          ],
+        }));
+      } finally {
+        setSending(false);
+        setProgress(null);
+      }
+    },
+    [active?.serverId, patchActive, pinnedHarness, sending],
+  );
+
+  const retry = useCallback(
+    (index: number) => {
+      const prior = active?.messages[index - 1];
+      if (prior?.role === "user") void send(prior.content);
+    },
+    [active?.messages, send],
+  );
 
   return (
-    <div className="flex h-full">
-      <div className="w-72 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="p-3 border-b border-gray-800">
-          <button onClick={handleNewChat} className="w-full flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm">
-            <Plus className="w-4 h-4" /> New Chat
-          </button>
+    <div className="h-full flex">
+      {/* Sessions */}
+      <aside className="w-64 shrink-0 border-r border-line bg-surface flex flex-col">
+        <div className="p-2 border-b border-line">
+          <Button
+            variant="primary"
+            className="w-full"
+            onClick={() => {
+              const s = newSession();
+              setSessions((prev) => [s, ...prev]);
+              setActiveId(s.id);
+            }}
+          >
+            <Plus className="size-4" />
+            New chat
+          </Button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5">
           {sessions.map((s) => (
             <button
               key={s.id}
-              onClick={() => setActiveSessionId(s.id)}
-              className={w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 }
+              onClick={() => setActiveId(s.id)}
+              className={cn(
+                "w-full flex items-start gap-2 px-2 py-2 rounded-md text-left transition-colors",
+                s.id === activeId
+                  ? "bg-accent-soft text-ink"
+                  : "text-muted hover:bg-surface-2 hover:text-ink",
+              )}
             >
-              <MessageSquare className="w-4 h-4 flex-shrink-0" />
-              <span className="truncate">{s.name}</span>
+              <MessageSquare
+                className={cn(
+                  "size-3.5 shrink-0 mt-0.5",
+                  s.id === activeId ? "text-accent" : "text-faint",
+                )}
+              />
+              <span className="min-w-0">
+                <span className="block text-[13px] truncate">{s.name}</span>
+                <span className="block font-mono text-[10px] text-faint">
+                  {s.messages.length}{" "}
+                  {s.messages.length === 1 ? "message" : "messages"}
+                </span>
+              </span>
             </button>
           ))}
         </div>
-      </div>
-      <div className="flex-1 flex flex-col">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {activeSession?.messages.length === 0 && (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              Send a message to start chatting
+      </aside>
+
+      {/* Conversation */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          {!active || active.messages.length === 0 ? (
+            <EmptyState
+              icon={<MessageSquare />}
+              title="Put the swarm to work"
+              description="Describe a change and Hive picks the right agent for it, then runs until it succeeds."
+              action={
+                <div className="flex flex-col gap-1.5 items-stretch max-w-md">
+                  {EXAMPLES.map((e) => (
+                    <button
+                      key={e}
+                      onClick={() => void send(e)}
+                      className="text-left text-[13px] text-muted px-3 py-2 rounded-md border border-line hover:border-line-strong hover:text-ink hover:bg-surface-2 transition-colors"
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
+          ) : (
+            <div className="max-w-3xl mx-auto px-6 py-6 flex flex-col gap-4">
+              {active.messages.map((m, i) => (
+                <Message key={m.id} message={m} onRetry={() => retry(i)} />
+              ))}
+              {progress ? (
+                <div className="flex items-center gap-2 text-[13px] text-muted">
+                  <StatusDot tone="accent" pulse />
+                  {progress}
+                </div>
+              ) : null}
             </div>
           )}
-          {activeSession?.messages.map((msg) => (
-            <div key={msg.id} className={lex }>
-              <div className={max-w-2xl px-4 py-2 rounded-lg }>
-                <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
-              </div>
-            </div>
-          ))}
         </div>
-        <div className="p-4 border-t border-gray-800">
-          <div className="flex gap-2">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Type a message..."
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-            />
-            <button onClick={handleSend} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white">
-              <Send className="w-5 h-5" />
-            </button>
+
+        {/* Composer */}
+        <div className="border-t border-line bg-surface px-6 py-3">
+          <div className="max-w-3xl mx-auto flex flex-col gap-2">
+            <div className="flex items-end gap-2">
+              <Textarea
+                rows={2}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void send(input);
+                  }
+                }}
+                placeholder="Describe the change you want…"
+                disabled={sending}
+                className="flex-1"
+              />
+              <Button
+                variant="primary"
+                onClick={() => void send(input)}
+                disabled={!input.trim() || sending}
+                aria-label="Send"
+                className="h-9"
+              >
+                <Send className="size-4" />
+                {sending ? "Working…" : "Send"}
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="eyebrow">Harness</span>
+              <Select
+                value={pinnedHarness}
+                onChange={(e) => setPinnedHarness(e.target.value)}
+                className="h-7 text-[12px] w-40"
+                aria-label="Pin a harness for the next message"
+              >
+                <option value="">Choose automatically</option>
+                <option value="opencode">opencode</option>
+                <option value="claude-code">claude-code</option>
+                <option value="pi">pi</option>
+              </Select>
+              <span className="text-[11px] text-faint">
+                Enter sends · Shift+Enter for a new line
+              </span>
+            </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function Message({
+  message,
+  onRetry,
+}: {
+  message: ChatMessage;
+  onRetry: () => void;
+}) {
+  const failed = message.status === "failed";
+
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] px-3.5 py-2 rounded-lg bg-accent text-accent-fg text-[13px] whitespace-pre-wrap">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 items-start">
+      <div className="flex items-center gap-2">
+        <Badge tone={failed ? "danger" : "neutral"}>
+          {failed ? "Failed" : (message.harness ?? "assistant")}
+        </Badge>
+        {failed ? (
+          <IconButton size="sm" onClick={onRetry} aria-label="Try again">
+            <RotateCcw className="size-3.5" />
+          </IconButton>
+        ) : null}
+      </div>
+      <div
+        className={cn(
+          "max-w-[85%] px-3.5 py-2.5 rounded-lg border text-[13px] whitespace-pre-wrap break-words",
+          failed
+            ? "bg-danger-soft border-danger text-danger"
+            : "bg-surface border-line text-ink",
+          looksLikeOutput(message.content) && "font-mono text-[12px]",
+        )}
+      >
+        {message.content || "(no output)"}
+      </div>
+    </div>
+  );
+}
+
+/** Terminal-ish output reads better monospaced. */
+function looksLikeOutput(text: string): boolean {
+  return (
+    text.includes("\n") &&
+    /(\$ |npm |pnpm |error|Error|\bat \w+|\.ts:|\.tsx:)/.test(text)
   );
 }

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-const router = Router();
+const router: Router = Router();
 const clients = new Set<Response>();
 
 router.get("/", (req: Request, res: Response) => {
@@ -11,7 +11,16 @@ router.get("/", (req: Request, res: Response) => {
   });
   res.write('data: {"type":"connected"}\n\n');
   clients.add(res);
-  req.on("close", () => clients.delete(res));
+
+  // Without a heartbeat, proxies and idle timeouts silently drop the connection.
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    clients.delete(res);
+  });
 });
 
 export function broadcast(event: string, data: any) {

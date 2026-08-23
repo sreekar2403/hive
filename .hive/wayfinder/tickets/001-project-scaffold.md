@@ -10,17 +10,20 @@
 How should the Hive project be scaffolded? The spec calls for a Node.js + TypeScript monolith with a React UI.
 
 **Decision needed:**
+
 - Single package or workspace monorepo (server + UI in one package vs separate packages)?
 - Build tool for server (ts-node, tsx, esbuild, swc)?
 - Dev workflow (concurrent server + UI dev servers, or single process)?
 
 **Considerations:**
+
 - Single package is simpler but mixes server and UI concerns
 - Monorepo (npm workspaces) gives clean separation but more setup
 - Server needs to serve the UI in production (single binary feeling)
 - Dev mode needs hot reload for both server and UI
 
 **Options:**
+
 - A) Single package — everything in one `src/` directory, one `tsconfig.json`
 - B) npm workspaces — `packages/server` + `packages/ui`, shared types
 - C) Turborepo — overkill for personal tool but future-proof

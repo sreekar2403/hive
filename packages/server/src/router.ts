@@ -1,6 +1,15 @@
-import { RoutingDecision } from '@hive/shared';
-import { Config } from './config';
-import { Harness } from '@hive/shared/harness';
+import { RoutingDecision } from "@hive/shared";
+import { Config } from "./config";
+import { Harness } from "@hive/shared/harness";
+
+/**
+ * RoutingDecision plus the provider a rule pinned, if any. Kept as a local
+ * extension (rather than editing the shared package) since the provider is
+ * only meaningful to callers that care about task routing configuration.
+ */
+export interface RoutingResult extends RoutingDecision {
+  provider?: string;
+}
 
 export class Router {
   private config: Config;
@@ -11,7 +20,7 @@ export class Router {
     this.harnesses = harnesses;
   }
 
-  route(query: string, availableHarnesses?: string[]): RoutingDecision {
+  route(query: string, availableHarnesses?: string[]): RoutingResult {
     // Check available harnesses
     const available = availableHarnesses || this.getAvailableHarnesses();
 
@@ -19,64 +28,58 @@ export class Router {
       return {
         harness: this.config.routing.fallback,
         model: this.getDefaultModel(this.config.routing.fallback),
-        reasoning: 'No harnesses available, using fallback',
+        reasoning: "No harnesses available, using fallback",
       };
     }
 
-    // Simple heuristic routing based on query analysis
+    // Routing based on the configurable rules table (Settings > Task routing)
     const decision = this.heuristicRoute(query, available);
 
     return decision;
   }
 
-  private heuristicRoute(query: string, available: string[]): RoutingDecision {
+  private heuristicRoute(query: string, available: string[]): RoutingResult {
     const lowerQuery = query.toLowerCase();
-
-    // Task-specific routing heuristics
-    const rules: Array<{ pattern: RegExp; harness: string; reasoning: string }> = [
-      {
-        pattern: /test|spec|assert|expect|describe|it\(|jest|vitest|mocha/,
-        harness: 'opencode',
-        reasoning: 'Test-related task, routing to opencode',
-      },
-      {
-        pattern: /refactor|clean|restructure|rename|move|extract/,
-        harness: 'claude-code',
-        reasoning: 'Refactoring task, routing to claude-code',
-      },
-      {
-        pattern: /document|readme|doc|writeup|explain|comment/,
-        harness: 'claude-code',
-        reasoning: 'Documentation task, routing to claude-code',
-      },
-      {
-        pattern: /deploy|build|ci|cd|docker|kubernetes|infra|aws|gcp|azure/,
-        harness: 'opencode',
-        reasoning: 'DevOps task, routing to opencode',
-      },
-      {
-        pattern: /design|ui|ux|css|style|theme|component/,
-        harness: 'claude-code',
-        reasoning: 'UI/UX task, routing to claude-code',
-      },
-      {
-        pattern: /research|search|find|look up|documentation|api doc/,
-        harness: 'opencode',
-        reasoning: 'Research task, routing to opencode',
-      },
-    ];
+    const rules = this.config.routing.rules || [];
 
     for (const rule of rules) {
-      if (rule.pattern.test(lowerQuery) && available.includes(rule.harness)) {
+      if (!rule.enabled || rule.taskType === "default" || !rule.pattern) {
+        continue;
+      }
+
+      let regex: RegExp;
+      try {
+        regex = new RegExp(rule.pattern, "i");
+      } catch {
+        // Malformed pattern saved via the UI; skip it rather than crash routing.
+        continue;
+      }
+
+      if (regex.test(lowerQuery) && available.includes(rule.harness)) {
         return {
           harness: rule.harness,
-          model: this.getDefaultModel(rule.harness),
-          reasoning: rule.reasoning,
+          model: rule.model || this.getDefaultModel(rule.harness),
+          provider: rule.provider || undefined,
+          reasoning:
+            rule.reasoning || `${rule.taskType} task, routing to ${rule.harness}`,
         };
       }
     }
 
-    // Default to first available harness
+    // Fall through to the "default" rule, if one is configured and usable.
+    const defaultRule = rules.find(
+      (r) => r.taskType === "default" && r.enabled,
+    );
+    if (defaultRule && available.includes(defaultRule.harness)) {
+      return {
+        harness: defaultRule.harness,
+        model: defaultRule.model || this.getDefaultModel(defaultRule.harness),
+        provider: defaultRule.provider || undefined,
+        reasoning: defaultRule.reasoning || `Default routing to ${defaultRule.harness}`,
+      };
+    }
+
+    // Last resort: first available harness.
     return {
       harness: available[0],
       model: this.getDefaultModel(available[0]),
@@ -85,15 +88,18 @@ export class Router {
   }
 
   private getDefaultModel(harnessName: string): string {
-    const harnessConfig = this.config.harnesses[harnessName as keyof typeof this.config.harnesses];
-    return harnessConfig?.defaultModel || 'sonnet';
+    const harnessConfig =
+      this.config.harnesses[harnessName as keyof typeof this.config.harnesses];
+    return harnessConfig?.defaultModel || "sonnet";
   }
 
   private getAvailableHarnesses(): string[] {
     const available: string[] = [];
-    for (const [name, harness] of this.harnesses) {
+    for (const name of this.harnesses.keys()) {
       // Check if harness is enabled in config
-      const isEnabled = this.config.harnesses[name as keyof typeof this.config.harnesses]?.enabled;
+      const isEnabled =
+        this.config.harnesses[name as keyof typeof this.config.harnesses]
+          ?.enabled;
       if (isEnabled) {
         available.push(name);
       }

@@ -2,7 +2,7 @@
 
 ## Headline summary
 
-**"Hermes" does resolve to a real, public CLI agent tool from Nous Research — but it is a much bigger, much heavier piece of software than the ticket's framing implies, and the disambiguation risk called out in the ticket is real and worth flagging even though the answer isn't "it doesn't exist."** The tool is **Hermes Agent**, published at `github.com/NousResearch/hermes-agent`, installed by a shell/PowerShell bootstrap script (not npm/PyPI), and exposing a `hermes` binary. It is *not* the same thing as the "Hermes" model family (Hermes 3/4 open-weight LLMs) — those are just model weights Hermes Agent can optionally talk to, and are a completely separate artifact from this CLI. There is also a separate, likely-confusable "Hermes" — Meta's Hermes JavaScript engine for React Native (`hermes-engine`, `hermes-compiler` on npm) — which has nothing to do with Nous Research, LLM agents, or this ticket. Practically for Hive: Hermes Agent does have a genuine one-shot, script-friendly execution mode (`hermes -z <prompt>`) suitable for spawning as a child process, and it can be pointed at local OpenAI-compatible endpoints including Ollama, LM Studio, vLLM, and llama.cpp — so the ticket is plausible to implement. But it is a full Python/Node hybrid application (memory, skills, messaging gateways, scheduling) installed via a curl-pipe-to-bash installer, not a lightweight single-purpose CLI like `claude`/`opencode`/`pi`, and its plain "final text only" one-shot mode does not natively emit the structured JSON or NDJSON event stream that `claudeCode.ts`/`opencode.ts` parse — so the `output` field construction will look more like `pi.ts`'s "use stdout as-is" approach than `opencode.ts`'s event-parsing approach, unless Hive is willing to pair `-z` with `--usage-file` for a secondary side-channel JSON blob.
+**"Hermes" does resolve to a real, public CLI agent tool from Nous Research — but it is a much bigger, much heavier piece of software than the ticket's framing implies, and the disambiguation risk called out in the ticket is real and worth flagging even though the answer isn't "it doesn't exist."** The tool is **Hermes Agent**, published at `github.com/NousResearch/hermes-agent`, installed by a shell/PowerShell bootstrap script (not npm/PyPI), and exposing a `hermes` binary. It is _not_ the same thing as the "Hermes" model family (Hermes 3/4 open-weight LLMs) — those are just model weights Hermes Agent can optionally talk to, and are a completely separate artifact from this CLI. There is also a separate, likely-confusable "Hermes" — Meta's Hermes JavaScript engine for React Native (`hermes-engine`, `hermes-compiler` on npm) — which has nothing to do with Nous Research, LLM agents, or this ticket. Practically for Hive: Hermes Agent does have a genuine one-shot, script-friendly execution mode (`hermes -z <prompt>`) suitable for spawning as a child process, and it can be pointed at local OpenAI-compatible endpoints including Ollama, LM Studio, vLLM, and llama.cpp — so the ticket is plausible to implement. But it is a full Python/Node hybrid application (memory, skills, messaging gateways, scheduling) installed via a curl-pipe-to-bash installer, not a lightweight single-purpose CLI like `claude`/`opencode`/`pi`, and its plain "final text only" one-shot mode does not natively emit the structured JSON or NDJSON event stream that `claudeCode.ts`/`opencode.ts` parse — so the `output` field construction will look more like `pi.ts`'s "use stdout as-is" approach than `opencode.ts`'s event-parsing approach, unless Hive is willing to pair `-z` with `--usage-file` for a secondary side-channel JSON blob.
 
 ---
 
@@ -18,6 +18,7 @@ The installer clones the `NousResearch/hermes-agent` git repo, provisions a Pyth
 Confidence: **high** for install mechanism and binary name (directly from the official installation docs); **medium** on exact dependency versions (Python 3.11/Node 22 figures came from a WebFetch summary of the docs page, not directly re-verified against raw source).
 
 Sources:
+
 - https://hermes-agent.nousresearch.com/docs/getting-started/installation
 - https://github.com/NousResearch/hermes-agent
 
@@ -39,6 +40,7 @@ answer=$(hermes -z "summarize this" < /path/to/file.txt)
 ```
 
 Other flags relevant to non-interactive invocation:
+
 - `--query-file PATH` — reads the prompt from a file rather than argv, avoiding shell interpretation of untrusted prompt text.
 - `-Q, --quiet` — suppresses banner/spinner/tool-preview even outside `-z`.
 - `--usage-file <path>` — writes a JSON side-channel report (see Q3) after the run completes, including on failure.
@@ -49,6 +51,7 @@ A second, less minimal one-shot mode also exists: `hermes chat -q "<prompt>"`, w
 Confidence: **high** for the existence and basic semantics of `-z`, `--query-file`, `--usage-file`, `-q` (drawn directly from `website/docs/reference/cli-commands.md` in the official repo). **Medium** on the exact wording of flag help text, since content was retrieved via WebFetch's summarization rather than a raw diff/grep of the file.
 
 Sources:
+
 - https://github.com/nousresearch/hermes-agent/blob/main/website/docs/reference/cli-commands.md
 - https://hermes-agent.nousresearch.com/docs/reference/cli-commands
 
@@ -64,10 +67,11 @@ Paris.
 ```
 
 This is fundamentally different from both:
+
 - `claude -p <prompt> --output-format json` (single structured JSON object on stdout), and
 - `opencode run --pure --format json <prompt>` (newline-delimited JSON events, one per line, that `opencode.ts`'s `parseOpenCodeOutput` scans for `event.type === 'text'` / `event.part.text`).
 
-Hermes's closer analogue is `pi -p <prompt>` — raw stdout text used directly as the result — because `-z` produces no structured envelope to parse; the entire stdout string *is* the answer.
+Hermes's closer analogue is `pi -p <prompt>` — raw stdout text used directly as the result — because `-z` produces no structured envelope to parse; the entire stdout string _is_ the answer.
 
 There is a secondary, separate JSON artifact available via `--usage-file <path>`: after the run, Hermes writes a JSON report to that file path (not stdout) containing `estimated_cost_usd`, input/output/cache token counts, `api_calls`, `model`, `provider`, `session_id`, and completion status. This file is written even on failed runs, which makes it useful for cost/telemetry accounting, but it is not a substitute for a structured result payload — it carries no "text" or "output" field describing what the agent did, only usage/cost metadata. I could not find documentation of any flag that combines `-z` (or `-q`) with a `--json`/`--output-format json` style flag to get a single structured JSON object containing the answer text on stdout the way `claude -p --output-format json` does. A `--json` flag does exist elsewhere in the CLI (on `hermes send`, `hermes peer dm`, `hermes logs`), but I found no evidence it composes with `-z`.
 
@@ -76,6 +80,7 @@ There is a secondary, separate JSON artifact available via `--usage-file <path>`
 Confidence: **high** on `-z` producing plain final text with no envelope (explicit statement in official docs, and matches the "nothing else on stdout" framing directly quoted from the reference). **Low** on whether any hidden/undocumented flag combination yields structured single-JSON-object output on stdout — I could not find one documented, but did not exhaustively check `hermes --help` output directly (no shell access to a live install).
 
 Sources:
+
 - https://github.com/nousresearch/hermes-agent/blob/main/website/docs/reference/cli-commands.md
 - https://hermes-agent.nousresearch.com/docs/reference/cli-commands
 
@@ -93,6 +98,7 @@ I found no documentation of an NDJSON/event-stream flag for programmatic increme
 Confidence: **medium**. This is inferred from wording in secondary summaries of the docs (I did not find a single source that states outright "no partial output" for `-z` in as many words) plus the explicit "final response text out, nothing else" framing, which strongly implies no incremental flush. Recommend re-verifying directly against a live `hermes -z` run before finalizing the implementation.
 
 Sources:
+
 - https://github.com/nousresearch/hermes-agent/blob/main/website/docs/reference/cli-commands.md
 - https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server (mentions streaming tool-progress indicators for the API-server/interactive surface)
 
@@ -128,7 +134,8 @@ Sources:
 - A **named multi-provider** config block (`providers: <name>: { api: <url>, key_env / key_cmd }`) lets several custom endpoints coexist and be switched mid-session with `/model custom:<name>:<model>`.
 
 Provider/model selection is controlled by:
-- `hermes model` — the interactive provider-setup wizard (only way to *add* a new provider or run its OAuth flow).
+
+- `hermes model` — the interactive provider-setup wizard (only way to _add_ a new provider or run its OAuth flow).
 - `/model <provider>:<model>` inside an active session — switch among already-configured providers/models; `/model --global` persists the choice to `config.yaml`.
 - CLI override flags on any invocation: `-m/--model <model>`, `--provider <provider>`.
 - Env var `HERMES_INFERENCE_MODEL` — sets the default model.
@@ -137,6 +144,7 @@ Provider/model selection is controlled by:
 Confidence: **high** for "yes, local OpenAI-compatible endpoints including Ollama/LM Studio are supported" and for the general provider list breadth (corroborated across the official providers doc page, the FAQ, and a live GitHub issue about Ollama base_url behavior). **Medium** on exact YAML key names / flag spelling, since this was retrieved through WebFetch summarization of the docs rather than a byte-exact read of the raw markdown source.
 
 Sources:
+
 - https://hermes-agent.nousresearch.com/docs/integrations/providers
 - https://github.com/NousResearch/hermes-agent/blob/main/website/docs/integrations/providers.md
 - https://github.com/NousResearch/hermes-agent/issues/7516
@@ -146,14 +154,14 @@ Sources:
 
 ## Verification of the naming risk (explicit, as requested)
 
-The ticket explicitly asked to check whether "hermes" is a real CLI or a mix-up with the Hermes *model* family. Findings:
+The ticket explicitly asked to check whether "hermes" is a real CLI or a mix-up with the Hermes _model_ family. Findings:
 
-1. **A real CLI does exist and is named `hermes`.** It ships from `github.com/NousResearch/hermes-agent`, is described on its own docs site (`hermes-agent.nousresearch.com`) as "the self-improving AI agent built by Nous Research," and is a distinct product from the Hermes model weights (Hermes 3, Hermes 4, etc.) — those are LLMs the agent can optionally call as *one of its providers*, not the CLI itself. This is directly analogous to how Hive's own `claude-code` harness calls the `claude` binary, which itself can be pointed at different Claude *models* — the binary and the model family are not the same thing, and the same separation holds for Hermes Agent vs. the Hermes model weights.
+1. **A real CLI does exist and is named `hermes`.** It ships from `github.com/NousResearch/hermes-agent`, is described on its own docs site (`hermes-agent.nousresearch.com`) as "the self-improving AI agent built by Nous Research," and is a distinct product from the Hermes model weights (Hermes 3, Hermes 4, etc.) — those are LLMs the agent can optionally call as _one of its providers_, not the CLI itself. This is directly analogous to how Hive's own `claude-code` harness calls the `claude` binary, which itself can be pointed at different Claude _models_ — the binary and the model family are not the same thing, and the same separation holds for Hermes Agent vs. the Hermes model weights.
 2. **It is a much larger piece of software than a lightweight one-shot harness.** Unlike `claude`, `opencode`, or `pi`, Hermes Agent bundles a persistent memory system, a skill-creation/learning loop, a messaging gateway to 20+ chat platforms, scheduled cron automations, and an installer that provisions Python + Node + ripgrep + ffmpeg. It is architecturally a full personal-agent product, not a minimal CLI-only coding-agent harness — worth flagging to the team even though it does have the one-shot mode the ticket needs.
 3. **Genuinely unrelated "hermes" collisions exist and must not be confused with this tool:**
    - `hermes-engine` / `hermes-compiler` / `@react-native-community/cli-hermes` (npm) — **Meta's Hermes JavaScript engine** for React Native. Nothing to do with LLM agents or Nous Research.
    - `hermes` (npm) — described in search results as "a friendly, pluggable chat bot" — a different, unrelated small chat-bot framework, not an LLM agent CLI, not from Nous Research.
-   - `@so-me/hermes-agent` (npm) — a *third-party integration layer* between a service called "so-me.studio" and the Nous Hermes 4 *model*; explicitly not the official Nous Research Hermes Agent CLI product, despite the confusingly similar package name.
+   - `@so-me/hermes-agent` (npm) — a _third-party integration layer_ between a service called "so-me.studio" and the Nous Hermes 4 _model_; explicitly not the official Nous Research Hermes Agent CLI product, despite the confusingly similar package name.
    - `hermes-cli` (npm) — unrelated tool for searching travel agencies in Brazil.
    - `@hermes-serverless/cli` (npm) — unrelated serverless build/deploy CLI for C++/CUDA functions.
 
@@ -162,6 +170,7 @@ The ticket explicitly asked to check whether "hermes" is a real CLI or a mix-up 
 Confidence: **high** — corroborated by the official Nous Research docs site, the official GitHub org (`NousResearch`), and cross-checked against independent npm search results showing the unrelated same-named packages.
 
 Sources:
+
 - https://github.com/NousResearch/hermes-agent
 - https://hermes-agent.nousresearch.com/
 - https://www.npmjs.com/package/hermes
@@ -183,11 +192,11 @@ Concretely, a `HermesHarness` implementing the `Harness` interface would look st
 
 ```ts
 export class HermesHarness implements Harness {
-  name = 'hermes';
+  name = "hermes";
   private _path: string;
   private _model: string;
 
-  constructor(path = 'hermes', model = 'hermes') {
+  constructor(path = "hermes", model = "hermes") {
     this._path = path;
     this._model = model;
   }
@@ -199,7 +208,10 @@ export class HermesHarness implements Harness {
     // install; `hermes -h`/`hermes --help` may be the safer probe.)
   }
 
-  execute(prompt: string, options?: HarnessOptions): Promise<HarnessExecutionResult> {
+  execute(
+    prompt: string,
+    options?: HarnessOptions,
+  ): Promise<HarnessExecutionResult> {
     // spawn(this._path, ['-z', prompt, '--model', this._model], { ...cwd/env/shell })
     // Optionally add ['--usage-file', <tmp path>] and read+parse that file
     // after `close` to populate cost/token metadata, mirroring how

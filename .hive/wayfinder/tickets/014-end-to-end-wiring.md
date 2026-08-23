@@ -10,18 +10,21 @@
 How should all components be wired together for the first working demo? This is the integration ticket — everything connects here.
 
 **Decision needed:**
+
 - What is the minimal viable flow (query → one agent → result → UI)?
 - What is the startup sequence (server → UI → WebSocket → ready?)?
 - How are errors surfaced to the user?
 - What does the first working demo look like?
 
 **Considerations:**
+
 - Must work end-to-end before adding complexity
 - First demo should prove the loop works with one harness
 - UI can be minimal (just chat, no agent panel yet)
 - Config can be hardcoded initially
 
 **Options:**
+
 - A) Vertical slice — one harness, one loop, minimal UI
 - B) Horizontal slice — all components, stub implementations
 - C) Walking skeleton — full flow, all real implementations, simplest possible
@@ -83,19 +86,19 @@ UI shows: "Done — created src/hello.ts"
 ```typescript
 // packages/server/src/index.ts
 
-import http from 'http';
-import { Orchestrator } from './orchestrator';
-import { HiveWSServer } from './wsServer';
-import { OpenCodeHarness } from './harnesses/opencode';
-import { ClaudeCodeHarness } from './harnesses/claudeCode';
-import { PiHarness } from './harnesses/pi';
-import { loadConfig } from './config';
-import { resolve } from 'path';
+import http from "http";
+import { Orchestrator } from "./orchestrator";
+import { HiveWSServer } from "./wsServer";
+import { OpenCodeHarness } from "./harnesses/opencode";
+import { ClaudeCodeHarness } from "./harnesses/claudeCode";
+import { PiHarness } from "./harnesses/pi";
+import { loadConfig } from "./config";
+import { resolve } from "path";
 
 async function main() {
   // 1. Load config
   const config = loadConfig();
-  console.log('Config loaded:', config.routing.default);
+  console.log("Config loaded:", config.routing.default);
 
   // 2. Initialize harnesses
   const harnesses = [
@@ -107,7 +110,7 @@ async function main() {
   // Check which harnesses are available
   for (const h of harnesses) {
     const available = await h.isAvailable();
-    console.log(`Harness ${h.name}: ${available ? 'available' : 'NOT FOUND'}`);
+    console.log(`Harness ${h.name}: ${available ? "available" : "NOT FOUND"}`);
   }
 
   // 3. Create orchestrator
@@ -118,7 +121,7 @@ async function main() {
     // In production: serve static files from packages/ui/dist
     // In dev: Vite dev server handles this
     res.writeHead(200);
-    res.end('Hive server running');
+    res.end("Hive server running");
   });
 
   // 5. Attach WebSocket server
@@ -128,7 +131,7 @@ async function main() {
   const PORT = process.env.HIVE_PORT || 3000;
   server.listen(PORT, () => {
     console.log(`Hive server running on http://localhost:${PORT}`);
-    console.log('Ready for queries.');
+    console.log("Ready for queries.");
   });
 }
 
@@ -176,9 +179,9 @@ main().catch(console.error);
 // Errors flow through the same WebSocket events
 
 // Harness crash
-orchestrator.on('session:error', ({ sessionId, error }) => {
+orchestrator.on("session:error", ({ sessionId, error }) => {
   wsServer.broadcast(sessionId, {
-    type: 'session:error',
+    type: "session:error",
     sessionId,
     payload: { error },
     id: crypto.randomUUID(),
@@ -187,12 +190,12 @@ orchestrator.on('session:error', ({ sessionId, error }) => {
 });
 
 // Loop timeout
-loopEngine.on('iteration:timeout', ({ sessionId, iteration }) => {
+loopEngine.on("iteration:timeout", ({ sessionId, iteration }) => {
   wsServer.broadcast(sessionId, {
-    type: 'chat:message',
+    type: "chat:message",
     sessionId,
     payload: {
-      role: 'assistant',
+      role: "assistant",
       content: `Iteration ${iteration} timed out. Retrying...`,
     },
     id: crypto.randomUUID(),
@@ -201,9 +204,9 @@ loopEngine.on('iteration:timeout', ({ sessionId, iteration }) => {
 });
 
 // Permission timeout
-permissionSystem.on('timeout', ({ sessionId }) => {
+permissionSystem.on("timeout", ({ sessionId }) => {
   wsServer.broadcast(sessionId, {
-    type: 'permission:timeout',
+    type: "permission:timeout",
     sessionId,
     payload: { requestId },
     id: crypto.randomUUID(),

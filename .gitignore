@@ -1,17 +1,18 @@
 # Dependencies
 node_modules/
-pnpm-lock.yaml
+# pnpm-lock.yaml is committed intentionally — it's the only thing that makes
+# installs reproducible across machines/CI.
 package-lock.json
 yarn.lock
 
 # Build outputs
 dist/
 packages/*/dist/
+packages/client/electron/dist/
 *.tsbuildinfo
 
-# Next.js
-.next/
-out/
+# electron-builder packaged app output
+release/
 
 # Testing
 coverage/
@@ -20,6 +21,9 @@ coverage/
 # Caching
 .hive-cache/
 .cache/
+
+# Runtime data (SQLite db + WAL/SHM files created on server boot)
+storage/
 
 # Environment
 .env
@@ -51,3 +55,9 @@ pnpm-debug.log*
 # Temporary
 .tmp/
 tmp/
+
+.hive/
+.superpowers/
+docs/
+.claude/
+CLAUDE.md
