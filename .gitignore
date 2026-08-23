@@ -1,9 +1,10 @@
 # Dependencies
 node_modules/
-# pnpm-lock.yaml is committed intentionally — it's the only thing that makes
-# installs reproducible across machines/CI.
 package-lock.json
 yarn.lock
+
+# pnpm-lock.yaml is committed intentionally — it's the only thing that makes installs reproducible.
+pnpm-lock.yaml
 
 # Build outputs
 dist/
@@ -56,8 +57,28 @@ pnpm-debug.log*
 .tmp/
 tmp/
 
+# Agent/skill related directories and files - EXCLUDE ALL
 .hive/
 .superpowers/
-docs/
+.docs/
 .claude/
+.claude/skills/
+.claude/prompts/
+.claude/settings/
 CLAUDE.md
+
+# Wayfinder research/tickets (entire directory)
+.hive/wayfinder/
+
+# Superpowers specs/plans (entire directory)
+docs/superpowers/
+
+# Agent skills and prompts directories
+.agent/
+.skills/
+.prompt-templates/
+
+# Other agent frameworks
+.pi/
+.venv/
+.env.agent
