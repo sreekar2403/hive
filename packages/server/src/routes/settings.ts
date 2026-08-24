@@ -74,6 +74,7 @@ function toView(config: Config) {
     loop: config.loop,
     server: config.server,
     storage: config.storage,
+    secondBrain: config.secondBrain,
     general: config.general,
   };
 }
@@ -227,6 +228,92 @@ function validatePartialConfig(body: any): void {
       throw new Error("loop.maxConcurrentAgents must be a positive number");
     }
   }
+
+  if (body.secondBrain) {
+    const b = body.secondBrain;
+    if (typeof b !== "object" || Array.isArray(b)) {
+      throw new Error("secondBrain must be an object");
+    }
+    if ("enabled" in b && typeof b.enabled !== "boolean") {
+      throw new Error("secondBrain.enabled must be a boolean");
+    }
+    // These two decide where files get written, so a wrong type here is a
+    // wrong path, not a wrong setting.
+    for (const key of ["dir", "globalDir"]) {
+      if (key in b && typeof b[key] !== "string") {
+        throw new Error(`secondBrain.${key} must be a string`);
+      }
+    }
+
+    if (b.learning) {
+      const l = b.learning;
+      if ("enabled" in l && typeof l.enabled !== "boolean") {
+        throw new Error("secondBrain.learning.enabled must be a boolean");
+      }
+      if ("model" in l && typeof l.model !== "string") {
+        throw new Error("secondBrain.learning.model must be a string");
+      }
+      if (
+        "batchIntervalMs" in l &&
+        (typeof l.batchIntervalMs !== "number" || l.batchIntervalMs < 60_000)
+      ) {
+        throw new Error(
+          "secondBrain.learning.batchIntervalMs must be at least 60000ms",
+        );
+      }
+      if ("minConfidence" in l && !isUnitInterval(l.minConfidence)) {
+        throw new Error(
+          "secondBrain.learning.minConfidence must be between 0 and 1",
+        );
+      }
+      if (
+        "maxSuggestionsPerBatch" in l &&
+        (typeof l.maxSuggestionsPerBatch !== "number" ||
+          l.maxSuggestionsPerBatch < 0)
+      ) {
+        throw new Error(
+          "secondBrain.learning.maxSuggestionsPerBatch must be zero or more",
+        );
+      }
+      if (l.triggers) {
+        for (const [name, value] of Object.entries(l.triggers)) {
+          if (typeof value !== "boolean") {
+            throw new Error(
+              `secondBrain.learning.triggers.${name} must be a boolean`,
+            );
+          }
+        }
+      }
+    }
+
+    if (b.routing) {
+      const r = b.routing;
+      if ("augment" in r && typeof r.augment !== "boolean") {
+        throw new Error("secondBrain.routing.augment must be a boolean");
+      }
+      if (
+        "minSamples" in r &&
+        (typeof r.minSamples !== "number" || r.minSamples < 1)
+      ) {
+        throw new Error("secondBrain.routing.minSamples must be at least 1");
+      }
+      if ("minMargin" in r && !isUnitInterval(r.minMargin)) {
+        throw new Error("secondBrain.routing.minMargin must be between 0 and 1");
+      }
+    }
+
+    if (b.retrieval) {
+      for (const [key, value] of Object.entries(b.retrieval)) {
+        if (typeof value !== "number" || value < 0) {
+          throw new Error(`secondBrain.retrieval.${key} must be zero or more`);
+        }
+      }
+    }
+  }
+}
+
+function isUnitInterval(value: unknown): boolean {
+  return typeof value === "number" && value >= 0 && value <= 1;
 }
 
 // POST /api/settings/providers/:id/test — probe a provider credential

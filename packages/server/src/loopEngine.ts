@@ -2,6 +2,7 @@ import { LoopState, RoutingDecision } from "@hive/shared";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
 import { Config } from "./config";
 import { Router } from "./router";
+import type { RoutingHint } from "./secondBrain/types";
 import { endSpan, log, recordSpan, startSpan } from "./telemetry";
 
 export type LoopCallback = (
@@ -16,6 +17,18 @@ export class LoopEngine {
   private config: Config;
   private harnesses: Map<string, Harness>;
   private router: Router;
+  /**
+   * Second Brain context for the current run, prepended to the prompt the
+   * harness receives but deliberately kept *out* of `state.currentPrompt`.
+   *
+   * That separation is load-bearing. Routing and the retry prompt are both
+   * derived from `currentPrompt`; if the briefing lived there, a lesson that
+   * happened to mention "tests" would re-route the task, and each retry would
+   * stack another copy of the briefing onto the prompt.
+   */
+  private preamble = "";
+  /** Learned routing advice for this run, passed through to the Router. */
+  private hints: RoutingHint[] = [];
 
   constructor(config: Config, harnesses: Map<string, Harness>, router?: Router) {
     this.config = config;
@@ -66,9 +79,15 @@ export class LoopEngine {
       agent?: string;
       /** Forwarded live, so the UI can show work as it happens. */
       onEvent?: (event: HarnessEvent) => void;
+      /** Second Brain briefing, prepended to every iteration's prompt. */
+      preamble?: string;
+      /** Learned routing advice; advisory, see Router.applyHints. */
+      hints?: RoutingHint[];
     },
   ): Promise<LoopState> {
     const traced = Boolean(taskId);
+    this.preamble = options?.preamble ?? "";
+    this.hints = options?.hints ?? [];
 
     while (this.state.iteration < this.state.maxIterations) {
       this.state.iteration++;
@@ -199,7 +218,9 @@ export class LoopEngine {
   }
 
   private buildPrompt(): string {
-    const parts: string[] = [this.state.currentPrompt];
+    const parts: string[] = [];
+    if (this.preamble) parts.push(this.preamble);
+    parts.push(this.state.currentPrompt);
 
     if (this.state.previousOutput) {
       parts.push("\n--- Previous attempt output ---");
@@ -223,7 +244,7 @@ export class LoopEngine {
         reasoning: "Harness pinned for this run",
       };
     }
-    return this.router.route(this.state.currentPrompt);
+    return this.router.route(this.state.currentPrompt, { hints: this.hints });
   }
 
   private shouldRetry(result: { success: boolean; stderr: string }): boolean {

@@ -15,6 +15,7 @@ import logRoutes from "./routes/logs";
 import settingsRoutes from "./routes/settings";
 import memoryRoutes, { setSharedMemory } from "./routes/memory";
 import agentRoutes from "./routes/agents";
+import brainRoutes from "./routes/brain";
 import modelRoutes from "./routes/models";
 import { resolveModelRef } from "./models/catalog";
 import taskRoutes from "./routes/tasks";
@@ -185,6 +186,9 @@ class HiveServer {
 
     // Live agent roster powering the Office floor
     app.use("/api/agents", agentRoutes);
+
+    // Second Brain — soul.md, the learned stores and the knowledge graph
+    app.use("/api/brain", brainRoutes);
 
     // Which models each harness and local server can actually run
     app.use("/api/models", modelRoutes);

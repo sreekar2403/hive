@@ -21,6 +21,9 @@ export type SpanType =
   | "harness"
   | "tool"
   | "git"
+  // Second Brain recall — what the task was told about your past work
+  // before it started. See secondBrain/.
+  | "memory"
   | "result";
 
 export type SpanOutcome = "ok" | "failed" | "skipped";

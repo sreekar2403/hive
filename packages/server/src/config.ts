@@ -53,6 +53,64 @@ export interface RoutingRule {
   enabled: boolean;
 }
 
+/**
+ * The Second Brain: a learning memory layer that sits beside the swarm and
+ * accumulates what it observes about *you* (preferences, habits) and about
+ * *the work* (which harness wins which category, how failures were fixed).
+ *
+ * Two scopes exist and are read in this order, most specific last:
+ *   - global, at `~/.hive/mem`, shared by every project on the machine
+ *   - project, at `<project>/mem`, checked in alongside the code it describes
+ *
+ * `mem/config.json` in either scope may override any field below, so a repo
+ * can, say, disable learning without touching the machine-wide setting.
+ * See secondBrain/ for the reader, writer, graph and learning agent.
+ */
+export interface SecondBrainConfig {
+  enabled: boolean;
+  /** Store directory, relative to a project root (or absolute). */
+  dir: string;
+  /** Machine-wide store. Empty string means `~/.hive/mem`. */
+  globalDir: string;
+  learning: {
+    enabled: boolean;
+    /** Which observations wake the learning agent immediately. */
+    triggers: {
+      onFailure: boolean;
+      onCorrection: boolean;
+      onExplicitNote: boolean;
+      /** Deeper synthesis over accumulated data, on a timer. */
+      periodic: boolean;
+    };
+    /** How often the periodic batch runs, in milliseconds. */
+    batchIntervalMs: number;
+    /**
+     * Catalog id (`harness/provider/model`) used for LLM-assisted synthesis.
+     * Empty means "heuristics only" — the layer stays fully functional
+     * without any model, it just derives less.
+     */
+    model: string;
+    /** Records below this confidence are stored but never surfaced to agents. */
+    minConfidence: number;
+    /** Cap on how many soul.md suggestions one batch may queue. */
+    maxSuggestionsPerBatch: number;
+  };
+  routing: {
+    /** Let learned harness performance re-rank the rules table's answer. */
+    augment: boolean;
+    /** Learned routing needs at least this many observations to speak up. */
+    minSamples: number;
+    /** ...and at least this success-rate gap before it overrides a rule. */
+    minMargin: number;
+  };
+  retrieval: {
+    maxPreferences: number;
+    maxLessons: number;
+    /** Cap the injected briefing so it can't crowd out the actual prompt. */
+    maxBriefingChars: number;
+  };
+}
+
 export interface Config {
   providers: Record<ProviderId, ProviderConfig>;
   harnesses: Record<HarnessId, HarnessConfig>;
@@ -82,6 +140,7 @@ export interface Config {
   storage: {
     cacheDir: string;
   };
+  secondBrain: SecondBrainConfig;
   general: {
     defaultProjectId: string;
     /**
@@ -342,9 +401,47 @@ export function createDefaultConfig(): Config {
     storage: {
       cacheDir: "./.hive-cache",
     },
+    secondBrain: createDefaultSecondBrainConfig(),
     general: {
       defaultProjectId: "",
       rootDirectory: "",
+    },
+  };
+}
+
+/**
+ * Defaults chosen so that a fresh install learns quietly and never blocks:
+ * observation is on, but nothing is written into soul.md without approval,
+ * and routing only listens to the learned signal once it has real evidence
+ * behind it (see `routing.minSamples` / `routing.minMargin`).
+ */
+export function createDefaultSecondBrainConfig(): SecondBrainConfig {
+  return {
+    enabled: true,
+    dir: "mem",
+    globalDir: "",
+    learning: {
+      enabled: true,
+      triggers: {
+        onFailure: true,
+        onCorrection: true,
+        onExplicitNote: true,
+        periodic: true,
+      },
+      batchIntervalMs: 6 * 60 * 60 * 1000,
+      model: "",
+      minConfidence: 0.35,
+      maxSuggestionsPerBatch: 5,
+    },
+    routing: {
+      augment: true,
+      minSamples: 5,
+      minMargin: 0.2,
+    },
+    retrieval: {
+      maxPreferences: 8,
+      maxLessons: 5,
+      maxBriefingChars: 2000,
     },
   };
 }

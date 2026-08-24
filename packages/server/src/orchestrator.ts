@@ -11,6 +11,9 @@ import { getDb } from "./db/database";
 import { broadcast } from "./routes/events";
 import { endSpan, log, recordSpan, startSpan } from "./telemetry";
 import { ensureRootDirectory, isGeneralProject } from "./generalWorkspace";
+import { SecondBrain } from "./secondBrain";
+import { keywords } from "./secondBrain/categorize";
+import { createHarnessSynthesizer } from "./secondBrain/synthesizer";
 
 /**
  * Where a task's agent currently stands on the Office floor. Each phase is
@@ -61,6 +64,14 @@ const MAX_TASK_EVENTS = 300;
  */
 const INTAKE_DWELL_MS = 900;
 
+/**
+ * How soon a follow-up prompt in the same session counts as a correction
+ * rather than as the next piece of work. Two minutes is long enough to
+ * catch "no, do it the other way" and short enough that returning after
+ * lunch to ask something unrelated isn't misread as dissatisfaction.
+ */
+const CORRECTION_WINDOW_MS = 2 * 60 * 1000;
+
 function dwell(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -71,6 +82,32 @@ function dwell(ms: number): Promise<void> {
  * keeps the Office floor honest: an agent standing in the QA Lab means the
  * prompt actually mentioned tests, not that a dice roll put them there.
  */
+/**
+ * Whether the second prompt reads as a correction of the first rather than
+ * as the next step after it.
+ *
+ * Two signals, either of which is enough:
+ *   - it opens with an explicit reversal ("no,", "actually", "instead", …)
+ *   - it re-treads the same subject matter, which a genuinely new task
+ *     would not
+ *
+ * Getting this wrong in the permissive direction is the expensive one: it
+ * would teach the brain that satisfied users are dissatisfied. So the
+ * overlap bar is set high enough that only a real re-statement clears it.
+ */
+export function looksLikeCorrection(previous: string, next: string): boolean {
+  const reversal =
+    /^\s*(no|nope|not|actually|instead|rather|wrong|undo|revert|that'?s not|don'?t|stop)/i;
+  if (reversal.test(next)) return true;
+
+  const previousTerms = new Set(keywords(previous, 12));
+  const nextTerms = keywords(next, 12);
+  if (previousTerms.size === 0 || nextTerms.length === 0) return false;
+
+  const shared = nextTerms.filter((t) => previousTerms.has(t)).length;
+  return shared / nextTerms.length >= 0.5;
+}
+
 function classifyWorkPhase(prompt: string): TaskPhase {
   const p = prompt.toLowerCase();
   if (/\b(test|spec|assert|expect|qa|verify|validate|jest|vitest|mocha)\b/.test(p)) {
@@ -106,6 +143,12 @@ export class Orchestrator {
   private resourceManager: ResourceManager;
   private sharedMemory: SharedMemory;
   private tasks: Map<string, AgentTask>;
+  /**
+   * One Second Brain per working tree, cached because the store roots are
+   * derived from the project path and a task shouldn't pay to re-resolve
+   * them. Keyed by resolved cwd; the unscoped case keys on "".
+   */
+  private brains: Map<string, SecondBrain>;
 
   constructor(config: Config, harnesses: Map<string, Harness>) {
     this.config = config;
@@ -116,6 +159,7 @@ export class Orchestrator {
     this.resourceManager = new ResourceManager(config);
     this.sharedMemory = new SharedMemory(config);
     this.tasks = new Map();
+    this.brains = new Map();
     Orchestrator.active = this;
   }
 
@@ -225,8 +269,19 @@ export class Orchestrator {
       return task;
     }
 
+    // The working tree this task runs against — resolved once, because the
+    // Second Brain's store roots hang off it as well as the harness's cwd.
+    const cwd = this.workingTreeFor(task.projectId);
+    const brain = this.brainFor(cwd);
+    const category = brain.categorize(task.prompt);
+    brain.learning.taskStarted(task.id);
+    this.recordCorrectionOfPrevious(task, brain);
+
     // Route to harness. A harness pinned by the caller wins outright —
     // the Chat composer's "Harness" control used to be quietly ignored.
+    // Otherwise the Router gets whatever the brain has learned about which
+    // harness actually finishes this category of work; see Router.applyHints
+    // for why that is advice rather than an instruction.
     const routeStart = Date.now();
     const pinned =
       task.requestedHarness && this.harnesses.has(task.requestedHarness)
@@ -234,7 +289,9 @@ export class Orchestrator {
         : null;
     const decision: RoutingResult = pinned
       ? { harness: pinned, model: "", reasoning: "Pinned by the caller" }
-      : this.router.route(task.prompt);
+      : this.router.route(task.prompt, {
+          hints: brain.getRoutingHints(task.prompt),
+        });
     task.harness = decision.harness;
     recordSpan(
       task.id,
@@ -247,6 +304,8 @@ export class Orchestrator {
         harness: decision.harness,
         model: decision.model,
         reasoning: decision.reasoning,
+        strategy: decision.strategy,
+        category: decision.category ?? category,
       },
     );
     log("info", "router", `Routed to ${decision.harness}: ${decision.reasoning}`, {
@@ -259,6 +318,43 @@ export class Orchestrator {
     // teleporting the character mid-frame.
     await dwell(INTAKE_DWELL_MS);
     this.setPhase(task, classifyWorkPhase(task.prompt));
+
+    // What Hive already knows about this user and this kind of task. The
+    // brain is asked explicitly here (ticket 039-05 chose explicit calls
+    // over silent injection) and the result is passed to the loop as a
+    // preamble, kept out of the prompt that drives routing and retries.
+    const briefingStart = Date.now();
+    const briefing = brain.getBriefing({
+      taskId: task.id,
+      prompt: task.prompt,
+      category,
+      harness: decision.harness,
+      model: task.model,
+      projectId: task.projectId,
+      sessionId: task.sessionId,
+    });
+    if (briefing.text) {
+      recordSpan(
+        task.id,
+        "Recalled from memory",
+        "memory",
+        rootSpan,
+        briefingStart,
+        "ok",
+        {
+          preferences: briefing.preferences.length,
+          lessons: briefing.lessons.length,
+          soulEntries: briefing.soul.length,
+          chars: briefing.text.length,
+        },
+      );
+      log(
+        "info",
+        "second-brain",
+        `Recalled ${briefing.preferences.length} preference(s) and ${briefing.lessons.length} lesson(s)`,
+        { taskId: task.id, projectId: task.projectId },
+      );
+    }
 
     // Initialize loop engine with the prompt
     this.loopEngine.start(task.prompt);
@@ -303,10 +399,12 @@ export class Orchestrator {
       rootSpan,
       task.projectId,
       {
-        cwd: this.workingTreeFor(task.projectId),
+        cwd,
         harness: pinned ?? undefined,
         model: task.model ?? undefined,
         agent: task.agent ?? undefined,
+        preamble: briefing.text,
+        hints: brain.getRoutingHints(task.prompt),
         // Tool calls and thinking reach the chat window through here.
         onEvent: (harnessEvent) => {
           task.events.push(harnessEvent);
@@ -343,6 +441,61 @@ export class Orchestrator {
       iterations: result.iteration,
       filesChanged: task.filesChanged.length,
     });
+
+    // Close the learning loop. This is the event-driven half of ticket
+    // 039-03: cheap, synchronous bookkeeping, no model call. It is wrapped
+    // because a memory layer that can fail a task it only observes would be
+    // strictly worse than not having one.
+    brain.learning.taskFinished(task.id);
+    try {
+      brain.recordFeedback(
+        {
+          taskId: task.id,
+          prompt: task.prompt,
+          category,
+          harness: task.harness,
+          model: task.model,
+          projectId: task.projectId,
+          sessionId: task.sessionId,
+        },
+        {
+          success: result.success,
+          iterations: result.iteration,
+          durationMs: (task.completedAt ?? Date.now()) - task.startedAt,
+          filesChanged: task.filesChanged.length,
+          error: result.error ?? null,
+          // Not known yet — a correction is only visible once the *next*
+          // prompt arrives, so it is recorded by that task. See
+          // recordCorrectionOfPrevious().
+          correction: null,
+        },
+      );
+    } catch (err) {
+      log("warn", "second-brain", "Could not record what happened", {
+        taskId: task.id,
+        projectId: task.projectId,
+        context: { error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+
+    // The deep pass runs on its own schedule and declines while anything is
+    // still executing, so this is a nudge rather than a call — see
+    // LearningAgent.runBatch.
+    void brain
+      .runLearningBatch()
+      .then((queued) => {
+        if (queued?.length) {
+          log(
+            "info",
+            "second-brain",
+            `Queued ${queued.length} soul.md suggestion(s) for your approval`,
+            { taskId: task.id, projectId: task.projectId },
+          );
+        }
+      })
+      .catch(() => {
+        // Already logged inside the agent; nothing here depends on it.
+      });
 
     if (result.success) {
       // A real, if brief, stop in Shipping before the desk empties out —
@@ -439,6 +592,88 @@ export class Orchestrator {
     } catch {
       // Fallback: return a placeholder URL
       return `https://github.com/placeholder/repo/pull/${sourceBranch}`;
+    }
+  }
+
+  /**
+   * The Second Brain for a working tree, created on first use. The
+   * synthesizer is attached only when a model is configured for learning;
+   * with none, the layer runs on heuristics alone and still works.
+   */
+  brainFor(cwd: string | undefined): SecondBrain {
+    const key = cwd ?? "";
+    const existing = this.brains.get(key);
+    if (existing) {
+      // hive.config.json is a live singleton the Settings screen mutates in
+      // place, so a cached brain has to re-read it rather than hold a copy.
+      existing.reload();
+      return existing;
+    }
+
+    const brain = new SecondBrain(this.config, cwd ?? null);
+    const modelId = brain.settings.learning.model;
+    if (modelId) {
+      brain.learning.setSynthesizer(
+        createHarnessSynthesizer(this.harnesses, modelId, cwd),
+      );
+    }
+    this.brains.set(key, brain);
+    return brain;
+  }
+
+  /** The brain for a project id, for callers that only have that. */
+  brainForProject(projectId: string | null): SecondBrain {
+    return this.brainFor(this.workingTreeFor(projectId));
+  }
+
+  /**
+   * Detects that the task now starting is a *correction* of the previous one
+   * in the same session, and records it against that earlier task.
+   *
+   * A correction is the strongest signal the layer gets (ticket 039-03), and
+   * it can only be seen in hindsight: nothing about a finished task says the
+   * user was unhappy with it — the next prompt does. So it is attributed
+   * backwards, from here.
+   *
+   * Two guards keep this from labelling ordinary follow-up work as
+   * dissatisfaction: the prompts must arrive close together, and they must
+   * actually overlap in subject. "Now add the tests" is the next task;
+   * "no, use a map instead" is a correction.
+   */
+  private recordCorrectionOfPrevious(
+    task: AgentTask,
+    brain: SecondBrain,
+  ): void {
+    const previous = this.getSessionTasks(task.sessionId)
+      .filter((t) => t.id !== task.id && t.completedAt !== null)
+      .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))[0];
+
+    if (!previous) return;
+    if (task.startedAt - (previous.completedAt ?? 0) > CORRECTION_WINDOW_MS) return;
+    if (!looksLikeCorrection(previous.prompt, task.prompt)) return;
+
+    try {
+      brain.recordFeedback(
+        {
+          taskId: previous.id,
+          prompt: previous.prompt,
+          category: brain.categorize(previous.prompt),
+          harness: previous.harness,
+          model: previous.model,
+          projectId: previous.projectId,
+          sessionId: previous.sessionId,
+        },
+        {
+          success: previous.status === "completed",
+          iterations: 1,
+          durationMs: (previous.completedAt ?? 0) - previous.startedAt,
+          filesChanged: previous.filesChanged.length,
+          error: null,
+          correction: task.prompt,
+        },
+      );
+    } catch {
+      // Observation only — never allowed to affect the task being started.
     }
   }
 
