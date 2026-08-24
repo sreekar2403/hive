@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Multi-agent orchestration framework",
+  "license": "MIT",
   "bin": {
     "hive": "bin/hive.js"
   },
