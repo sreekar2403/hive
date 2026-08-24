@@ -21,9 +21,37 @@ import { broadcast } from "./events";
 
 const router: Router = Router();
 
-export type TaskStatus = "queued" | "in_progress" | "review" | "done" | "failed";
+/**
+ * The board's columns, in pipeline order.
+ *
+ * `backlog` and `queued` are both pre-start: nothing has been picked up
+ * yet, which is why neither stamps `started_at`. `review`, `testing` and
+ * `blocked` are all mid-flight — work exists, but it isn't finished — and
+ * only `done` and `failed` are terminal.
+ */
+export type TaskStatus =
+  | "backlog"
+  | "queued"
+  | "in_progress"
+  | "review"
+  | "testing"
+  | "blocked"
+  | "done"
+  | "failed";
 
-const STATUSES: TaskStatus[] = ["queued", "in_progress", "review", "done", "failed"];
+const STATUSES: TaskStatus[] = [
+  "backlog",
+  "queued",
+  "in_progress",
+  "review",
+  "testing",
+  "blocked",
+  "done",
+  "failed",
+];
+
+/** Statuses that mean "not picked up yet" — see started_at below. */
+const PRE_START: TaskStatus[] = ["backlog", "queued"];
 const TERMINAL: TaskStatus[] = ["done", "failed"];
 
 export interface KanbanTask {
@@ -127,13 +155,20 @@ router.get("/:id", (req: Request, res: Response) => {
 // POST /api/tasks
 router.post("/", (req: Request, res: Response) => {
   ensureTable();
-  const { projectId, prompt, harness } = req.body ?? {};
+  const { projectId, prompt, harness, status } = req.body ?? {};
 
   if (!projectId || typeof projectId !== "string") {
     return res.status(400).json({ error: "projectId is required" });
   }
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return res.status(400).json({ error: "A task prompt is required" });
+  }
+  // A task can be created straight into a column — the board's per-column
+  // "add" affordance would otherwise need a create followed by a move.
+  if (status !== undefined && !STATUSES.includes(status)) {
+    return res
+      .status(400)
+      .json({ error: `status must be one of ${STATUSES.join(", ")}` });
   }
 
   const db = getDb();
@@ -143,7 +178,7 @@ router.post("/", (req: Request, res: Response) => {
     project_id: projectId,
     prompt: prompt.trim(),
     harness: typeof harness === "string" && harness ? harness : null,
-    status: "queued",
+    status: (status as TaskStatus) ?? "queued",
     branch_name: null,
     iterations: 0,
     files_changed: 0,
@@ -154,6 +189,8 @@ router.post("/", (req: Request, res: Response) => {
     created_at: now,
     updated_at: now,
   };
+  if (!PRE_START.includes(task.status)) task.started_at = now;
+  if (TERMINAL.includes(task.status)) task.completed_at = now;
   task.branch_name = `hive/${task.project_id}/${task.id}`;
 
   db.prepare(
@@ -199,7 +236,7 @@ router.put("/:id", (req: Request, res: Response) => {
 
   // Keep started_at/completed_at honest against the status timeline rather
   // than trusting the client to send them.
-  if (next.status !== "queued" && existing.started_at === null) {
+  if (!PRE_START.includes(next.status) && existing.started_at === null) {
     next.started_at = next.updated_at;
   }
   if (TERMINAL.includes(next.status)) {

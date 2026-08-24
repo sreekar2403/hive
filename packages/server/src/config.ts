@@ -17,6 +17,13 @@ export interface ProviderConfig {
   apiKey: string;
   /** Empty string means "use the provider's default endpoint". */
   baseUrl: string;
+  /**
+   * How this provider is authenticated. `"sso"` means a harness CLI holds
+   * an OAuth credential and no API key is needed — see auth/sso.ts, which
+   * knows which CLI owns which provider and can check whether it is
+   * currently signed in.
+   */
+  authMode: "api-key" | "sso";
 }
 
 export interface HarnessConfig {
@@ -77,6 +84,12 @@ export interface Config {
   };
   general: {
     defaultProjectId: string;
+    /**
+     * Working directory for the built-in "General" workspace — the scope
+     * for questions that are not about any project. Empty means
+     * `~/.hive/workspace`. See generalWorkspace.ts.
+     */
+    rootDirectory: string;
   };
 }
 
@@ -243,13 +256,33 @@ function defaultRoutingRules(): RoutingRule[] {
 export function createDefaultConfig(): Config {
   return {
     providers: {
-      anthropic: { enabled: true, apiKey: "", baseUrl: "" },
-      openai: { enabled: false, apiKey: "", baseUrl: "" },
-      openrouter: { enabled: false, apiKey: "", baseUrl: "" },
-      google: { enabled: false, apiKey: "", baseUrl: "" },
-      ollama: { enabled: false, apiKey: "", baseUrl: "http://localhost:11434" },
+      anthropic: {
+        enabled: true,
+        apiKey: "",
+        baseUrl: "",
+        authMode: "api-key",
+      },
+      openai: { enabled: false, apiKey: "", baseUrl: "", authMode: "api-key" },
+      openrouter: {
+        enabled: false,
+        apiKey: "",
+        baseUrl: "",
+        authMode: "api-key",
+      },
+      google: { enabled: false, apiKey: "", baseUrl: "", authMode: "api-key" },
+      ollama: {
+        enabled: false,
+        apiKey: "",
+        baseUrl: "http://localhost:11434",
+        authMode: "api-key",
+      },
       // Local model servers need no key; the base URL is the whole config.
-      lmstudio: { enabled: false, apiKey: "", baseUrl: "http://localhost:1234" },
+      lmstudio: {
+        enabled: false,
+        apiKey: "",
+        baseUrl: "http://localhost:1234",
+        authMode: "api-key",
+      },
     },
     harnesses: {
       opencode: {
@@ -311,6 +344,7 @@ export function createDefaultConfig(): Config {
     },
     general: {
       defaultProjectId: "",
+      rootDirectory: "",
     },
   };
 }

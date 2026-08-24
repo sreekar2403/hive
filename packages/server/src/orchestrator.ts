@@ -10,6 +10,7 @@ import * as fs from "fs";
 import { getDb } from "./db/database";
 import { broadcast } from "./routes/events";
 import { endSpan, log, recordSpan, startSpan } from "./telemetry";
+import { ensureRootDirectory, isGeneralProject } from "./generalWorkspace";
 
 /**
  * Where a task's agent currently stands on the Office floor. Each phase is
@@ -484,6 +485,10 @@ export class Orchestrator {
    */
   private workingTreeFor(projectId: string | null): string | undefined {
     if (!projectId) return undefined;
+    // The general workspace is synthesised rather than stored, so it is
+    // resolved before the table is consulted — and created on demand,
+    // since a task may well be the first thing that ever touches it.
+    if (isGeneralProject(projectId)) return ensureRootDirectory();
     try {
       const row = getDb()
         .prepare("SELECT path FROM projects WHERE id = ?")

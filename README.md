@@ -1,175 +1,212 @@
-# Hive - Multi-Agent Orchestration Framework
+# Hive
 
-A CLI-based swarm orchestration framework coordinating AI agents across multiple harnesses (OpenCode, Claude Code, Pi) to autonomously solve complex tasks. Ships as both a standalone server + web UI and a packaged Electron desktop app.
+**Hive drives CLI coding agents the way a manager drives a team.** You describe a change; Hive
+picks the agent best suited to it, runs it against a real git working tree, retries when it fails,
+and shows you what it did — tool calls, thinking, token spend, files touched.
 
-## Status
-
-**Phase 1 MVP shipped and working end-to-end** — server, web UI, and the Electron desktop shell all boot, build, and pass their test/lint/typecheck suites. Phase 2 roadmap at [wayfinder/map.md](.hive/wayfinder/map.md) describes further-out ambitions (swarm decomposition, VRAM-aware queuing).
-
-See [CLAUDE.md](CLAUDE.md) for what's actually implemented vs. design aspirations in the wayfinder docs.
-
-## Architecture
+The agents are not built into Hive. They are the CLIs you already have on your PATH — `opencode`,
+`claude` (Claude Code), `pi` — and Hive is the thing that routes work to them, keeps them honest,
+and gives you one place to watch it happen.
 
 ```
-Electron desktop shell (packages/client/electron)
-    ↓ loads
-React UI (packages/client, Vite + React Router, HashRouter)
-    ↓ HTTP + SSE
-Express REST API (localhost:3001, CORS-enabled)
-    ↓
-Orchestrator (task dispatch, git branch mgmt)
-    ├─ Router (keyword-based harness routing)
-    ├─ LoopEngine (retry/recover logic)
-    ├─ PermissionManager (destructive action gates, approve/deny API)
-    └─ ResourceManager (file locks)
-    ↓
-Harnesses (CLI subprocesses, spawned via cross-spawn)
-├─ OpenCode
-├─ Claude Code
-└─ Pi
+┌─────────────────────────────────────────────────────────────┐
+│  Electron window / browser  ·  React UI (packages/client)   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │  REST + Server-Sent Events
+┌──────────────────────────▼──────────────────────────────────┐
+│  Express API on :3001  (packages/server)                    │
+│                                                             │
+│   Orchestrator ── Router ──── which harness, which model    │
+│        │       ── LoopEngine ─ retry until it works         │
+│        │       ── Permissions ─ gate destructive work       │
+│        │       ── Resources ─── file locks                  │
+│        ▼                                                    │
+│   Harness adapters → spawn a CLI, parse its event stream    │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼
+            opencode  ·  claude  ·  pi        (your git repo as cwd)
 ```
 
-The server also ships its own self-contained chat UI (`packages/server/src/public/index.html`) served
-at `/`, independent of the Electron/React client — useful for a quick sanity check without building the
-desktop app.
+---
 
-## Features
+## Quick start
 
-- **Multi-Harness Routing**: Task-aware dispatch to best-fit harness (shared by the API and the retry loop)
-- **Live Model Discovery**: `opencode models`, `pi --list-models`, Ollama and LM Studio are queried directly, so the model picker lists what this machine can actually run (`GET /api/models`)
-- **Model Picker**: One searchable `harness / provider / model` control in the chat composer; picking a model pins the harness too
-- **Activity Trail**: Tool calls, thinking and token spend stream out of each CLI as it works and render under the message, live and after the fact
-- **Autonomous Loop**: Self-correct iterations with heuristic retry rules
-- **Permission System**: Prompts on destructive actions (`rm`, `push --force`, etc.), with a real approve/deny API (`/api/permissions`) that actually gates execution
-- **Branch-Per-Task**: Auto-managed git branches and PR creation
-- **Resource Locking**: Prevents concurrent file conflicts
-- **Shared Memory**: Per-session key/value store (JSON file-backed)
-- **Live Events**: Server-Sent Events stream (`/api/events`) broadcasting task and schedule lifecycle events
-- **Scheduling**: Cron-backed schedules with CRUD endpoints, kept in sync with the running cron jobs as they're created/updated/deleted
-- **Config Loading**: `hive.config.json` at the repo root is read and merged over defaults, with `PORT` env var override
-- **Desktop App**: Electron shell around the same React UI, working in both dev (`localhost:3000`) and packaged (`file://`) modes
-- **Build System**: Solution-style TypeScript build (`tsc --build` works cleanly across all packages)
-- **Test Suite**: Vitest coverage for Router, LoopEngine, PermissionManager, Harness interface (31 tests)
-- **Linting**: Flat ESLint config (typescript-eslint + react-hooks) across the whole repo, zero warnings
+**Prerequisites**
 
-## Quick Start
-
-### Prerequisites
-
-- Node.js 24+, pnpm
-- At least one harness on PATH: `opencode --version`, `claude --version`, or `pi --version`
-- Git (for branch/PR commands)
-
-### Setup & Run
+- Node.js 22+ and [pnpm](https://pnpm.io) 9+
+- At least one agent CLI on your PATH. Check with `opencode --version`, `claude --version`,
+  or `pi --version` — Hive works with one, and routes across all three if you have them.
 
 ```bash
 pnpm install
-npm link                 # once: puts `hive` on your PATH
-
-hive                     # server + UI + desktop window, from any directory
+pnpm --filter hive exec npm link   # optional: puts `hive` on your PATH
+hive                               # API server + UI + desktop window
 ```
 
-`hive` is the everyday command. It starts the API server, the Vite dev server and the Electron
-window as one process group, streams their output into a single prefixed log, and stops all three
-on Ctrl+C or when you close the window. It always runs with the repo root as its working directory,
-so it works from anywhere.
+Then either use the window Hive opened, or visit <http://localhost:3000>.
 
-```bash
-hive                     # everything (server + UI + window)
-hive web                 # server + UI only; open http://localhost:3000 yourself
-hive server              # just the API server
-hive stop                # kill whatever is holding Hive's ports
-hive doctor              # check this machine can run it
-hive --port 3005         # move the API port (the UI follows via VITE_API_BASE)
-hive --devtools          # open DevTools with the window
-```
+`hive doctor` checks the whole setup — Node version, ports, which agent CLIs it can find — and is
+the first thing to run when something doesn't come up.
 
-If a server is already listening on the API port, `hive` reuses it instead of failing — so a second
-`hive` in another terminal just attaches a window to what's already running.
+### The `hive` command
 
-The underlying package scripts still work if you'd rather run the pieces yourself:
+| Command       | What it starts                                                       |
+| ------------- | -------------------------------------------------------------------- |
+| `hive`        | API server, Vite dev server, and the Electron window, as one process |
+| `hive web`    | API server + UI; open <http://localhost:3000> yourself               |
+| `hive server` | API server only, on :3001                                            |
+| `hive stop`   | Frees Hive's ports, whatever is holding them                          |
+| `hive doctor` | Checks this machine can run all of the above                          |
 
-```bash
-# Development
-pnpm dev:server          # Run server on :3001 (tsx, no build step)
-pnpm dev:client          # Run the Vite dev server on :3000 (browser only)
-pnpm dev:electron        # Run the Electron desktop app in dev mode
+Useful flags: `-p/--port` (API port), `--ui-port`, `--devtools`, `--no-window`. `hive --help` has
+the full list.
 
-# Production
-pnpm build               # tsc --build → packages/*/dist/
-pnpm start                # Run compiled server
-pnpm --filter @hive/client electron:build   # Package the desktop app (electron-builder)
+Every child process runs with the repo root as its working directory. That matters: the server
+resolves `hive.config.json` against `process.cwd()`, so starting the pieces by hand from elsewhere
+loads different configuration. `hive` guarantees the right cwd; if you start things manually, do it
+from the repo root.
 
-# Testing
-pnpm test                 # Run all tests (vitest)
-pnpm test:ui               # Web UI for tests
+---
 
-# Linting
-pnpm lint
-pnpm format
-```
+## What you get
 
-`pnpm dev:electron` starts the Vite dev server and the Electron shell together, pointed at
-`http://localhost:3000` — but it does not start the API server, which is why `hive` exists. To try the desktop build the way it'll actually ship, run
-`pnpm --filter @hive/client electron:build` and launch the installer/binary it produces under
-`packages/client/release/`.
+### Scopes: projects and the General workspace
+
+Everything in Hive is scoped to a **project** — a git working tree you point it at from the switcher
+in the top bar. Tasks, diffs, chats and schedules all belong to one.
+
+There is also always a **General workspace**: a scope that belongs to no repository, for the
+questions that aren't about your code ("what does this error mean", "write me a cron expression").
+It lives in `~/.hive/workspace` by default, is created and `git init`-ed on first use, and can be
+pointed elsewhere under **Settings → General**. Nothing you ask there can touch your projects.
+
+### Chat
+
+Describe a change; Hive routes it, runs it, and streams back what the agent actually did. The
+activity trail under each answer shows tool calls, thinking blocks and token spend as they happen —
+and is still there after the fact. Runs keep going if you navigate away.
+
+The composer's model picker lists what this machine can genuinely run, discovered live rather than
+configured: `opencode models`, `pi --list-models`, Ollama's `/api/tags`, LM Studio's `/v1/models`,
+plus Claude Code's documented aliases and the Anthropic API's model list when a key is set. A model
+is identified end to end as `harness/provider/model`, so choosing one pins the harness too.
+
+### Board, workflows, schedules
+
+- **Kanban** — eight columns across the real life of a task: Backlog, Queued, In progress, In
+  review, Testing, Blocked, Done, Failed. Drag or use each card's column control; columns collapse
+  so all eight fit; WIP limits flag an overloaded column.
+- **Workflows** — a node graph (trigger, agent task, tool, gate, approval, parallel, join, output)
+  with undo/redo, auto-layout and validation.
+- **Schedule** — cron-backed recurring runs, with the history of what actually fired.
+
+### Watching and inspecting
+
+- **Office** — an isometric floor where each agent stands in the zone matching its task's stage.
+  Decorative on purpose, but the positions are real: zone = pipeline phase.
+- **Dashboard** — who's working, what's uncommitted, which harnesses are online.
+- **Changes** — working-tree and staged diffs, and commit history, per project.
+- **Logs** — a live tail plus per-task trace spans, so a run can be opened from the message that
+  produced it.
+- **Memory** — the per-session key/value store agents share, browsable and editable.
+- **Permissions** — approve or deny work Hive classified as destructive. This is a real gate: a
+  task waiting here is genuinely blocked until someone answers or it times out.
+
+### Providers and sign-in
+
+Providers are configured under **Settings → Providers**, and can be authenticated two ways:
+
+- **API key** — stored server-side in `hive.config.json`, never echoed back to the UI in full.
+- **Sign in (SSO)** — where an agent CLI already holds an OAuth credential, Hive uses that and
+  needs no key at all. Anthropic goes through `claude`; OpenAI, OpenRouter and Google go through
+  `opencode auth login`. Hive opens the CLI's own login flow in a terminal and then reports the
+  observed state — whether the credential is actually on disk — rather than claiming success.
+
+Providers with no CLI that can hold a credential say so instead of offering a button that can't
+work.
+
+---
 
 ## Configuration
 
-Configuration loads via `loadConfig()` in `packages/server/src/config.ts`: it starts from
-`createDefaultConfig()`, then merges `hive.config.json` at the repo root over it if present, then applies
-a `PORT` environment variable override if set. Edit `hive.config.json` to change defaults without touching
-code — no wiring left to do.
+`hive.config.json` at the repo root is merged over the built-in defaults, and the `PORT`
+environment variable wins over both. Everything in it is editable from the Settings screen, which
+writes the same file — so the UI and the file never drift.
 
-Current defaults:
+```jsonc
+{
+  "providers": {
+    "anthropic": { "enabled": true, "apiKey": "", "baseUrl": "", "authMode": "api-key" }
+  },
+  "harnesses": {
+    "opencode": { "enabled": true, "path": "opencode", "defaultModel": "…", "args": [], "concurrency": 2 }
+  },
+  "routing": {
+    "default": "opencode",
+    "fallback": "claude-code",
+    "rules": [{ "id": "test", "pattern": "test|spec|assert", "harness": "opencode", "enabled": true }]
+  },
+  "permission": { "enabled": true, "timeout": 60000, "destructiveActions": ["rm", "push --force"] },
+  "loop": { "maxIterations": 10, "timeoutMs": 300000, "maxConcurrentAgents": 3 },
+  "storage": { "cacheDir": "./.hive-cache" },
+  "general": { "defaultProjectId": "", "rootDirectory": "" }
+}
+```
 
-- Port: 3001 (override with `hive.config.json`'s `server.port` or the `PORT` env var)
-- Loop max iterations: 10
-- Permission timeout: 60s
-- Default harness: opencode → fallback: claude-code
+`routing.rules` is an ordered table — array order *is* priority, and the rule with
+`taskType: "default"` is always the catch-all. `general.rootDirectory` is the General workspace's
+folder; blank means `~/.hive/workspace`.
 
-## Project Structure
+**Where state lives**
+
+| What                        | Where                                    |
+| --------------------------- | ---------------------------------------- |
+| Projects, tasks, workflows, schedules, logs, spans | `storage/cache/hive.db` (SQLite, WAL) |
+| Shared memory               | `.hive-cache/<sessionId>/<key>.json`     |
+| Configuration               | `hive.config.json`                       |
+| General workspace           | `~/.hive/workspace` (configurable)       |
+| Chat sessions, UI prefs     | browser `localStorage`                   |
+
+---
+
+## Development
+
+```bash
+pnpm dev:server     # API server via tsx, no build step
+pnpm dev:client     # Vite dev server for the UI
+pnpm dev:electron   # UI + Electron window
+pnpm build          # tsc --build across shared + server
+pnpm test           # vitest (44 tests)
+pnpm lint           # eslint
+pnpm format         # prettier --write .
+```
+
+See **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** for the package layout, how to add a harness, a
+provider or a settings field, and the sharp edges worth knowing about before you hit them.
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** covers how a request becomes a running agent, and
+**[docs/API.md](docs/API.md)** is the REST + SSE reference.
+
+## Repository layout
 
 ```
-hive/
-├── .hive/wayfinder/          # Planning docs & roadmap
-│   ├── map.md                # Phase 2 destination & frontiers
-│   └── tickets/*.md          # Detailed decisions
-├── packages/
-│   ├── server/                # Express API + harness orchestration
-│   │   ├── src/
-│   │   │   ├── index.ts       # Main entry, config + harness setup
-│   │   │   ├── server.ts      # Express app, routes, CORS, SSE wiring
-│   │   │   ├── config.ts      # Default config + hive.config.json loader
-│   │   │   ├── router.ts      # Heuristic task routing
-│   │   │   ├── loopEngine.ts  # Retry loop state machine (uses Router)
-│   │   │   ├── permissions.ts # Destructive action gating + approve/deny
-│   │   │   ├── orchestrator.ts # Task orchestration
-│   │   │   ├── gitUtils.ts    # Cross-platform changed-file detection
-│   │   │   ├── textUtils.ts   # ANSI stripping for harness output
-│   │   │   ├── db/            # SQLite (workflows, schedules)
-│   │   │   ├── routes/        # workflows, schedules, permissions, events (SSE)
-│   │   │   ├── scheduler/     # Cron job runner, synced with the schedules table
-│   │   │   └── harnesses/
-│   │   │       ├── claudeCode.ts
-│   │   │       ├── opencode.ts
-│   │   │       └── pi.ts
-│   │   └── *.test.ts          # Vitest coverage
-│   ├── client/                 # React UI (Vite) + Electron shell
-│   │   ├── electron/            # main.ts, preload.ts — compiled to electron/dist/
-│   │   ├── src/
-│   │   │   ├── App.tsx          # HashRouter + routes
-│   │   │   ├── main.tsx         # Vite/React entry point
-│   │   │   ├── components/      # Sidebar, etc.
-│   │   │   └── pages/           # Dashboard, Chat, Kanban, Office, Workflows, …
-│   │   └── vite.config.mts
-│   └── shared/                  # Type definitions (@hive/shared)
-├── eslint.config.mjs        # Flat ESLint config for the whole repo
-├── vitest.config.ts         # Test configuration
-├── tsconfig.json            # Solution-style TypeScript config
-├── hive.config.json         # Optional config overrides (read at server startup)
-└── CLAUDE.md                # Ground truth: what's built vs. designed
+bin/hive.js              the `hive` command
+packages/shared          types shared across packages (no runtime code)
+packages/server          Express API, orchestrator, harness adapters, SQLite
+packages/client          React UI (Vite) + the Electron shell
+packages/ui              empty scaffold — packages/client is the real UI
+docs/                    architecture, development, API, design system
+hive.config.json         configuration, read and written by the app
 ```
+
+## Troubleshooting
+
+| Symptom                                   | Cause and fix                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| A task hangs and then fails               | Its prompt matched `permission.destructiveActions`. Answer it on the **Permissions** screen; unanswered, it times out.     |
+| The model picker is empty                 | No agent CLI is on PATH and no provider key is set. `hive doctor` says which.                                             |
+| "not a git repository"                    | The scope's folder isn't a repo. Changed-file detection needs one — that's why the General workspace `git init`s itself.   |
+| Ports already in use                      | `hive stop`, or start with `-p` / `--ui-port`.                                                                             |
+| Settings look stale after editing the file | The config is a cached singleton. Restart the server, or edit through the Settings screen, which updates it in place.      |
 
 ## License
 

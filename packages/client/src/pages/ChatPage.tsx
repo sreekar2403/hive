@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  FolderGit2,
+  Globe,
   MessageSquare,
   Plus,
   RotateCcw,
@@ -18,14 +20,27 @@ import {
 } from "../components/ui";
 import { useChat, type ChatMessage } from "../state/ChatContext";
 import { useLogs } from "../state/LogsContext";
+import { useProjects } from "../state/ProjectContext";
 import { ModelPicker } from "./chat/ModelPicker";
 import { ActivityTrail } from "./chat/ActivityTrail";
 import { cn } from "../lib/cn";
 
-const EXAMPLES = [
+/*
+  Openers differ by scope. Pointed at a repository the useful suggestion
+  is a change to that code; in the General workspace there is no code to
+  point at, so they are questions instead — which is the whole reason
+  that scope exists.
+*/
+const PROJECT_EXAMPLES = [
   "Add tests for the router's keyword matching",
   "Explain how the loop engine decides to retry",
   "Rename detectFilesChanged to listChangedFiles across the server",
+];
+
+const GENERAL_EXAMPLES = [
+  "Explain the difference between rebase and merge",
+  "Write a cron expression for every weekday at 18:00",
+  "Draft a shell script that prunes Docker images older than a week",
 ];
 
 /**
@@ -49,7 +64,10 @@ export function ChatPage() {
     send,
   } = useChat();
   const { focusTrace } = useLogs();
+  const { activeProject, isGeneralWorkspace } = useProjects();
   const navigate = useNavigate();
+
+  const examples = isGeneralWorkspace ? GENERAL_EXAMPLES : PROJECT_EXAMPLES;
 
   const activeId = activeSession?.id ?? null;
   const run = activeId ? (runs[activeId] ?? null) : null;
@@ -124,16 +142,33 @@ export function ChatPage() {
     <div className="h-full flex">
       {/* Sessions */}
       <aside className="w-64 shrink-0 border-r border-line bg-surface flex flex-col">
-        <div className="p-2 border-b border-line">
+        <div className="p-2 border-b border-line flex flex-col gap-2">
           <Button variant="primary" className="w-full" onClick={() => newSession()}>
             <Plus className="size-4" />
             New chat
           </Button>
+          {/* Conversations never cross scopes, so which one you are in is
+              the single most important thing this list needs to say. */}
+          <div
+            className="flex items-center gap-1.5 px-1 min-w-0"
+            title={activeProject?.path ?? undefined}
+          >
+            {isGeneralWorkspace ? (
+              <Globe className="size-3 text-accent shrink-0" />
+            ) : (
+              <FolderGit2 className="size-3 text-faint shrink-0" />
+            )}
+            <span className="eyebrow truncate">
+              {activeProject?.name ?? "No scope"}
+            </span>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5">
           {sessions.length === 0 ? (
             <p className="px-2 py-3 text-[12px] text-faint">
-              No conversations in this project yet.
+              {isGeneralWorkspace
+                ? "No general conversations yet."
+                : "No conversations in this project yet."}
             </p>
           ) : null}
           {sessions.map((s) => {
@@ -200,12 +235,18 @@ export function ChatPage() {
         >
           {!activeSession || activeSession.messages.length === 0 ? (
             <EmptyState
-              icon={<MessageSquare />}
-              title="Put the swarm to work"
-              description="Describe a change and Hive picks the right agent for it, then runs until it succeeds."
+              icon={isGeneralWorkspace ? <Globe /> : <MessageSquare />}
+              title={
+                isGeneralWorkspace ? "Ask anything" : "Put the swarm to work"
+              }
+              description={
+                isGeneralWorkspace
+                  ? "This scope belongs to no repository, so nothing you ask here can touch your projects. Good for questions, scratch scripts and working something out."
+                  : "Describe a change and Hive picks the right agent for it, then runs until it succeeds."
+              }
               action={
                 <div className="flex flex-col gap-1.5 items-stretch max-w-md">
-                  {EXAMPLES.map((e) => (
+                  {examples.map((e) => (
                     <button
                       key={e}
                       onClick={() => void send(e, activeId ?? undefined)}

@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Application, Container } from "pixi.js";
-import { Building2, Clock, FileCode2, Maximize2 } from "lucide-react";
+import {
+  Building2,
+  Clock,
+  FileCode2,
+  Maximize2,
+  Minimize2,
+  Scan,
+} from "lucide-react";
 import {
   Badge,
   Button,
@@ -59,6 +66,13 @@ export function OfficeFloorPage() {
   const { agents, loading, error } = useOfficeState();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  /*
+    "Expand" used to call fitToView, which recomputes a fit the floor was
+    already at — so pressing it did nothing observable. It now does what
+    the icon promises: gives the floor the whole pane by folding away the
+    page header and the roster, with Fit kept as its own control.
+  */
+  const [expanded, setExpanded] = useState(false);
 
   const selected = agents.find((a) => a.id === selectedId) ?? null;
 
@@ -222,11 +236,32 @@ export function OfficeFloorPage() {
     return () => cancelAnimationFrame(frame);
   }, [theme, ready]);
 
+  /*
+    A ResizeObserver rather than a window resize listener: expanding the
+    floor, or anything else that changes the pane's width without changing
+    the window's, has to refit too. pixi's own `resizeTo` only watches the
+    window, so the renderer is resized here as well.
+  */
   useEffect(() => {
-    const onResize = () => fitToView();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [fitToView]);
+    const parent = containerRef.current;
+    if (!parent || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      appRef.current?.renderer?.resize(parent.clientWidth, parent.clientHeight);
+      fitToView();
+    });
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, [fitToView, ready]);
+
+  // Escape is the expected way out of anything that has taken over the pane.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
 
   /* ---------------- sync characters to roster ---------------- */
 
@@ -338,22 +373,57 @@ export function OfficeFloorPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-6 pt-6">
-        <PageHeader
-          eyebrow="Floor"
-          title="Office"
-          description="Where each agent stands is the stage its task has reached."
-          actions={
-            <IconButton onClick={fitToView} aria-label="Fit floor to view">
-              <Maximize2 className="size-4" />
-            </IconButton>
-          }
-        />
-      </div>
+      {expanded ? null : (
+        <div className="px-6 pt-6">
+          <PageHeader
+            eyebrow="Floor"
+            title="Office"
+            description="Where each agent stands is the stage its task has reached."
+            actions={
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={fitToView}>
+                  <Scan className="size-3.5" />
+                  Fit
+                </Button>
+                <IconButton
+                  onClick={() => setExpanded(true)}
+                  aria-label="Expand the floor"
+                  title="Expand the floor"
+                >
+                  <Maximize2 className="size-4" />
+                </IconButton>
+              </div>
+            }
+          />
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex border-t border-line">
         <div className="flex-1 min-w-0 relative bg-bg">
           <div ref={containerRef} className="absolute inset-0" />
+
+          {expanded ? (
+            <div className="absolute top-3 right-3 flex items-center gap-1.5">
+              <IconButton
+                size="sm"
+                variant="default"
+                onClick={fitToView}
+                aria-label="Fit floor to view"
+                title="Fit floor to view"
+              >
+                <Scan className="size-3.5" />
+              </IconButton>
+              <IconButton
+                size="sm"
+                variant="default"
+                onClick={() => setExpanded(false)}
+                aria-label="Collapse the floor"
+                title="Collapse the floor"
+              >
+                <Minimize2 className="size-3.5" />
+              </IconButton>
+            </div>
+          ) : null}
 
           {!loading && agents.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center bg-bg/80">
@@ -387,7 +457,12 @@ export function OfficeFloorPage() {
           </div>
         </div>
 
-        <aside className="w-72 shrink-0 border-l border-line bg-surface flex flex-col">
+        <aside
+          className={cn(
+            "w-72 shrink-0 border-l border-line bg-surface flex flex-col",
+            expanded && "hidden",
+          )}
+        >
           <div className="px-4 py-3 border-b border-line">
             <div className="eyebrow mb-1">On the floor</div>
             <div className="text-sm text-ink">

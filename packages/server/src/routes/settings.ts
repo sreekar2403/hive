@@ -8,6 +8,13 @@ import {
   loadConfig,
   saveConfig,
 } from "../config";
+import {
+  signOutSso,
+  ssoStatus,
+  startSso,
+  type AuthMode,
+  type SsoStatus,
+} from "../auth/sso";
 
 /**
  * Providers, harnesses and task-model routing — the control panel for the
@@ -39,6 +46,9 @@ interface ProviderView {
   baseUrl: string;
   hasKey: boolean;
   keyHint: string | null;
+  authMode: AuthMode;
+  /** Live SSO state, so the UI never has to guess whether a CLI is signed in. */
+  sso: SsoStatus;
 }
 
 /** Config as sent to the client: providers' apiKey is never included raw. */
@@ -51,6 +61,8 @@ function toView(config: Config) {
       baseUrl: p.baseUrl,
       hasKey: Boolean(p.apiKey),
       keyHint: p.apiKey ? maskKey(p.apiKey) : null,
+      authMode: p.authMode ?? "api-key",
+      sso: ssoStatus(id),
     };
   }
 
@@ -128,6 +140,11 @@ function validatePartialConfig(body: any): void {
       }
       if ("enabled" in p && typeof p.enabled !== "boolean") {
         throw new Error(`providers.${id}.enabled must be a boolean`);
+      }
+      if ("authMode" in p && p.authMode !== "api-key" && p.authMode !== "sso") {
+        throw new Error(
+          `providers.${id}.authMode must be "api-key" or "sso"`,
+        );
       }
     }
   }
@@ -231,6 +248,14 @@ router.post("/providers/:id/test", async (req: Request, res: Response) => {
       ? req.body.baseUrl
       : stored.baseUrl;
 
+  // An SSO provider has no key to test — what matters is whether the CLI
+  // that owns the credential is signed in, so report that instead of
+  // failing with "no API key configured".
+  if ((stored.authMode ?? "api-key") === "sso") {
+    const sso = ssoStatus(id);
+    return res.json({ success: sso.signedIn, message: sso.detail });
+  }
+
   const result = await testProvider(id, apiKey, baseUrl);
   res.json(result);
 });
@@ -313,6 +338,44 @@ async function testProvider(
     clearTimeout(timer);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Single sign-on                                                      */
+/* ------------------------------------------------------------------ */
+
+/** Narrows a path param to a known provider, answering 404 if it isn't. */
+function requireProvider(req: Request, res: Response): ProviderId | null {
+  const id = req.params.id as ProviderId;
+  if (!PROVIDER_IDS.includes(id)) {
+    res.status(404).json({ error: `Unknown provider '${id}'` });
+    return null;
+  }
+  return id;
+}
+
+// GET /api/settings/providers/:id/sso — is the owning CLI signed in?
+router.get("/providers/:id/sso", (req: Request, res: Response) => {
+  const id = requireProvider(req, res);
+  if (!id) return;
+  res.json(ssoStatus(id));
+});
+
+// POST /api/settings/providers/:id/sso/login — open the CLI's own flow
+router.post("/providers/:id/sso/login", (req: Request, res: Response) => {
+  const id = requireProvider(req, res);
+  if (!id) return;
+  const result = startSso(id);
+  // The flow is interactive and finishes in a terminal Hive doesn't own,
+  // so the status the client polls afterwards is the real answer.
+  res.json({ ...result, status: ssoStatus(id) });
+});
+
+// POST /api/settings/providers/:id/sso/logout
+router.post("/providers/:id/sso/logout", (req: Request, res: Response) => {
+  const id = requireProvider(req, res);
+  if (!id) return;
+  res.json({ ...signOutSso(id), status: ssoStatus(id) });
+});
 
 // GET /api/settings/harnesses — live availability probe of each harness
 router.get("/harnesses", async (_req: Request, res: Response) => {

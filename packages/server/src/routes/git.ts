@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { getDb } from "../db/database";
 import { currentBranch, gitArgs, isGitRepo, isPathWithinRepo } from "../gitUtils";
+import { ensureRootDirectory, isGeneralProject } from "../generalWorkspace";
 
 const router: Router = Router();
 
@@ -48,9 +49,11 @@ function resolveProject(req: Request, res: Response): ProjectRow | null {
   }
 
   const db = getDb();
-  const row = db
-    .prepare("SELECT id, name, path FROM projects WHERE id = ?")
-    .get(projectId) as ProjectRow | undefined;
+  const row = isGeneralProject(projectId)
+    ? { id: projectId, name: "General", path: ensureRootDirectory() }
+    : (db
+        .prepare("SELECT id, name, path FROM projects WHERE id = ?")
+        .get(projectId) as ProjectRow | undefined);
 
   if (!row) {
     res.status(404).json({ error: "Project not found" });

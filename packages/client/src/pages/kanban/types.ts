@@ -1,4 +1,17 @@
-export type TaskStatus = "queued" | "in_progress" | "review" | "done" | "failed";
+/**
+ * Mirrors TaskStatus in packages/server/src/routes/tasks.ts. The two lists
+ * must stay in step: the server rejects a status it doesn't recognise, so
+ * a column added here without adding it there fails on the first drag.
+ */
+export type TaskStatus =
+  | "backlog"
+  | "queued"
+  | "in_progress"
+  | "review"
+  | "testing"
+  | "blocked"
+  | "done"
+  | "failed";
 
 /**
  * Mirrors the row shape returned by GET/POST/PUT /api/tasks on the server

@@ -282,6 +282,31 @@ export function GeneralSection({
       </Card>
 
       <Card>
+        <CardHeader eyebrow="Scope" title="General workspace" />
+        <div className="p-4">
+          <Field
+            label="Working folder"
+            hint="Where chats that belong to no repository run. Leave blank for ~/.hive/workspace. Created and git-initialised on first use."
+          >
+            {(id) => (
+              <Input
+                id={id}
+                className="font-mono text-[12px]"
+                placeholder="~/.hive/workspace"
+                value={draft.general.rootDirectory}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    general: { ...prev.general, rootDirectory: e.target.value },
+                  }))
+                }
+              />
+            )}
+          </Field>
+        </div>
+      </Card>
+
+      <Card>
         <CardHeader eyebrow="Storage" title="Where Hive keeps data" />
         <div className="p-4 flex flex-col gap-4">
           <Field label="Cache folder" hint="Shared memory and session files.">

@@ -19,12 +19,24 @@ export interface Project {
   branch: string | null;
   created_at: number;
   updated_at: number;
+  /**
+   * True for the built-in General workspace, which the server synthesises
+   * rather than storing. It cannot be renamed or removed.
+   */
+  virtual?: boolean;
 }
 
+/** Kept in step with GENERAL_PROJECT_ID in packages/server/src/generalWorkspace.ts. */
+export const GENERAL_PROJECT_ID = "__general__";
+
 interface ProjectContextValue {
+  /** Real repositories only — the General workspace is not one. */
+  repositories: Project[];
   projects: Project[];
   activeProject: Project | null;
   activeProjectId: string | null;
+  /** True while the scope is the General workspace rather than a repo. */
+  isGeneralWorkspace: boolean;
   loading: boolean;
   error: string | null;
   setActiveProjectId: (id: string | null) => void;
@@ -129,8 +141,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ProjectContextValue>(
     () => ({
       projects,
+      repositories: projects.filter((p) => !p.virtual),
       activeProject: projects.find((p) => p.id === activeProjectId) ?? null,
       activeProjectId,
+      isGeneralWorkspace: activeProjectId === GENERAL_PROJECT_ID,
       loading,
       error,
       setActiveProjectId,

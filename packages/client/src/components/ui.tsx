@@ -11,7 +11,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
-import { X } from "lucide-react";
+import { Check, Minus, X } from "lucide-react";
 import { cn } from "../lib/cn";
 
 /*
@@ -317,17 +317,47 @@ export function Field({
   );
 }
 
+/*
+  Switch geometry is done with a transparent border as the inset rather
+  than absolute positioning, because the previous version drove the knob
+  with `absolute top-0.5` + `translate-x-[18px]`: `left` was left to the
+  static position, so the travel was measured from wherever the inline
+  box happened to start and the knob rode over the track's edge.
+
+  Here the border *is* the padding, so with `box-sizing: border-box` the
+  content box is exactly track − 2×inset. A knob sized to the content
+  height therefore fits flush, and a translate of (content width − knob)
+  lands it flush against the far edge — at any size, in any theme.
+*/
+const SWITCH_SIZES = {
+  sm: {
+    track: "h-4 w-7 border-2",
+    knob: "size-3",
+    travel: "translateX(12px)",
+    glyph: "size-2",
+  },
+  md: {
+    track: "h-5 w-9 border-2",
+    knob: "size-4",
+    travel: "translateX(16px)",
+    glyph: "size-2.5",
+  },
+} as const;
+
 export function Switch({
   checked,
   onChange,
   label,
   disabled,
+  size = "md",
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   disabled?: boolean;
+  size?: keyof typeof SWITCH_SIZES;
 }) {
+  const geometry = SWITCH_SIZES[size];
   return (
     <button
       type="button"
@@ -337,17 +367,37 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative h-5 w-9 rounded-full border transition-colors shrink-0",
+        "group relative inline-flex items-center shrink-0 rounded-full",
+        // The border is transparent and the background is *not* clipped to
+        // the padding box, so the track paints edge to edge behind it.
+        "border-transparent transition-colors duration-150",
         "disabled:opacity-45 disabled:pointer-events-none",
-        checked ? "bg-accent border-transparent" : "bg-surface-3 border-line",
+        geometry.track,
+        // The ring draws the track's edge, so it can't crowd the knob the
+        // way a real border would.
+        checked
+          ? "bg-accent ring-1 ring-inset ring-black/10"
+          : "bg-surface-3 ring-1 ring-inset ring-line-strong hover:bg-surface-2",
       )}
     >
       <span
+        aria-hidden="true"
         className={cn(
-          "absolute top-0.5 size-3.5 rounded-full bg-surface shadow-sm transition-transform",
-          checked ? "translate-x-[18px]" : "translate-x-0.5",
+          "pointer-events-none flex items-center justify-center rounded-full",
+          "shadow-sm transition-transform duration-150",
+          geometry.knob,
+          checked ? "bg-accent-fg" : "bg-surface",
         )}
-      />
+        style={{ transform: checked ? geometry.travel : "translateX(0)" }}
+      >
+        {/* On/off is carried by more than position, which matters at a
+            glance and for anyone who can't separate the two colours. */}
+        {checked ? (
+          <Check className={cn(geometry.glyph, "text-accent")} strokeWidth={3.5} />
+        ) : (
+          <Minus className={cn(geometry.glyph, "text-faint")} strokeWidth={3.5} />
+        )}
+      </span>
     </button>
   );
 }

@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronsUpDown, FolderGit2, Plus, AlertTriangle } from "lucide-react";
-import { useProjects } from "../state/ProjectContext";
+import {
+  AlertTriangle,
+  Check,
+  ChevronsUpDown,
+  FolderGit2,
+  Globe,
+  Plus,
+} from "lucide-react";
+import { useProjects, type Project } from "../state/ProjectContext";
 import { Button, Field, Input, Modal } from "./ui";
 import { cn } from "../lib/cn";
 
@@ -9,12 +16,13 @@ import { cn } from "../lib/cn";
  * every screen makes it obvious which working tree you are looking at.
  */
 export function ProjectSwitcher() {
-  const {
-    projects,
-    activeProject,
-    setActiveProjectId,
-    addProject,
-  } = useProjects();
+  const { projects, activeProject, setActiveProjectId, addProject } =
+    useProjects();
+
+  // The General workspace is pinned above the rule: it is always there,
+  // and grouping it with real repositories made it read as one.
+  const general = projects.find((p) => p.virtual) ?? null;
+  const repositories = projects.filter((p) => !p.virtual);
 
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -67,7 +75,9 @@ export function ProjectSwitcher() {
               : "bg-transparent border-transparent hover:bg-surface-2 hover:border-line",
           )}
         >
-          {activeProject ? (
+          {activeProject?.virtual ? (
+            <Globe className="size-3.5 text-accent shrink-0" />
+          ) : activeProject ? (
             <span
               className="size-2 rounded-full shrink-0"
               style={{ background: activeProject.color ?? "var(--hive-accent)" }}
@@ -91,43 +101,39 @@ export function ProjectSwitcher() {
             role="listbox"
             className="absolute left-0 top-full mt-1.5 w-[19rem] z-40 bg-surface border border-line rounded-lg shadow-pop overflow-hidden"
           >
-            <div className="eyebrow px-3 pt-2.5 pb-1.5">Projects</div>
-            <div className="max-h-72 overflow-y-auto pb-1">
-              {projects.length === 0 ? (
-                <p className="px-3 py-3 text-[13px] text-muted">
-                  Add a git repository to get started.
+            {general ? (
+              <>
+                <div className="eyebrow px-3 pt-2.5 pb-1.5">Anything</div>
+                <Option
+                  project={general}
+                  active={general.id === activeProject?.id}
+                  onSelect={() => {
+                    setActiveProjectId(general.id);
+                    setOpen(false);
+                  }}
+                />
+                <div className="rule mx-3 my-1" />
+              </>
+            ) : null}
+
+            <div className="eyebrow px-3 pt-1.5 pb-1.5">Repositories</div>
+            <div className="max-h-64 overflow-y-auto pb-1">
+              {repositories.length === 0 ? (
+                <p className="px-3 pb-3 text-[13px] text-muted">
+                  None yet. Add a git repository to put the swarm to work on
+                  your own code.
                 </p>
               ) : (
-                projects.map((p) => (
-                  <button
+                repositories.map((p) => (
+                  <Option
                     key={p.id}
-                    role="option"
-                    aria-selected={p.id === activeProject?.id}
-                    onClick={() => {
+                    project={p}
+                    active={p.id === activeProject?.id}
+                    onSelect={() => {
                       setActiveProjectId(p.id);
                       setOpen(false);
                     }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-surface-2 transition-colors"
-                  >
-                    <span
-                      className="size-2 rounded-full shrink-0"
-                      style={{ background: p.color ?? "var(--hive-accent)" }}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="text-[13px] text-ink truncate">{p.name}</span>
-                        {!p.exists ? (
-                          <AlertTriangle className="size-3 text-warn shrink-0" />
-                        ) : null}
-                      </span>
-                      <span className="block font-mono text-[10px] text-faint truncate">
-                        {p.exists ? (p.branch ?? p.path) : "Folder not found"}
-                      </span>
-                    </span>
-                    {p.id === activeProject?.id ? (
-                      <Check className="size-3.5 text-accent shrink-0" />
-                    ) : null}
-                  </button>
+                  />
                 ))
               )}
             </div>
@@ -193,5 +199,59 @@ export function ProjectSwitcher() {
         </div>
       </Modal>
     </>
+  );
+}
+
+/**
+ * One row in the switcher. The secondary line is the most useful thing
+ * that is true of this scope: a branch for a repository, the folder for
+ * the General workspace, and the problem when the folder has gone.
+ */
+function Option({
+  project,
+  active,
+  onSelect,
+}: {
+  project: Project;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const subtitle = !project.exists
+    ? "Folder not found"
+    : project.virtual
+      ? project.path
+      : (project.branch ?? project.path);
+
+  return (
+    <button
+      role="option"
+      aria-selected={active}
+      onClick={onSelect}
+      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-surface-2 transition-colors"
+    >
+      {project.virtual ? (
+        <Globe className="size-3.5 text-accent shrink-0" />
+      ) : (
+        <span
+          className="size-2 rounded-full shrink-0 ml-0.5 mr-1"
+          style={{ background: project.color ?? "var(--hive-accent)" }}
+        />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="text-[13px] text-ink truncate">{project.name}</span>
+          {project.virtual ? (
+            <span className="eyebrow shrink-0">no repo</span>
+          ) : null}
+          {!project.exists ? (
+            <AlertTriangle className="size-3 text-warn shrink-0" />
+          ) : null}
+        </span>
+        <span className="block font-mono text-[10px] text-faint truncate">
+          {subtitle}
+        </span>
+      </span>
+      {active ? <Check className="size-3.5 text-accent shrink-0" /> : null}
+    </button>
   );
 }

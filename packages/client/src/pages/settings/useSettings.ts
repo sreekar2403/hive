@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { API } from "../../lib/api";
-import { PROVIDER_IDS, type ProviderId, type SettingsConfig } from "./types";
+import {
+  PROVIDER_IDS,
+  type AuthMode,
+  type ProviderId,
+  type SettingsConfig,
+} from "./types";
 
 /**
  * Loads /api/settings, tracks an editable draft separately from the last
@@ -66,11 +71,15 @@ export function useSettings() {
     setSaving(true);
     setError(null);
     try {
-      const providers: Record<string, { enabled: boolean; baseUrl: string; apiKey?: string }> = {};
+      const providers: Record<
+        string,
+        { enabled: boolean; baseUrl: string; authMode: AuthMode; apiKey?: string }
+      > = {};
       for (const id of PROVIDER_IDS) {
         providers[id] = {
           enabled: draft.providers[id].enabled,
           baseUrl: draft.providers[id].baseUrl,
+          authMode: draft.providers[id].authMode ?? "api-key",
         };
         const newKey = keyDrafts[id];
         if (newKey) providers[id].apiKey = newKey;

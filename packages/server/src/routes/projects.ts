@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { getDb } from "../db/database";
 import { isGitRepo, currentBranch } from "../gitUtils";
+import { generalProject, isGeneralProject } from "../generalWorkspace";
 
 const router: Router = Router();
 
@@ -38,17 +39,20 @@ function decorate(row: Project) {
   };
 }
 
-// GET /api/projects
+// GET /api/projects — the general workspace is always first, so a fresh
+// install has somewhere to chat before any repository is attached.
 router.get("/", (_req: Request, res: Response) => {
   const db = getDb();
   const rows = db
     .prepare("SELECT * FROM projects ORDER BY created_at ASC")
     .all() as Project[];
-  res.json({ projects: rows.map(decorate), total: rows.length });
+  const projects = [generalProject(), ...rows.map(decorate)];
+  res.json({ projects, total: projects.length });
 });
 
 // GET /api/projects/:id
 router.get("/:id", (req: Request, res: Response) => {
+  if (isGeneralProject(req.params.id)) return res.json(generalProject());
   const db = getDb();
   const row = db
     .prepare("SELECT * FROM projects WHERE id = ?")
@@ -71,6 +75,12 @@ router.post("/", (req: Request, res: Response) => {
   }
   if (!fs.statSync(resolved).isDirectory()) {
     return res.status(400).json({ error: `${resolved} is not a folder` });
+  }
+
+  if (resolved === generalProject().path) {
+    return res
+      .status(409)
+      .json({ error: "That folder is already the general workspace." });
   }
 
   const db = getDb();
@@ -111,6 +121,12 @@ router.post("/", (req: Request, res: Response) => {
 
 // PUT /api/projects/:id
 router.put("/:id", (req: Request, res: Response) => {
+  if (isGeneralProject(req.params.id)) {
+    return res.status(400).json({
+      error:
+        "The general workspace cannot be renamed. Change its folder under Settings, General.",
+    });
+  }
   const db = getDb();
   const existing = db
     .prepare("SELECT * FROM projects WHERE id = ?")
@@ -130,6 +146,11 @@ router.put("/:id", (req: Request, res: Response) => {
 
 // DELETE /api/projects/:id — removes it from Hive; never touches the folder.
 router.delete("/:id", (req: Request, res: Response) => {
+  if (isGeneralProject(req.params.id)) {
+    return res
+      .status(400)
+      .json({ error: "The general workspace cannot be removed." });
+  }
   const db = getDb();
   const result = db
     .prepare("DELETE FROM projects WHERE id = ?")

@@ -15,11 +15,29 @@ export type ProviderId =
 
 export type HarnessId = "opencode" | "claude-code" | "pi";
 
+export type AuthMode = "api-key" | "sso";
+
+/**
+ * Mirrors SsoStatus in packages/server/src/auth/sso.ts. Every field is
+ * observed server-side (a credential file, an env var) rather than
+ * remembered, so the UI can state the sign-in state as fact.
+ */
+export interface SsoStatus {
+  supported: boolean;
+  signedIn: boolean;
+  cli: string | null;
+  description: string | null;
+  detail: string;
+  command: string | null;
+}
+
 export interface ProviderView {
   enabled: boolean;
   baseUrl: string;
   hasKey: boolean;
   keyHint: string | null;
+  authMode: AuthMode;
+  sso: SsoStatus;
 }
 
 export interface HarnessConfig {
@@ -71,6 +89,8 @@ export interface SettingsConfig {
   };
   general: {
     defaultProjectId: string;
+    /** Folder the built-in General workspace runs in. Empty = `~/.hive/workspace`. */
+    rootDirectory: string;
   };
 }
 

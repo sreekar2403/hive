@@ -3,27 +3,38 @@
     "anthropic": {
       "enabled": true,
       "apiKey": "",
-      "baseUrl": ""
+      "baseUrl": "",
+      "authMode": "sso"
     },
     "openai": {
       "enabled": false,
       "apiKey": "",
-      "baseUrl": ""
+      "baseUrl": "",
+      "authMode": "api-key"
     },
     "openrouter": {
       "enabled": false,
       "apiKey": "",
-      "baseUrl": ""
+      "baseUrl": "",
+      "authMode": "api-key"
     },
     "google": {
       "enabled": false,
       "apiKey": "",
-      "baseUrl": ""
+      "baseUrl": "",
+      "authMode": "api-key"
     },
     "ollama": {
       "enabled": false,
       "apiKey": "",
-      "baseUrl": "http://localhost:11434"
+      "baseUrl": "http://localhost:11434",
+      "authMode": "api-key"
+    },
+    "lmstudio": {
+      "enabled": false,
+      "apiKey": "",
+      "baseUrl": "http://localhost:1234",
+      "authMode": "api-key"
     }
   },
   "harnesses": {
@@ -156,6 +167,7 @@
     "cacheDir": "./.hive-cache"
   },
   "general": {
-    "defaultProjectId": ""
+    "defaultProjectId": "",
+    "rootDirectory": ""
   }
 }
