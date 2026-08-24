@@ -210,4 +210,4 @@ hive.config.json         configuration, read and written by the app
 
 ## License
 
-MIT
+[MIT License](LICENSE)
