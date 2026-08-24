@@ -17,6 +17,9 @@ function createWindow() {
     // Matches the app's dark ground so there's no white flash before the
     // renderer paints.
     backgroundColor: "#0e1013",
+    // Window + taskbar icon (the bundle/installer icon comes from
+    // electron-builder via electron/icons/icon.ico).
+    icon: path.join(__dirname, "..", "icons", "icon.png"),
     show: false,
   });
 
