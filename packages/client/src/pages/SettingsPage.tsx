@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Boxes,
+  Brain,
   Cpu,
   KeyRound,
   Route,
@@ -15,6 +16,7 @@ import { ProvidersSection } from "./settings/ProvidersSection";
 import { HarnessesSection } from "./settings/HarnessesSection";
 import { ModelsSection } from "./settings/ModelsSection";
 import { RoutingSection } from "./settings/RoutingSection";
+import { SecondBrainSection } from "./settings/SecondBrainSection";
 import {
   ExecutionSection,
   GeneralSection,
@@ -69,6 +71,12 @@ const SECTIONS: Array<{
     label: "General",
     description: "Theme, defaults, storage",
     icon: SettingsIcon,
+  },
+  {
+    id: "second-brain",
+    label: "Second Brain",
+    description: "Learning memory, soul.md, routing hints",
+    icon: Brain,
   },
 ];
 
@@ -191,6 +199,9 @@ export function SettingsPage() {
               ) : null}
               {section === "general" ? (
                 <GeneralSection draft={draft} onChange={update} />
+              ) : null}
+              {section === "second-brain" ? (
+                <SecondBrainSection draft={draft} onChange={update} />
               ) : null}
             </div>
           </div>

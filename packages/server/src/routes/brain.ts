@@ -69,6 +69,23 @@ router.get("/soul", (req: Request, res: Response) => {
   res.json(brain.soul.readAll());
 });
 
+/** PUT /api/brain/soul — write to default (project) scope for simple editors. */
+router.put("/soul", (req: Request, res: Response) => {
+  const brain = brainFor(req, res);
+  if (!brain) return;
+
+  const content = req.body?.content;
+  if (typeof content !== "string") {
+    return res.status(400).json({ error: "content (string) is required" });
+  }
+
+  try {
+    res.json(brain.soul.write("project", content));
+  } catch (err) {
+    res.status(500).json({ error: message(err) });
+  }
+});
+
 /** GET /api/brain/soul/:scope — one scope's file, template if it doesn't exist. */
 router.get("/soul/:scope", (req: Request, res: Response) => {
   const brain = brainFor(req, res);

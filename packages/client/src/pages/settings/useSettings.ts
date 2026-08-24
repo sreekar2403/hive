@@ -92,6 +92,7 @@ export function useSettings() {
         permission: draft.permission,
         loop: draft.loop,
         storage: draft.storage,
+        secondBrain: draft.secondBrain,
         general: draft.general,
       };
 

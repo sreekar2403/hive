@@ -87,6 +87,7 @@ export interface SettingsConfig {
   storage: {
     cacheDir: string;
   };
+  secondBrain: SecondBrainConfig;
   general: {
     defaultProjectId: string;
     /** Folder the built-in General workspace runs in. Empty = `~/.hive/workspace`. */
@@ -140,6 +141,35 @@ export const HARNESS_LABELS: Record<HarnessId, string> = {
   pi: "pi",
 };
 
+export interface SecondBrainConfig {
+  enabled: boolean;
+  dir: string;
+  globalDir: string;
+  learning: {
+    enabled: boolean;
+    triggers: {
+      onFailure: boolean;
+      onCorrection: boolean;
+      onExplicitNote: boolean;
+      periodic: boolean;
+    };
+    batchIntervalMs: number;
+    model: string;
+    minConfidence: number;
+    maxSuggestionsPerBatch: number;
+  };
+  routing: {
+    augment: boolean;
+    minSamples: number;
+    minMargin: number;
+  };
+  retrieval: {
+    maxPreferences: number;
+    maxLessons: number;
+    maxBriefingChars: number;
+  };
+}
+
 export type SettingsSectionId =
   | "providers"
   | "models"
@@ -147,4 +177,5 @@ export type SettingsSectionId =
   | "routing"
   | "execution"
   | "permissions"
-  | "general";
+  | "general"
+  | "second-brain";
