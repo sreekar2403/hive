@@ -1,0 +1,28 @@
+{
+  "name": "@hive/server",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
+    "cron": "^4.4.0",
+    "cross-spawn": "^7.0.6",
+    "express": "^4.21.0",
+    "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/cors": "^2.8.19",
+    "@types/cross-spawn": "^6.0.6",
+    "@types/express": "^4.17.25",
+    "@types/node": "^22.20.1",
+    "typescript": "^5.7.0"
+  },
+  "workspaces": []
+}

@@ -1,0 +1,173 @@
+{
+  "providers": {
+    "anthropic": {
+      "enabled": true,
+      "apiKey": "",
+      "baseUrl": "",
+      "authMode": "sso"
+    },
+    "openai": {
+      "enabled": false,
+      "apiKey": "",
+      "baseUrl": "",
+      "authMode": "api-key"
+    },
+    "openrouter": {
+      "enabled": false,
+      "apiKey": "",
+      "baseUrl": "",
+      "authMode": "api-key"
+    },
+    "google": {
+      "enabled": false,
+      "apiKey": "",
+      "baseUrl": "",
+      "authMode": "api-key"
+    },
+    "ollama": {
+      "enabled": false,
+      "apiKey": "",
+      "baseUrl": "http://localhost:11434",
+      "authMode": "api-key"
+    },
+    "lmstudio": {
+      "enabled": false,
+      "apiKey": "",
+      "baseUrl": "http://localhost:1234",
+      "authMode": "api-key"
+    }
+  },
+  "harnesses": {
+    "opencode": {
+      "enabled": true,
+      "path": "opencode",
+      "defaultModel": "mimo-v2.5-free",
+      "args": [],
+      "concurrency": 2
+    },
+    "claude-code": {
+      "enabled": true,
+      "path": "claude",
+      "defaultModel": "claude-sonnet-4",
+      "args": [],
+      "concurrency": 2
+    },
+    "pi": {
+      "enabled": true,
+      "path": "pi",
+      "defaultModel": "ornith-1.5:35b",
+      "args": [],
+      "concurrency": 2
+    }
+  },
+  "routing": {
+    "default": "opencode",
+    "fallback": "claude-code",
+    "rules": [
+      {
+        "id": "test",
+        "taskType": "test",
+        "pattern": "test|spec|assert|expect|describe|it\\(|jest|vitest|mocha",
+        "harness": "opencode",
+        "model": "",
+        "provider": "",
+        "reasoning": "Test-related task, routing to opencode",
+        "enabled": true
+      },
+      {
+        "id": "refactor",
+        "taskType": "refactor",
+        "pattern": "refactor|clean|restructure|rename|move|extract",
+        "harness": "claude-code",
+        "model": "",
+        "provider": "",
+        "reasoning": "Refactoring task, routing to claude-code",
+        "enabled": true
+      },
+      {
+        "id": "docs",
+        "taskType": "docs",
+        "pattern": "document|readme|doc|writeup|explain|comment",
+        "harness": "claude-code",
+        "model": "",
+        "provider": "",
+        "reasoning": "Documentation task, routing to claude-code",
+        "enabled": true
+      },
+      {
+        "id": "devops",
+        "taskType": "devops",
+        "pattern": "deploy|build|ci|cd|docker|kubernetes|infra|aws|gcp|azure",
+        "harness": "opencode",
+        "model": "",
+        "provider": "",
+        "reasoning": "DevOps task, routing to opencode",
+        "enabled": true
+      },
+      {
+        "id": "ui",
+        "taskType": "ui",
+        "pattern": "design|ui|ux|css|style|theme|component",
+        "harness": "claude-code",
+        "model": "",
+        "provider": "",
+        "reasoning": "UI/UX task, routing to claude-code",
+        "enabled": true
+      },
+      {
+        "id": "research",
+        "taskType": "research",
+        "pattern": "research|search|find|look up|documentation|api doc",
+        "harness": "opencode",
+        "model": "",
+        "provider": "",
+        "reasoning": "Research task, routing to opencode",
+        "enabled": true
+      },
+      {
+        "id": "default",
+        "taskType": "default",
+        "pattern": "",
+        "harness": "opencode",
+        "model": "",
+        "provider": "",
+        "reasoning": "Default routing",
+        "enabled": true
+      }
+    ]
+  },
+  "permission": {
+    "enabled": true,
+    "timeout": 60000,
+    "destructiveActions": [
+      "delete",
+      "remove",
+      "rm",
+      "reset",
+      "push --force",
+      "force-push",
+      "clean",
+      "prune",
+      "push -f"
+    ]
+  },
+  "loop": {
+    "maxIterations": 7,
+    "timeoutMs": 300000,
+    "maxConcurrentAgents": 3,
+    "retry": {
+      "enabled": true,
+      "maxRetries": 3
+    }
+  },
+  "server": {
+    "port": 3001
+  },
+  "storage": {
+    "cacheDir": "./.hive-cache"
+  },
+  "general": {
+    "defaultProjectId": "",
+    "rootDirectory": ""
+  }
+}

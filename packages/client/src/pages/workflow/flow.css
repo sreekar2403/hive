@@ -1,0 +1,116 @@
+/*
+  Overrides for @xyflow/react's default look so the canvas reads as part of
+  the Ledger system. Custom node components (see ./nodes) render their own
+  chrome entirely, so most of this only touches background, controls,
+  minimap, edges, and handles.
+*/
+
+.hive-flow {
+  background: var(--hive-bg);
+}
+
+.hive-flow .react-flow__renderer {
+  background: transparent;
+}
+
+/* ---- Handles ----------------------------------------------------- */
+.react-flow__handle.hive-handle {
+  width: 8px;
+  height: 8px;
+  background: var(--hive-surface);
+  border: 2px solid var(--hive-border-strong);
+  border-radius: 999px;
+  transition: border-color 100ms, background-color 100ms;
+}
+
+.react-flow__handle.hive-handle:hover,
+.react-flow__handle.hive-handle.connectingfrom,
+.react-flow__handle.hive-handle.connectingto {
+  border-color: var(--hive-accent);
+  background: var(--hive-accent-soft);
+}
+
+/* ---- Edges --------------------------------------------------------- */
+.react-flow__edge-path {
+  stroke: var(--hive-border-strong);
+  stroke-width: 1.5;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--hive-accent);
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: var(--hive-accent);
+}
+
+.react-flow__edge-text {
+  fill: var(--hive-text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.react-flow__edge-textbg {
+  fill: var(--hive-surface);
+}
+
+.react-flow__connectionline .react-flow__connection-path {
+  stroke: var(--hive-accent);
+  stroke-width: 1.5;
+}
+
+/* ---- Selection box --------------------------------------------------- */
+.react-flow__selection {
+  background: var(--hive-accent-soft);
+  border: 1px solid var(--hive-accent-line);
+}
+
+.react-flow__nodesselection-rect {
+  background: var(--hive-accent-soft);
+  border: 1px solid var(--hive-accent-line);
+}
+
+/* ---- Controls ---------------------------------------------------- */
+.react-flow__controls {
+  box-shadow: var(--hive-shadow);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--hive-border);
+}
+
+.react-flow__controls-button {
+  background: var(--hive-surface);
+  border-bottom: 1px solid var(--hive-border);
+  fill: var(--hive-text-muted);
+  color: var(--hive-text-muted);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--hive-surface-2);
+  fill: var(--hive-text);
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+/* ---- Minimap ------------------------------------------------------- */
+.react-flow__minimap {
+  background: var(--hive-surface) !important;
+  border: 1px solid var(--hive-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--hive-shadow);
+}
+
+/* ---- Attribution ----------------------------------------------------- */
+.react-flow__attribution {
+  background: transparent;
+}
+
+.react-flow__attribution a {
+  color: var(--hive-text-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
