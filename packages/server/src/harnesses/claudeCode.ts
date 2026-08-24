@@ -3,80 +3,48 @@ import {
   HarnessExecutionResult,
   HarnessOptions,
 } from "@hive/shared/harness";
-import spawn from "cross-spawn";
-import { detectFilesChanged } from "../gitUtils";
-import { stripAnsi } from "../textUtils";
+import { ClaudeCodeParser } from "./eventStream";
+import { probeAvailable, runHarness } from "./runner";
 
 export class ClaudeCodeHarness implements Harness {
   name = "claude-code";
   private _path: string;
   private _model: string;
 
-  constructor(path = "claude", model = "sonnet") {
+  constructor(path = "claude", model = "") {
     this._path = path;
     this._model = model;
   }
 
   isAvailable(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const proc = spawn(this._path, ["--version"], { timeout: 3000 });
-      proc.on("error", () => resolve(false));
-      proc.on("close", (code) => resolve(code === 0));
-    });
+    return probeAvailable(this._path);
   }
 
   execute(
     prompt: string,
     options?: HarnessOptions,
   ): Promise<HarnessExecutionResult> {
-    return new Promise((resolve, reject) => {
-      const startTime = Date.now();
-      let stdout = "";
-      let stderr = "";
+    // stream-json (which requires --verbose) carries tool calls and
+    // thinking blocks as they happen. Plain --output-format json returns
+    // one envelope at the end, which is what used to land in the chat
+    // window verbatim.
+    const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
 
-      const proc = spawn(
-        this._path,
-        ["-p", prompt, "--output-format", "json"],
-        {
-          cwd: options?.cwd || process.cwd(),
-          env: { ...process.env, ...options?.env },
-        },
-      );
+    const model = options?.model || this._model;
+    if (model && model !== "default") args.push("--model", model);
+    if (options?.agent) args.push("--agent", options.agent);
 
-      proc.stdout?.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      proc.stderr?.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      proc.on("close", (code) => {
-        const duration = Date.now() - startTime;
-        const cleanStdout = stripAnsi(stdout);
-        const cleanStderr = stripAnsi(stderr);
-        resolve({
-          success: code === 0,
-          exitCode: code ?? 1,
-          stdout: cleanStdout,
-          stderr: cleanStderr,
-          output: cleanStdout || cleanStderr,
-          filesChanged: detectFilesChanged(options?.cwd || process.cwd()),
-          duration,
-        });
-      });
-
-      proc.on("error", (err) => {
-        reject(err);
-      });
+    return runHarness({
+      command: this._path,
+      args,
+      options,
+      parser: new ClaudeCodeParser(),
     });
   }
 
   isCompatible(model: string): boolean {
     return (
-      model === this._model ||
-      model.includes("sonnet") ||
-      model.includes("claude")
+      !model || model === this._model || /sonnet|opus|haiku|claude/i.test(model)
     );
   }
 }

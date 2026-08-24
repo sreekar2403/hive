@@ -15,6 +15,8 @@ import logRoutes from "./routes/logs";
 import settingsRoutes from "./routes/settings";
 import memoryRoutes, { setSharedMemory } from "./routes/memory";
 import agentRoutes from "./routes/agents";
+import modelRoutes from "./routes/models";
+import { resolveModelRef } from "./models/catalog";
 import taskRoutes from "./routes/tasks";
 import { startCronRunner } from "./scheduler/cronRunner";
 import eventsRouter, { broadcast } from "./routes/events";
@@ -51,29 +53,62 @@ class HiveServer {
 
     // Chat endpoint
     app.post("/api/chat", async (req, res) => {
-      const { message, sessionId } = req.body;
+      const { message, sessionId, projectId, harness, model, agent } = req.body;
 
       if (!message) {
         return res.status(400).json({ error: "Message is required" });
       }
 
-      const session = sessionId || this.generateId();
-      if (!sessionId) {
-        this.sessions.set(session, {
+      // The client owns its session ids and sends one with every message.
+      // Adopting an id we haven't seen (a client that outlived a server
+      // restart, say) has to work: the alternative was a 500 from pushing
+      // onto a session record that was never created.
+      const session =
+        typeof sessionId === "string" && sessionId ? sessionId : this.generateId();
+      let sessionData = this.sessions.get(session);
+      if (!sessionData) {
+        sessionData = {
+          id: session,
           createdAt: Date.now(),
+          projectId: typeof projectId === "string" ? projectId : null,
           messages: [],
-        });
+        };
+        this.sessions.set(session, sessionData);
       }
 
       try {
-        // Create and execute task
-        const task = await this.orchestrator.createTask(session, message);
-        broadcast("task:started", { sessionId: session, taskId: task.id });
+        // A model picked in the UI arrives as a catalog id
+        // (`harness/provider/model`); it names the harness as well as the
+        // model, so picking one is enough to pin both.
+        const picked =
+          typeof model === "string" && model
+            ? await resolveModelRef(model)
+            : null;
+        const chosenHarness =
+          (typeof harness === "string" && harness ? harness : null) ??
+          picked?.harness ??
+          undefined;
+
+        const task = await this.orchestrator.createTask(
+          session,
+          message,
+          chosenHarness,
+          typeof projectId === "string" ? projectId : null,
+          {
+            model: picked?.ref ?? null,
+            agent: typeof agent === "string" && agent ? agent : null,
+          },
+        );
+        broadcast("task:started", {
+          sessionId: session,
+          taskId: task.id,
+          projectId: task.projectId,
+          prompt: task.prompt,
+        });
 
         const result = await this.orchestrator.executeTask(task.id);
 
         // Store session message
-        const sessionData = this.sessions.get(session);
         sessionData.messages.push({
           role: "user",
           content: message,
@@ -88,9 +123,11 @@ class HiveServer {
           timestamp: Date.now(),
         });
 
-        broadcast("task:completed", {
+        broadcast(result.status === "failed" ? "task:failed" : "task:completed", {
           sessionId: session,
           taskId: result.id,
+          projectId: result.projectId,
+          harness: result.harness,
           status: result.status,
         });
 
@@ -99,6 +136,9 @@ class HiveServer {
           taskId: result.id,
           status: result.status,
           output: result.output,
+          harness: result.harness,
+          model: result.model,
+          events: result.events,
         });
       } catch (err) {
         broadcast("task:failed", {
@@ -145,6 +185,9 @@ class HiveServer {
 
     // Live agent roster powering the Office floor
     app.use("/api/agents", agentRoutes);
+
+    // Which models each harness and local server can actually run
+    app.use("/api/models", modelRoutes);
 
     // Kanban task board
     app.use("/api/tasks", taskRoutes);

@@ -45,7 +45,8 @@ export default tseslint.config(
     },
   },
   {
-    files: ["*.js"],
+    // Plain CommonJS node scripts: start-server.js and the hive launcher.
+    files: ["*.js", "bin/*.js"],
     languageOptions: {
       globals: globals.node,
       sourceType: "commonjs",

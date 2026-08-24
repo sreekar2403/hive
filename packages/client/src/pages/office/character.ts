@@ -31,16 +31,26 @@ export class Character {
   private readonly nameTagBg = new Graphics();
   private readonly activity = new Graphics();
 
+  private readonly thought = new Graphics();
+
   private path: TilePoint[] = [];
   private tile: TilePoint;
   private facing: Facing = "down";
   private walkPhase = 0;
+  private idlePhase = 0;
   private working = false;
   private reduceMotion = false;
+  /** The desk this character belongs to; roaming stays near it. */
+  private home: TilePoint;
+  /** When this character may next take a few steps around the room. */
+  private nextRoamAt = 0;
+  private accentColor = 0xffffff;
 
   constructor(opts: CharacterOptions, reduceMotion: boolean) {
     this.tile = opts.tile;
+    this.home = opts.tile;
     this.reduceMotion = reduceMotion;
+    this.accentColor = opts.shirt;
 
     this.drawLegs(opts.shirt);
     this.drawTorso(opts.shirt);
@@ -64,7 +74,13 @@ export class Character {
     // to stay readable rather than relying on the floor behind them.
     this.drawNameTagBg();
 
-    this.root.addChild(this.activity, this.body, this.nameTagBg, this.nameTag);
+    this.root.addChild(
+      this.activity,
+      this.body,
+      this.thought,
+      this.nameTagBg,
+      this.nameTag,
+    );
     this.root.eventMode = "static";
     this.root.cursor = "pointer";
 
@@ -138,6 +154,15 @@ export class Character {
     return this.path.length > 0;
   }
 
+  get homeTile(): TilePoint {
+    return this.home;
+  }
+
+  /** The desk this character is assigned to, and roams around. */
+  setHome(tile: TilePoint) {
+    this.home = tile;
+  }
+
   setPath(path: TilePoint[]) {
     this.path = path;
     if (this.reduceMotion && path.length) {
@@ -151,9 +176,39 @@ export class Character {
     }
   }
 
+  /** Teleports — only used when a character first appears on the floor. */
+  placeAt(tile: TilePoint) {
+    this.path = [];
+    this.tile = tile;
+    const p = tileCenterPx(tile);
+    this.root.position.set(p.x, p.y);
+    this.root.zIndex = p.y;
+  }
+
   setWorking(working: boolean) {
+    if (this.working === working) return;
     this.working = working;
-    if (!working) this.activity.clear();
+    if (!working) {
+      this.activity.clear();
+      this.thought.clear();
+    }
+  }
+
+  get isWorking(): boolean {
+    return this.working;
+  }
+
+  /**
+   * Roaming is rate-limited by the character itself so the floor's ticker
+   * can simply ask, every frame, whether this one wants to move.
+   */
+  wantsToRoam(now: number): boolean {
+    return !this.reduceMotion && this.path.length === 0 && now >= this.nextRoamAt;
+  }
+
+  /** Called after a roam target is handed out; sets the next quiet spell. */
+  scheduleRoam(now: number, minMs: number, maxMs: number) {
+    this.nextRoamAt = now + minMs + Math.random() * (maxMs - minMs);
   }
 
   /** Advances the walk + idle animation. `dt` is in seconds. */
@@ -192,12 +247,22 @@ export class Character {
       this.head.x = this.facing === "left" ? -1 : this.facing === "right" ? 1 : 0;
     } else {
       this.legs.x = 0;
-      this.body.y = 0;
       this.walkPhase = 0;
+      // Standing still still breathes, so a stopped character doesn't
+      // read as a frozen sprite.
+      this.idlePhase += dt * 2.2;
+      this.body.y = this.reduceMotion ? 0 : Math.sin(this.idlePhase) * 0.35;
     }
 
-    if (this.working && !this.reduceMotion) {
+    if (this.reduceMotion) return;
+
+    if (this.working) {
       this.drawActivity();
+      // The thought bubble is what "thinking" looks like at this scale:
+      // it belongs to a character who has stopped to work, not one who
+      // is still crossing the floor.
+      if (this.path.length === 0) this.drawThought();
+      else this.thought.clear();
     }
   }
 
@@ -211,8 +276,33 @@ export class Character {
     }
   }
 
+  /** A thought bubble with three dots filling in turn. */
+  private drawThought() {
+    const t = performance.now() / 320;
+    const g = this.thought;
+    g.clear();
+
+    const x = 9;
+    const y = -30;
+    g.circle(x - 5, y + 7, 1.1).fill({ color: this.accentColor, alpha: 0.5 });
+    g.circle(x - 3, y + 5, 1.6).fill({ color: this.accentColor, alpha: 0.65 });
+    g.roundRect(x - 1, y - 4, 15, 9, 4.5).fill({
+      color: this.accentColor,
+      alpha: 0.85,
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const lit = Math.floor(t) % 3 === i;
+      g.circle(x + 3 + i * 4, y + 0.5, 1.1).fill({
+        color: 0x14171b,
+        alpha: lit ? 0.95 : 0.4,
+      });
+    }
+  }
+
   setActivityColor(color: number) {
     this.activity.tint = color;
+    this.accentColor = color;
   }
 
   destroy() {

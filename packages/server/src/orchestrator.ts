@@ -1,12 +1,15 @@
 import { LoopEngine, LoopCallback } from "./loopEngine";
-import { Router } from "./router";
+import { Router, type RoutingResult } from "./router";
 import { PermissionManager } from "./permissions";
 import { ResourceManager } from "./resourceManager";
 import { SharedMemory } from "./sharedMemory";
 import { Config } from "./config";
-import { Harness } from "@hive/shared/harness";
+import { Harness, HarnessEvent } from "@hive/shared/harness";
 import { execSync } from "child_process";
+import * as fs from "fs";
+import { getDb } from "./db/database";
 import { broadcast } from "./routes/events";
+import { endSpan, log, recordSpan, startSpan } from "./telemetry";
 
 /**
  * Where a task's agent currently stands on the Office floor. Each phase is
@@ -34,6 +37,31 @@ export interface AgentTask {
   output: string;
   phase: TaskPhase;
   filesChanged: string[];
+  /** The project this task runs against, when the caller knows it. */
+  projectId: string | null;
+  /** Harness the caller pinned, if any — overrides routing for the whole run. */
+  requestedHarness: string | null;
+  /** Model in the CLI's own notation, when the caller picked one. */
+  model: string | null;
+  /** Agent/persona to run under, where the harness supports one. */
+  agent: string | null;
+  /** Tool calls, thinking and status from the harness, in order. */
+  events: HarnessEvent[];
+}
+
+/** A long run can emit thousands of events; the trail keeps the newest. */
+const MAX_TASK_EVENTS = 300;
+
+/**
+ * How long an agent lingers in Intake before moving to the zone its work
+ * belongs in. The Office floor animates a character walking between
+ * zones; without a beat here the two phase changes land in the same tick
+ * and the walk is never seen.
+ */
+const INTAKE_DWELL_MS = 900;
+
+function dwell(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -104,6 +132,8 @@ export class Orchestrator {
     sessionId: string,
     prompt: string,
     harness?: string,
+    projectId?: string | null,
+    selection?: { model?: string | null; agent?: string | null },
   ): Promise<AgentTask> {
     const taskId = this.generateId();
     const branchName = `hive/${sessionId}/${taskId}`;
@@ -120,6 +150,11 @@ export class Orchestrator {
       output: "",
       phase: "intake",
       filesChanged: [],
+      projectId: projectId ?? null,
+      requestedHarness: harness ?? null,
+      model: selection?.model ?? null,
+      agent: selection?.agent ?? null,
+      events: [],
     };
 
     this.tasks.set(taskId, task);
@@ -137,6 +172,17 @@ export class Orchestrator {
 
     task.status = "running";
 
+    // One root span per run; everything below nests under it so the Logs
+    // screen can draw the whole flow as a waterfall.
+    const rootSpan = startSpan(task.id, task.prompt, "task", null, {
+      sessionId: task.sessionId,
+      projectId: task.projectId,
+    });
+    log("info", "orchestrator", `Task started: ${task.prompt}`, {
+      taskId: task.id,
+      projectId: task.projectId,
+    });
+
     // Check permissions for destructive actions. The prompt itself is what's
     // scanned for destructive keywords, not a fixed action label. When it's
     // genuinely going to wait on a human, surface that as the Conference
@@ -148,26 +194,69 @@ export class Orchestrator {
       this.setPhase(task, "conference");
     }
 
+    const permStart = Date.now();
     const needsPermission = await this.permissionManager.checkPermission(
       task.sessionId,
       task.prompt,
       task.prompt,
     );
+    recordSpan(
+      task.id,
+      awaitingApproval ? "Waited for approval" : "Permission check",
+      "permission",
+      rootSpan,
+      permStart,
+      needsPermission ? "ok" : "failed",
+      { gated: awaitingApproval, approved: needsPermission },
+    );
 
     if (!needsPermission) {
       task.status = "failed";
       task.output = "Permission denied for destructive action";
+      log("warn", "permissions", "Task denied at the approval gate", {
+        taskId: task.id,
+        projectId: task.projectId,
+      });
+      endSpan(rootSpan, "failed", { reason: "permission denied" });
       // The request was resolved — denied, or timed out with nobody there
       // to approve it — so the agent isn't waiting on anything anymore.
       this.setPhase(task, "break-room");
       return task;
     }
 
-    // Route to harness
-    const decision = this.router.route(task.prompt);
+    // Route to harness. A harness pinned by the caller wins outright —
+    // the Chat composer's "Harness" control used to be quietly ignored.
+    const routeStart = Date.now();
+    const pinned =
+      task.requestedHarness && this.harnesses.has(task.requestedHarness)
+        ? task.requestedHarness
+        : null;
+    const decision: RoutingResult = pinned
+      ? { harness: pinned, model: "", reasoning: "Pinned by the caller" }
+      : this.router.route(task.prompt);
     task.harness = decision.harness;
+    recordSpan(
+      task.id,
+      pinned ? `Pinned to ${decision.harness}` : `Routed to ${decision.harness}`,
+      "route",
+      rootSpan,
+      routeStart,
+      "ok",
+      {
+        harness: decision.harness,
+        model: decision.model,
+        reasoning: decision.reasoning,
+      },
+    );
+    log("info", "router", `Routed to ${decision.harness}: ${decision.reasoning}`, {
+      taskId: task.id,
+      projectId: task.projectId,
+    });
 
-    // Which zone the work itself belongs in — see classifyWorkPhase.
+    // Which zone the work itself belongs in — see classifyWorkPhase. The
+    // pause lets the floor show the walk out of Intake rather than
+    // teleporting the character mid-frame.
+    await dwell(INTAKE_DWELL_MS);
     this.setPhase(task, classifyWorkPhase(task.prompt));
 
     // Initialize loop engine with the prompt
@@ -195,8 +284,11 @@ export class Orchestrator {
       // changed — output/files just moved.
       broadcast("agent:update", {
         taskId: task.id,
+        sessionId: task.sessionId,
+        projectId: task.projectId,
         phase: task.phase,
         harness: task.harness,
+        iteration,
       });
 
       if (onIteration) {
@@ -204,10 +296,52 @@ export class Orchestrator {
       }
     };
 
-    const result = await this.loopEngine.run(callback);
+    const result = await this.loopEngine.run(
+      callback,
+      task.id,
+      rootSpan,
+      task.projectId,
+      {
+        cwd: this.workingTreeFor(task.projectId),
+        harness: pinned ?? undefined,
+        model: task.model ?? undefined,
+        agent: task.agent ?? undefined,
+        // Tool calls and thinking reach the chat window through here.
+        onEvent: (harnessEvent) => {
+          task.events.push(harnessEvent);
+          if (task.events.length > MAX_TASK_EVENTS) {
+            task.events.splice(0, task.events.length - MAX_TASK_EVENTS);
+          }
+          broadcast("agent:activity", {
+            taskId: task.id,
+            sessionId: task.sessionId,
+            projectId: task.projectId,
+            harness: task.harness,
+            event: harnessEvent,
+          });
+        },
+      },
+    );
 
     task.status = result.success ? "completed" : "failed";
     task.completedAt = Date.now();
+
+    log(
+      result.success ? "info" : "error",
+      "orchestrator",
+      result.success
+        ? `Task completed after ${result.iteration} iteration(s)`
+        : `Task failed: ${result.error ?? "unknown error"}`,
+      {
+        taskId: task.id,
+        projectId: task.projectId,
+        context: { filesChanged: task.filesChanged },
+      },
+    );
+    endSpan(rootSpan, result.success ? "ok" : "failed", {
+      iterations: result.iteration,
+      filesChanged: task.filesChanged.length,
+    });
 
     if (result.success) {
       // A real, if brief, stop in Shipping before the desk empties out —
@@ -332,7 +466,33 @@ export class Orchestrator {
 
   private setPhase(task: AgentTask, phase: TaskPhase): void {
     task.phase = phase;
-    broadcast("agent:update", { taskId: task.id, phase, harness: task.harness });
+    // sessionId travels with the event so Chat can attribute progress to
+    // the conversation that asked for it, even from another page.
+    broadcast("agent:update", {
+      taskId: task.id,
+      sessionId: task.sessionId,
+      projectId: task.projectId,
+      phase,
+      harness: task.harness,
+    });
+  }
+
+  /**
+   * The directory a task's harness should run in. Tasks used to run in
+   * the server's own working directory regardless of which project was
+   * selected, so `filesChanged` described the wrong repository.
+   */
+  private workingTreeFor(projectId: string | null): string | undefined {
+    if (!projectId) return undefined;
+    try {
+      const row = getDb()
+        .prepare("SELECT path FROM projects WHERE id = ?")
+        .get(projectId) as { path: string } | undefined;
+      if (row?.path && fs.existsSync(row.path)) return row.path;
+    } catch {
+      // No database yet (or the row is gone) — fall back to the default.
+    }
+    return undefined;
   }
 
   private generateId(): string {

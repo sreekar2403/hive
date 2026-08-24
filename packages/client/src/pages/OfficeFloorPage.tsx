@@ -21,6 +21,7 @@ import {
 } from "./office/layout";
 import { Character } from "./office/character";
 import { findPath } from "./office/pathfinding";
+import { ENTRY_TILE, pickRoamTile } from "./office/roaming";
 import { buildFloor, readPalette, type Palette } from "./office/scene";
 import { useOfficeState } from "./office/useOfficeState";
 import type { AgentSnapshot, TaskPhase, TilePoint } from "./office/types";
@@ -49,6 +50,10 @@ export function OfficeFloorPage() {
   const gridRef = useRef<boolean[][]>(buildWalkableGrid());
   const paletteRef = useRef<Palette | null>(null);
   const occupancyRef = useRef<Map<string, string>>(new Map());
+  /** Which zone each character has been sent to, so re-syncs don't re-path. */
+  const assignmentsRef = useRef<Map<string, TaskPhase>>(new Map());
+  /** The first roster sync places everyone; later arrivals walk in. */
+  const seededRef = useRef(false);
 
   const { theme } = useTheme();
   const { agents, loading, error } = useOfficeState();
@@ -91,6 +96,7 @@ export function OfficeFloorPage() {
     // Captured for cleanup: the refs themselves may be reassigned by then.
     const characters = charactersRef.current;
     const occupancy = occupancyRef.current;
+    const assignments = assignmentsRef.current;
     let cancelled = false;
     let initialized = false;
 
@@ -136,8 +142,36 @@ export function OfficeFloorPage() {
 
       app.ticker.add((ticker) => {
         const dt = ticker.deltaMS / 1000;
-        for (const character of charactersRef.current.values()) {
+        const now = performance.now();
+
+        for (const [id, character] of charactersRef.current) {
           character.update(dt);
+
+          // Thinking looks like pacing: a character who has arrived takes
+          // a few steps around their own room now and then rather than
+          // standing perfectly still until the next phase change.
+          if (!character.wantsToRoam(now)) continue;
+          const phase = assignmentsRef.current.get(id);
+          const zone = phase ? ZONES_BY_ID[phase] : null;
+          if (!zone) continue;
+
+          const home = character.homeTile;
+          const at = character.currentTile;
+          const away = at.x !== home.x || at.y !== home.y;
+          const target =
+            away && Math.random() < 0.45
+              ? home
+              : pickRoamTile(gridRef.current, zone, home);
+
+          if (target) {
+            character.setPath(findPath(gridRef.current, at, target));
+          }
+          // Busy agents fidget; idle ones in the break room drift slowly.
+          character.scheduleRoam(
+            now,
+            character.isWorking ? 2400 : 7000,
+            character.isWorking ? 6000 : 16000,
+          );
         }
       });
     })();
@@ -153,6 +187,8 @@ export function OfficeFloorPage() {
       for (const c of characters.values()) c.destroy();
       characters.clear();
       occupancy.clear();
+      assignments.clear();
+      seededRef.current = false;
       setReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,6 +248,13 @@ export function OfficeFloorPage() {
         const key = `${slot.x},${slot.y}`;
         const holder = occupancy.get(key);
         if (!holder || holder === agentId) {
+          // Leaving a zone frees the desk held there, otherwise a
+          // long-lived agent slowly reserves a slot in every room.
+          for (const [otherKey, otherHolder] of occupancy) {
+            if (otherHolder === agentId && otherKey !== key) {
+              occupancy.delete(otherKey);
+            }
+          }
           occupancy.set(key, agentId);
           return slot;
         }
@@ -226,9 +269,14 @@ export function OfficeFloorPage() {
       const shirt = parseInt(shirtRaw.replace("#", ""), 16) || 0xe8a33d;
       const h = hashCode(agent.id);
 
+      const slot = claimSlot(agent.phase, agent.id);
       let character = characters.get(agent.id);
+      const isNew = !character;
+
       if (!character) {
-        const start = claimSlot(agent.phase, agent.id);
+        // Everyone already on the floor when the page opens is simply
+        // placed. Anyone who turns up later walks in through the door.
+        const start = seededRef.current ? ENTRY_TILE : slot;
         character = new Character(
           {
             name: agent.name,
@@ -239,6 +287,8 @@ export function OfficeFloorPage() {
           },
           reduceMotion,
         );
+        character.setHome(slot);
+        character.scheduleRoam(performance.now(), 1500, 5000);
         character.root.on("pointertap", () => setSelectedId(agent.id));
         characters.set(agent.id, character);
         world.addChild(character.root);
@@ -253,19 +303,28 @@ export function OfficeFloorPage() {
       character.setActivityColor(shirt);
       character.setWorking(agent.taskId !== null && agent.phase !== "break-room");
 
-      // Walk to the zone that matches this agent's phase.
-      const goal = claimSlot(agent.phase, agent.id);
-      const at = character.currentTile;
-      if ((at.x !== goal.x || at.y !== goal.y) && !character.isMoving) {
-        character.setPath(findPath(gridRef.current, at, goal));
+      // Walk to the zone that matches this agent's phase. Only a change
+      // of zone re-routes: a character pacing around their desk (see the
+      // roam loop in the ticker) must not be yanked back on every poll.
+      const assigned = assignmentsRef.current.get(agent.id);
+      if (isNew || assigned !== agent.phase) {
+        assignmentsRef.current.set(agent.id, agent.phase);
+        character.setHome(slot);
+        const at = character.currentTile;
+        if (at.x !== slot.x || at.y !== slot.y) {
+          character.setPath(findPath(gridRef.current, at, slot));
+        }
       }
     }
+
+    seededRef.current = true;
 
     // Remove characters whose agents are gone.
     for (const [id, character] of characters) {
       if (seen.has(id)) continue;
       character.destroy();
       characters.delete(id);
+      assignmentsRef.current.delete(id);
       for (const [key, holder] of occupancy) {
         if (holder === id) occupancy.delete(key);
       }

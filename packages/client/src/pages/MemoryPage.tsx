@@ -10,6 +10,7 @@ import type {
   MemoryEntrySummary,
   MemorySessionSummary,
 } from "./memory/types";
+import { useStickyState } from "../lib/useStickyState";
 
 /**
  * Three-pane browser over the shared key/value store: sessions, the keys
@@ -22,8 +23,16 @@ export function MemoryPage() {
   const [entries, setEntries] = useState<MemoryEntrySummary[]>([]);
   const [entry, setEntry] = useState<MemoryEntry | null>(null);
 
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [entryKey, setEntryKey] = useState<string | null>(null);
+  // Coming back to this screen lands you on the same session and key
+  // you were reading, rather than back at the top of the list.
+  const [sessionId, setSessionId] = useStickyState<string | null>(
+    "memory.sessionId",
+    null,
+  );
+  const [entryKey, setEntryKey] = useStickyState<string | null>(
+    "memory.entryKey",
+    null,
+  );
 
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(false);
@@ -45,7 +54,7 @@ export function MemoryPage() {
     } finally {
       setLoadingSessions(false);
     }
-  }, []);
+  }, [setSessionId]);
 
   const loadEntries = useCallback(async (id: string | null) => {
     if (!id) {
@@ -70,7 +79,7 @@ export function MemoryPage() {
     } finally {
       setLoadingEntries(false);
     }
-  }, []);
+  }, [setEntryKey]);
 
   const loadValue = useCallback(async (id: string | null, key: string | null) => {
     if (!id || !key) {
@@ -126,7 +135,7 @@ export function MemoryPage() {
     setEntryKey(null);
     setEntry(null);
     await Promise.all([loadEntries(sessionId), loadSessions()]);
-  }, [sessionId, entryKey, loadEntries, loadSessions]);
+  }, [sessionId, entryKey, loadEntries, loadSessions, setEntryKey]);
 
   const handleClearSession = useCallback(async () => {
     if (!sessionId) return;
@@ -135,7 +144,7 @@ export function MemoryPage() {
     setEntryKey(null);
     setEntry(null);
     await loadSessions();
-  }, [sessionId, loadSessions]);
+  }, [sessionId, loadSessions, setEntryKey]);
 
   const totalSize = sessions.reduce((sum, s) => sum + s.totalSize, 0);
 

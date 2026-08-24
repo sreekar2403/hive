@@ -6,7 +6,8 @@ export type ProviderId =
   | "openai"
   | "openrouter"
   | "google"
-  | "ollama";
+  | "ollama"
+  | "lmstudio";
 
 export type HarnessId = "opencode" | "claude-code" | "pi";
 
@@ -247,6 +248,8 @@ export function createDefaultConfig(): Config {
       openrouter: { enabled: false, apiKey: "", baseUrl: "" },
       google: { enabled: false, apiKey: "", baseUrl: "" },
       ollama: { enabled: false, apiKey: "", baseUrl: "http://localhost:11434" },
+      // Local model servers need no key; the base URL is the whole config.
+      lmstudio: { enabled: false, apiKey: "", baseUrl: "http://localhost:1234" },
     },
     harnesses: {
       opencode: {

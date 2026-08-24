@@ -30,7 +30,7 @@
     "opencode": {
       "enabled": true,
       "path": "opencode",
-      "defaultModel": "claude-sonnet-4",
+      "defaultModel": "mimo-v2.5-free",
       "args": [],
       "concurrency": 2
     },
@@ -44,7 +44,7 @@
     "pi": {
       "enabled": true,
       "path": "pi",
-      "defaultModel": "claude-sonnet-4",
+      "defaultModel": "ornith-1.5:35b",
       "args": [],
       "concurrency": 2
     }

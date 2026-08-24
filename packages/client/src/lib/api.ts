@@ -53,32 +53,135 @@ export const API = {
   del: <T>(path: string) => request<T>("DELETE", path),
 };
 
-/** Subscribes to the server's SSE stream. Returns an unsubscribe function. */
-export function subscribeToEvents(
-  onEvent: (type: string, data: unknown) => void,
-): () => void {
-  const source = new EventSource(`${API_BASE}/api/events`);
+/* ------------------------------------------------------------------ */
+/* Event stream                                                        */
+/* ------------------------------------------------------------------ */
 
-  const forward = (type: string) => (e: MessageEvent) => {
-    try {
-      onEvent(type, JSON.parse(e.data));
-    } catch {
-      onEvent(type, e.data);
-    }
+export type HiveEventType =
+  | "message"
+  | "task:started"
+  | "task:completed"
+  | "task:failed"
+  | "task:progress"
+  | "agent:update"
+  | "schedule:fired"
+  | "log";
+
+const EVENT_TYPES: HiveEventType[] = [
+  "task:started",
+  "task:completed",
+  "task:failed",
+  "task:progress",
+  "agent:update",
+  "schedule:fired",
+  "log",
+];
+
+export type StreamStatus = "connecting" | "open" | "offline";
+
+type EventListener = (type: string, data: unknown) => void;
+type StatusListener = (status: StreamStatus) => void;
+
+/**
+ * One EventSource for the whole app, shared by every subscriber.
+ *
+ * Each page used to open its own connection, which cost real behaviour:
+ * a browser allows only six concurrent connections per origin, so Chat +
+ * Logs + Traces + Office between them could saturate the server's origin
+ * and stall ordinary `fetch` calls — the page would sit there showing no
+ * logs at all. It also meant that unmounting a page dropped the stream
+ * and lost every event that arrived while you were elsewhere.
+ */
+const listeners = new Set<EventListener>();
+const statusListeners = new Set<StatusListener>();
+
+let source: EventSource | null = null;
+let status: StreamStatus = "offline";
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectDelay = 1000;
+
+function setStatus(next: StreamStatus) {
+  if (status === next) return;
+  status = next;
+  for (const l of statusListeners) l(next);
+}
+
+function emit(type: string, raw: string) {
+  let data: unknown = raw;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    // Non-JSON payloads (heartbeats, plain text) pass through as-is.
+  }
+  for (const l of listeners) l(type, data);
+}
+
+function openStream() {
+  if (source || typeof EventSource === "undefined") return;
+  setStatus("connecting");
+
+  const es = new EventSource(`${API_BASE}/api/events`);
+  source = es;
+
+  es.onopen = () => {
+    reconnectDelay = 1000;
+    setStatus("open");
   };
 
-  source.onmessage = forward("message");
-  for (const type of [
-    "task:started",
-    "task:completed",
-    "task:failed",
-    "task:progress",
-    "agent:update",
-    "schedule:fired",
-    "log",
-  ]) {
-    source.addEventListener(type, forward(type));
+  es.onmessage = (e) => emit("message", e.data);
+  for (const type of EVENT_TYPES) {
+    es.addEventListener(type, (e) => emit(type, (e as MessageEvent).data));
   }
 
-  return () => source.close();
+  es.onerror = () => {
+    // EventSource retries on its own while the connection merely drops,
+    // but a closed stream (server restarted, refused) stays closed — so
+    // reopen it here with a backoff instead of going quiet forever.
+    if (es.readyState === EventSource.CLOSED) {
+      es.close();
+      if (source === es) source = null;
+      setStatus("offline");
+      scheduleReconnect();
+    } else {
+      setStatus("connecting");
+    }
+  };
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer || listeners.size === 0) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+    openStream();
+  }, reconnectDelay);
+}
+
+/**
+ * Subscribes to the server's SSE stream. Returns an unsubscribe function.
+ * The underlying connection is shared and outlives individual mounts, so
+ * navigating between pages never drops it.
+ */
+export function subscribeToEvents(onEvent: EventListener): () => void {
+  listeners.add(onEvent);
+  openStream();
+  return () => {
+    listeners.delete(onEvent);
+    // The connection is deliberately kept open: providers mounted above
+    // the router keep long-lived subscriptions, and reconnect churn on
+    // every navigation is what the shared stream exists to avoid.
+  };
+}
+
+/** Subscribes to connection status; fires immediately with the current one. */
+export function subscribeToStreamStatus(onStatus: StatusListener): () => void {
+  statusListeners.add(onStatus);
+  onStatus(status);
+  return () => {
+    statusListeners.delete(onStatus);
+  };
+}
+
+export function getStreamStatus(): StreamStatus {
+  return status;
 }

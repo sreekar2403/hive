@@ -1,7 +1,8 @@
 import { LoopState, RoutingDecision } from "@hive/shared";
-import { Harness } from "@hive/shared/harness";
+import { Harness, HarnessEvent } from "@hive/shared/harness";
 import { Config } from "./config";
 import { Router } from "./router";
+import { endSpan, log, recordSpan, startSpan } from "./telemetry";
 
 export type LoopCallback = (
   iteration: number,
@@ -42,7 +43,33 @@ export class LoopEngine {
     return this.state;
   }
 
-  async run(onIteration: LoopCallback): Promise<LoopState> {
+  /**
+   * `taskId` and `parentSpan` are optional so the engine stays usable (and
+   * unit-testable) without a telemetry context; when they're supplied each
+   * iteration and harness spawn is recorded as a span.
+   *
+   * `options.cwd` is the working tree the harness should run in — without
+   * it every task runs against whichever directory the server was started
+   * from, so a project's files never change. `options.harness` pins the
+   * harness for the whole run rather than re-routing on each retry.
+   */
+  async run(
+    onIteration: LoopCallback,
+    taskId?: string,
+    parentSpan?: string,
+    projectId?: string | null,
+    options?: {
+      cwd?: string;
+      harness?: string;
+      /** Model in the CLI's own notation; see models/catalog.ts. */
+      model?: string;
+      agent?: string;
+      /** Forwarded live, so the UI can show work as it happens. */
+      onEvent?: (event: HarnessEvent) => void;
+    },
+  ): Promise<LoopState> {
+    const traced = Boolean(taskId);
+
     while (this.state.iteration < this.state.maxIterations) {
       this.state.iteration++;
 
@@ -50,18 +77,85 @@ export class LoopEngine {
       const prompt = this.buildPrompt();
 
       // Route to harness
-      const decision = this.route();
+      const decision = this.route(options?.harness);
       const harness = this.harnesses.get(decision.harness);
+
+      const iterationSpan =
+        traced && taskId
+          ? startSpan(
+              taskId,
+              `Iteration ${this.state.iteration}`,
+              "iteration",
+              parentSpan ?? null,
+              { harness: decision.harness },
+            )
+          : null;
 
       if (!harness) {
         this.state.error = `Harness '${decision.harness}' not available`;
+        if (taskId) {
+          log("error", "loop", this.state.error, { taskId, projectId });
+        }
+        if (iterationSpan) endSpan(iterationSpan, "failed");
         break;
       }
 
       // Execute
+      const spawnStart = Date.now();
       const result = await harness.execute(prompt, {
-        cwd: process.cwd(),
+        cwd: options?.cwd ?? process.cwd(),
+        model: options?.model,
+        agent: options?.agent,
+        onEvent: options?.onEvent,
       });
+      if (traced && taskId) {
+        recordSpan(
+          taskId,
+          `${decision.harness} run`,
+          "harness",
+          iterationSpan,
+          spawnStart,
+          result.success ? "ok" : "failed",
+          {
+            exitCode: result.exitCode,
+            durationMs: result.duration,
+            filesChanged: result.filesChanged,
+            stderr: result.stderr ? result.stderr.slice(0, 600) : undefined,
+          },
+        );
+        for (const toolCall of (result.events ?? []).filter(
+          (e) => e.type === "tool",
+        )) {
+          recordSpan(
+            taskId,
+            toolCall.tool ?? "tool",
+            "tool",
+            iterationSpan,
+            toolCall.at,
+            "ok",
+            { detail: toolCall.detail },
+          );
+        }
+        if (result.filesChanged?.length) {
+          recordSpan(
+            taskId,
+            `${result.filesChanged.length} file(s) changed`,
+            "git",
+            iterationSpan,
+            spawnStart,
+            "ok",
+            { files: result.filesChanged.slice(0, 50) },
+          );
+        }
+        log(
+          result.success ? "info" : "warn",
+          decision.harness,
+          result.success
+            ? `Finished in ${result.duration}ms`
+            : `Exited with code ${result.exitCode}`,
+          { taskId, projectId, context: { stderr: result.stderr?.slice(0, 400) } },
+        );
+      }
 
       // Notify callback
       await onIteration(
@@ -75,6 +169,7 @@ export class LoopEngine {
       if (result.success) {
         this.state.success = true;
         this.state.currentPrompt = "";
+        if (iterationSpan) endSpan(iterationSpan, "ok");
         break;
       }
 
@@ -83,10 +178,19 @@ export class LoopEngine {
       this.state.error = result.stderr || "Execution failed";
 
       // Check retry threshold
-      if (this.shouldRetry(result)) {
+      const willRetry = this.shouldRetry(result);
+      if (iterationSpan) {
+        endSpan(iterationSpan, "failed", { willRetry });
+      }
+      if (willRetry) {
         this.state.currentPrompt = this.buildRetryPrompt(result);
       } else {
         // Need human intervention
+        if (taskId) {
+          log("warn", "loop", "Stopping: the error isn't one we retry on", {
+            taskId,
+          });
+        }
         break;
       }
     }
@@ -111,7 +215,14 @@ export class LoopEngine {
     return parts.join("\n");
   }
 
-  private route(): RoutingDecision {
+  private route(pinned?: string): RoutingDecision {
+    if (pinned && this.harnesses.has(pinned)) {
+      return {
+        harness: pinned,
+        model: "",
+        reasoning: "Harness pinned for this run",
+      };
+    }
     return this.router.route(this.state.currentPrompt);
   }
 

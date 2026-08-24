@@ -10,7 +10,8 @@ export type ProviderId =
   | "openai"
   | "openrouter"
   | "google"
-  | "ollama";
+  | "ollama"
+  | "lmstudio";
 
 export type HarnessId = "opencode" | "claude-code" | "pi";
 
@@ -90,6 +91,7 @@ export const PROVIDER_IDS: ProviderId[] = [
   "openrouter",
   "google",
   "ollama",
+  "lmstudio",
 ];
 
 export const HARNESS_IDS: HarnessId[] = ["opencode", "claude-code", "pi"];
@@ -100,6 +102,7 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
   openrouter: "OpenRouter",
   google: "Google",
   ollama: "Ollama (local)",
+  lmstudio: "LM Studio (local)",
 };
 
 export const PROVIDER_KEY_PLACEHOLDERS: Record<ProviderId, string> = {
@@ -108,6 +111,7 @@ export const PROVIDER_KEY_PLACEHOLDERS: Record<ProviderId, string> = {
   openrouter: "sk-or-…",
   google: "AIza…",
   ollama: "No key required",
+  lmstudio: "No key required",
 };
 
 export const HARNESS_LABELS: Record<HarnessId, string> = {
@@ -118,6 +122,7 @@ export const HARNESS_LABELS: Record<HarnessId, string> = {
 
 export type SettingsSectionId =
   | "providers"
+  | "models"
   | "harnesses"
   | "routing"
   | "execution"

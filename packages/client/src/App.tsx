@@ -4,6 +4,8 @@ import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { ThemeContext, type Theme } from "./components/ui";
 import { ProjectProvider } from "./state/ProjectContext";
+import { ChatProvider } from "./state/ChatContext";
+import { LogsProvider } from "./state/LogsContext";
 import { Dashboard } from "./pages/Dashboard";
 import { ChatPage } from "./pages/ChatPage";
 import { KanbanPage } from "./pages/KanbanPage";
@@ -75,30 +77,37 @@ function App() {
   return (
     <ThemeProvider>
       <ProjectProvider>
-        <HashRouter>
-          <Routes>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Dashboard />} />
-              <Route
-                path="office"
-                element={
-                  <Suspense fallback={<PageFallback />}>
-                    <OfficeFloorPage />
-                  </Suspense>
-                }
-              />
-              <Route path="chat" element={<ChatPage />} />
-              <Route path="kanban" element={<KanbanPage />} />
-              <Route path="workflows" element={<WorkflowBuilderPage />} />
-              <Route path="schedule" element={<SchedulePage />} />
-              <Route path="memory" element={<MemoryPage />} />
-              <Route path="git-diff" element={<GitDiffPage />} />
-              <Route path="permissions" element={<PermissionsPage />} />
-              <Route path="logs" element={<LogsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
-          </Routes>
-        </HashRouter>
+        {/* Chat and Logs state is deliberately mounted above the router:
+            a task keeps running — and its log tail keeps filling — while
+            you are looking at another page. */}
+        <ChatProvider>
+          <LogsProvider>
+            <HashRouter>
+              <Routes>
+                <Route path="/" element={<Layout />}>
+                  <Route index element={<Dashboard />} />
+                  <Route
+                    path="office"
+                    element={
+                      <Suspense fallback={<PageFallback />}>
+                        <OfficeFloorPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route path="chat" element={<ChatPage />} />
+                  <Route path="kanban" element={<KanbanPage />} />
+                  <Route path="workflows" element={<WorkflowBuilderPage />} />
+                  <Route path="schedule" element={<SchedulePage />} />
+                  <Route path="memory" element={<MemoryPage />} />
+                  <Route path="git-diff" element={<GitDiffPage />} />
+                  <Route path="permissions" element={<PermissionsPage />} />
+                  <Route path="logs" element={<LogsPage />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                </Route>
+              </Routes>
+            </HashRouter>
+          </LogsProvider>
+        </ChatProvider>
       </ProjectProvider>
     </ThemeProvider>
   );

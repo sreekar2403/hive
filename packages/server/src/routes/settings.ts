@@ -22,6 +22,7 @@ const PROVIDER_IDS: ProviderId[] = [
   "openrouter",
   "google",
   "ollama",
+  "lmstudio",
 ];
 
 const HARNESS_IDS: HarnessId[] = ["opencode", "claude-code", "pi"];
@@ -277,6 +278,9 @@ async function testProvider(
       case "ollama":
         url = `${baseUrl || "http://localhost:11434"}/api/tags`;
         break;
+      case "lmstudio":
+        url = `${baseUrl || "http://localhost:1234"}/v1/models`;
+        break;
     }
 
     const response = await fetch(url, { headers, signal: controller.signal });
@@ -284,7 +288,8 @@ async function testProvider(
     if (response.ok) {
       return {
         success: true,
-        message: id === "ollama" ? "Reachable" : "Key is valid",
+        message:
+          id === "ollama" || id === "lmstudio" ? "Reachable" : "Key is valid",
       };
     }
     if (response.status === 401 || response.status === 403) {

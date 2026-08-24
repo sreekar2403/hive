@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Boxes,
+  Cpu,
   KeyRound,
   Route,
   Shield,
@@ -12,6 +13,7 @@ import { cn } from "../lib/cn";
 import { useSettings } from "./settings/useSettings";
 import { ProvidersSection } from "./settings/ProvidersSection";
 import { HarnessesSection } from "./settings/HarnessesSection";
+import { ModelsSection } from "./settings/ModelsSection";
 import { RoutingSection } from "./settings/RoutingSection";
 import {
   ExecutionSection,
@@ -31,6 +33,12 @@ const SECTIONS: Array<{
     label: "Providers",
     description: "Model providers and API keys",
     icon: KeyRound,
+  },
+  {
+    id: "models",
+    label: "Models",
+    description: "What each harness can run",
+    icon: Cpu,
   },
   {
     id: "harnesses",
@@ -168,6 +176,7 @@ export function SettingsPage() {
                   onKeyChange={setProviderKeyDraft}
                 />
               ) : null}
+              {section === "models" ? <ModelsSection /> : null}
               {section === "harnesses" ? (
                 <HarnessesSection draft={draft} onChange={update} />
               ) : null}

@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Multi-agent orchestration framework",
+  "bin": {
+    "hive": "bin/hive.js"
+  },
   "scripts": {
+    "hive": "node bin/hive.js",
     "build": "tsc --build",
     "start": "node packages/server/dist/index.js",
     "dev:server": "tsx packages/server/src/index.ts",

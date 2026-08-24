@@ -1,179 +1,123 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageSquare, Plus, RotateCcw, Send } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  MessageSquare,
+  Plus,
+  RotateCcw,
+  Send,
+  Trash2,
+  Waypoints,
+} from "lucide-react";
 import {
   Badge,
   Button,
   EmptyState,
   IconButton,
-  Select,
   StatusDot,
   Textarea,
 } from "../components/ui";
-import { API, subscribeToEvents } from "../lib/api";
+import { useChat, type ChatMessage } from "../state/ChatContext";
+import { useLogs } from "../state/LogsContext";
+import { ModelPicker } from "./chat/ModelPicker";
+import { ActivityTrail } from "./chat/ActivityTrail";
 import { cn } from "../lib/cn";
 
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  harness?: string;
-  status?: "completed" | "failed";
-}
-
-interface ChatSession {
-  id: string;
-  /** Null until the server assigns one on the first send. */
-  serverId: string | null;
-  name: string;
-  messages: ChatMessage[];
-}
-
-interface ChatResponse {
-  sessionId: string;
-  taskId: string;
-  status: "completed" | "failed";
-  output: string;
-}
-
-const STORAGE_KEY = "hive.chatSessions";
 const EXAMPLES = [
   "Add tests for the router's keyword matching",
   "Explain how the loop engine decides to retry",
   "Rename detectFilesChanged to listChangedFiles across the server",
 ];
 
-function newSession(): ChatSession {
-  return {
-    id: crypto.randomUUID(),
-    serverId: null,
-    name: "New chat",
-    messages: [],
-  };
-}
+/**
+ * Draft text and scroll offset are per session and only interesting while
+ * the app is open, so they live here rather than in the persisted store —
+ * but outside the component, so switching pages doesn't wipe them.
+ */
+const drafts = new Map<string, string>();
+const scrollOffsets = new Map<string, number>();
 
 export function ChatPage() {
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? (JSON.parse(raw) as ChatSession[]) : [];
-      if (parsed.length) return parsed;
-    } catch {
-      // Corrupt or unavailable storage — start fresh.
-    }
-    return [newSession()];
-  });
-  const [activeId, setActiveId] = useState(() => sessions[0].id);
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [pinnedHarness, setPinnedHarness] = useState("");
-  const [progress, setProgress] = useState<string | null>(null);
+  const {
+    sessions,
+    activeSession,
+    runs,
+    selection,
+    setSelection,
+    selectSession,
+    newSession,
+    deleteSession,
+    send,
+  } = useChat();
+  const { focusTrace } = useLogs();
+  const navigate = useNavigate();
+
+  const activeId = activeSession?.id ?? null;
+  const run = activeId ? (runs[activeId] ?? null) : null;
+  const sending = Boolean(run);
+
+  const [input, setInput] = useState(() =>
+    activeId ? (drafts.get(activeId) ?? "") : "",
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastSessionRef = useRef<string | null>(activeId);
 
-  const active = sessions.find((s) => s.id === activeId) ?? sessions[0];
-
+  // Swapping sessions swaps drafts with them.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-    } catch {
-      // Not fatal — the conversation just won't survive a reload.
-    }
-  }, [sessions]);
+    if (lastSessionRef.current === activeId) return;
+    const previous = lastSessionRef.current;
+    if (previous) drafts.set(previous, input);
+    lastSessionRef.current = activeId;
+    setInput(activeId ? (drafts.get(activeId) ?? "") : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [active?.messages.length, progress]);
-
-  // Live progress while a task runs, so the UI isn't frozen mid-request.
-  useEffect(() => {
-    if (!sending) return;
-    const unsubscribe = subscribeToEvents((type, data) => {
-      const d = data as { harness?: string; phase?: string } | undefined;
-      if (type === "task:started") setProgress("Routing to a harness…");
-      if (type === "agent:update") {
-        setProgress(
-          d?.harness ? `${d.harness} working${d.phase ? ` · ${d.phase}` : ""}` : "Working…",
-        );
-      }
-    });
-    return unsubscribe;
-  }, [sending]);
-
-  const patchActive = useCallback(
-    (fn: (s: ChatSession) => ChatSession) => {
-      setSessions((prev) => prev.map((s) => (s.id === activeId ? fn(s) : s)));
+  const updateInput = useCallback(
+    (value: string) => {
+      setInput(value);
+      if (activeId) drafts.set(activeId, value);
     },
     [activeId],
   );
 
-  const send = useCallback(
-    async (text: string) => {
-      const prompt = text.trim();
-      if (!prompt || sending) return;
+  // Restore where the reader was before they left the page; new messages
+  // still pin the view to the bottom.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !activeId) return;
+    const saved = scrollOffsets.get(activeId);
+    el.scrollTop = saved ?? el.scrollHeight;
+  }, [activeId]);
 
-      const userMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: prompt,
-      };
-      patchActive((s) => ({
-        ...s,
-        name: s.messages.length === 0 ? prompt.slice(0, 40) : s.name,
-        messages: [...s.messages, userMsg],
-      }));
-      setInput("");
-      setSending(true);
-      setProgress("Sending…");
+  const messageCount = activeSession?.messages.length ?? 0;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (nearBottom) el.scrollTo({ top: el.scrollHeight });
+  }, [messageCount, run?.progress]);
 
-      try {
-        // The server expects `message` and answers with `output`.
-        const data = await API.post<ChatResponse>("/api/chat", {
-          message: prompt,
-          sessionId: active?.serverId ?? undefined,
-          harness: pinnedHarness || undefined,
-        });
-        patchActive((s) => ({
-          ...s,
-          serverId: data.sessionId,
-          messages: [
-            ...s.messages,
-            {
-              id: data.taskId,
-              role: "assistant",
-              content: data.output,
-              status: data.status,
-            },
-          ],
-        }));
-      } catch (err) {
-        patchActive((s) => ({
-          ...s,
-          messages: [
-            ...s.messages,
-            {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content:
-                err instanceof Error
-                  ? err.message
-                  : "Could not reach the Hive server.",
-              status: "failed",
-            },
-          ],
-        }));
-      } finally {
-        setSending(false);
-        setProgress(null);
-      }
-    },
-    [active?.serverId, patchActive, pinnedHarness, sending],
-  );
+  const submit = useCallback(() => {
+    if (!input.trim() || sending) return;
+    const text = input;
+    updateInput("");
+    void send(text, activeId ?? undefined);
+  }, [input, sending, updateInput, send, activeId]);
 
   const retry = useCallback(
     (index: number) => {
-      const prior = active?.messages[index - 1];
-      if (prior?.role === "user") void send(prior.content);
+      const prior = activeSession?.messages[index - 1];
+      if (prior?.role === "user") void send(prior.content, activeId ?? undefined);
     },
-    [active?.messages, send],
+    [activeSession, send, activeId],
+  );
+
+  const openTrace = useCallback(
+    (taskId: string) => {
+      focusTrace(taskId);
+      navigate("/logs");
+    },
+    [focusTrace, navigate],
   );
 
   return (
@@ -181,53 +125,80 @@ export function ChatPage() {
       {/* Sessions */}
       <aside className="w-64 shrink-0 border-r border-line bg-surface flex flex-col">
         <div className="p-2 border-b border-line">
-          <Button
-            variant="primary"
-            className="w-full"
-            onClick={() => {
-              const s = newSession();
-              setSessions((prev) => [s, ...prev]);
-              setActiveId(s.id);
-            }}
-          >
+          <Button variant="primary" className="w-full" onClick={() => newSession()}>
             <Plus className="size-4" />
             New chat
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5">
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveId(s.id)}
-              className={cn(
-                "w-full flex items-start gap-2 px-2 py-2 rounded-md text-left transition-colors",
-                s.id === activeId
-                  ? "bg-accent-soft text-ink"
-                  : "text-muted hover:bg-surface-2 hover:text-ink",
-              )}
-            >
-              <MessageSquare
+          {sessions.length === 0 ? (
+            <p className="px-2 py-3 text-[12px] text-faint">
+              No conversations in this project yet.
+            </p>
+          ) : null}
+          {sessions.map((s) => {
+            const busy = Boolean(runs[s.id]);
+            return (
+              <div
+                key={s.id}
                 className={cn(
-                  "size-3.5 shrink-0 mt-0.5",
-                  s.id === activeId ? "text-accent" : "text-faint",
+                  "group w-full flex items-start gap-2 px-2 py-2 rounded-md transition-colors",
+                  s.id === activeId
+                    ? "bg-accent-soft text-ink"
+                    : "text-muted hover:bg-surface-2 hover:text-ink",
                 )}
-              />
-              <span className="min-w-0">
-                <span className="block text-[13px] truncate">{s.name}</span>
-                <span className="block font-mono text-[10px] text-faint">
-                  {s.messages.length}{" "}
-                  {s.messages.length === 1 ? "message" : "messages"}
-                </span>
-              </span>
-            </button>
-          ))}
+              >
+                <button
+                  onClick={() => selectSession(s.id)}
+                  className="flex-1 min-w-0 flex items-start gap-2 text-left"
+                >
+                  {busy ? (
+                    <span className="mt-1">
+                      <StatusDot tone="accent" pulse />
+                    </span>
+                  ) : (
+                    <MessageSquare
+                      className={cn(
+                        "size-3.5 shrink-0 mt-0.5",
+                        s.id === activeId ? "text-accent" : "text-faint",
+                      )}
+                    />
+                  )}
+                  <span className="min-w-0">
+                    <span className="block text-[13px] truncate">{s.name}</span>
+                    <span className="block font-mono text-[10px] text-faint">
+                      {busy
+                        ? "running…"
+                        : `${s.messages.length} ${
+                            s.messages.length === 1 ? "message" : "messages"
+                          }`}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => deleteSession(s.id)}
+                  className="opacity-0 group-hover:opacity-100 text-faint hover:text-danger transition-opacity"
+                  aria-label={`Delete ${s.name}`}
+                  disabled={busy}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </aside>
 
       {/* Conversation */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          {!active || active.messages.length === 0 ? (
+        <div
+          ref={scrollRef}
+          onScroll={(e) => {
+            if (activeId) scrollOffsets.set(activeId, e.currentTarget.scrollTop);
+          }}
+          className="flex-1 overflow-y-auto"
+        >
+          {!activeSession || activeSession.messages.length === 0 ? (
             <EmptyState
               icon={<MessageSquare />}
               title="Put the swarm to work"
@@ -237,7 +208,7 @@ export function ChatPage() {
                   {EXAMPLES.map((e) => (
                     <button
                       key={e}
-                      onClick={() => void send(e)}
+                      onClick={() => void send(e, activeId ?? undefined)}
                       className="text-left text-[13px] text-muted px-3 py-2 rounded-md border border-line hover:border-line-strong hover:text-ink hover:bg-surface-2 transition-colors"
                     >
                       {e}
@@ -248,13 +219,25 @@ export function ChatPage() {
             />
           ) : (
             <div className="max-w-3xl mx-auto px-6 py-6 flex flex-col gap-4">
-              {active.messages.map((m, i) => (
-                <Message key={m.id} message={m} onRetry={() => retry(i)} />
+              {activeSession.messages.map((m, i) => (
+                <Message
+                  key={m.id}
+                  message={m}
+                  onRetry={() => retry(i)}
+                  onOpenTrace={openTrace}
+                />
               ))}
-              {progress ? (
-                <div className="flex items-center gap-2 text-[13px] text-muted">
-                  <StatusDot tone="accent" pulse />
-                  {progress}
+              {run ? (
+                <div className="flex flex-col gap-2 items-start">
+                  <div className="flex items-center gap-2 text-[13px] text-muted">
+                    <StatusDot tone="accent" pulse />
+                    {run.progress}
+                    <span className="font-mono text-[11px] text-faint">
+                      keeps running if you switch pages
+                    </span>
+                  </div>
+                  {/* What it is doing right now, not just that it is busy. */}
+                  <ActivityTrail events={run.activity} live />
                 </div>
               ) : null}
             </div>
@@ -268,11 +251,11 @@ export function ChatPage() {
               <Textarea
                 rows={2}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => updateInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    void send(input);
+                    submit();
                   }
                 }}
                 placeholder="Describe the change you want…"
@@ -281,7 +264,7 @@ export function ChatPage() {
               />
               <Button
                 variant="primary"
-                onClick={() => void send(input)}
+                onClick={submit}
                 disabled={!input.trim() || sending}
                 aria-label="Send"
                 className="h-9"
@@ -291,19 +274,13 @@ export function ChatPage() {
               </Button>
             </div>
             <div className="flex items-center gap-2">
-              <span className="eyebrow">Harness</span>
-              <Select
-                value={pinnedHarness}
-                onChange={(e) => setPinnedHarness(e.target.value)}
-                className="h-7 text-[12px] w-40"
-                aria-label="Pin a harness for the next message"
-              >
-                <option value="">Choose automatically</option>
-                <option value="opencode">opencode</option>
-                <option value="claude-code">claude-code</option>
-                <option value="pi">pi</option>
-              </Select>
-              <span className="text-[11px] text-faint">
+              <span className="eyebrow">Run with</span>
+              <ModelPicker
+                value={selection}
+                onChange={setSelection}
+                disabled={sending}
+              />
+              <span className="text-[11px] text-faint ml-auto">
                 Enter sends · Shift+Enter for a new line
               </span>
             </div>
@@ -317,9 +294,11 @@ export function ChatPage() {
 function Message({
   message,
   onRetry,
+  onOpenTrace,
 }: {
   message: ChatMessage;
   onRetry: () => void;
+  onOpenTrace: (taskId: string) => void;
 }) {
   const failed = message.status === "failed";
 
@@ -339,10 +318,22 @@ function Message({
         <Badge tone={failed ? "danger" : "neutral"}>
           {failed ? "Failed" : (message.harness ?? "assistant")}
         </Badge>
+        {message.model ? (
+          <span className="font-mono text-[10px] text-faint">{message.model}</span>
+        ) : null}
         {failed ? (
           <IconButton size="sm" onClick={onRetry} aria-label="Try again">
             <RotateCcw className="size-3.5" />
           </IconButton>
+        ) : null}
+        {message.taskId ? (
+          <button
+            onClick={() => onOpenTrace(message.taskId!)}
+            className="flex items-center gap-1 text-[11px] text-faint hover:text-accent transition-colors"
+          >
+            <Waypoints className="size-3" />
+            View trace
+          </button>
         ) : null}
       </div>
       <div
@@ -356,6 +347,9 @@ function Message({
       >
         {message.content || "(no output)"}
       </div>
+      {message.activity?.length ? (
+        <ActivityTrail events={message.activity} />
+      ) : null}
     </div>
   );
 }

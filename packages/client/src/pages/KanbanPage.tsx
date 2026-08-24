@@ -22,12 +22,16 @@ import {
   harnessLabel,
 } from "./kanban/constants";
 import type { KanbanTask, TaskStatus } from "./kanban/types";
+import { useStickyState } from "../lib/useStickyState";
 
 export function KanbanPage() {
   const { activeProject, activeProjectId } = useProjects();
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [harnessFilter, setHarnessFilter] = useState("");
+  const [harnessFilter, setHarnessFilter] = useStickyState(
+    "kanban.harnessFilter",
+    "",
+  );
   const [selected, setSelected] = useState<KanbanTask | null>(null);
   const [creating, setCreating] = useState(false);
   const [newPrompt, setNewPrompt] = useState("");

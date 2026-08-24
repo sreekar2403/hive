@@ -3,72 +3,45 @@ import {
   HarnessExecutionResult,
   HarnessOptions,
 } from "@hive/shared/harness";
-import spawn from "cross-spawn";
-import { detectFilesChanged } from "../gitUtils";
-import { stripAnsi } from "../textUtils";
+import { PiParser } from "./eventStream";
+import { probeAvailable, runHarness } from "./runner";
 
 export class PiHarness implements Harness {
   name = "pi";
   private _path: string;
   private _model: string;
 
-  constructor(path = "pi", model = "sonnet") {
+  constructor(path = "pi", model = "") {
     this._path = path;
     this._model = model;
   }
 
   isAvailable(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const proc = spawn(this._path, ["--version"], { timeout: 3000 });
-      proc.on("error", () => resolve(false));
-      proc.on("close", (code) => resolve(code === 0));
-    });
+    return probeAvailable(this._path);
   }
 
   execute(
     prompt: string,
     options?: HarnessOptions,
   ): Promise<HarnessExecutionResult> {
-    return new Promise((resolve, reject) => {
-      const startTime = Date.now();
-      let stdout = "";
-      let stderr = "";
+    // `--mode json` emits message_start/message_end pairs; -p keeps it
+    // non-interactive. pi takes `provider/id` in a single --model flag.
+    const args = ["-p", "--mode", "json"];
 
-      const proc = spawn(this._path, ["-p", prompt], {
-        cwd: options?.cwd || process.cwd(),
-        env: { ...process.env, ...options?.env },
-      });
+    const model = options?.model || this._model;
+    if (model) args.push("--model", model);
 
-      proc.stdout?.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
+    args.push(prompt);
 
-      proc.stderr?.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      proc.on("close", (code) => {
-        const duration = Date.now() - startTime;
-        const cleanStdout = stripAnsi(stdout);
-        const cleanStderr = stripAnsi(stderr);
-        resolve({
-          success: code === 0,
-          exitCode: code ?? 1,
-          stdout: cleanStdout,
-          stderr: cleanStderr,
-          output: cleanStdout || cleanStderr,
-          filesChanged: detectFilesChanged(options?.cwd || process.cwd()),
-          duration,
-        });
-      });
-
-      proc.on("error", (err) => {
-        reject(err);
-      });
+    return runHarness({
+      command: this._path,
+      args,
+      options,
+      parser: new PiParser(),
     });
   }
 
   isCompatible(model: string): boolean {
-    return model === this._model || model.includes("sonnet");
+    return !model || model.includes("/") || model === this._model;
   }
 }

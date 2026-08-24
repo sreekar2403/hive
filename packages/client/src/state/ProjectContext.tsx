@@ -76,7 +76,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
       // Keep the selection valid as projects come and go.
       setActiveId((current) => {
-        if (current && data.projects.some((p) => p.id === current)) return current;
+        if (current && data.projects.some((p) => p.id === current))
+          return current;
         const next = data.projects[0]?.id ?? null;
         try {
           if (next) localStorage.setItem(STORAGE_KEY, next);
@@ -158,6 +159,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
 export function useProjects(): ProjectContextValue {
   const ctx = useContext(ProjectContext);
-  if (!ctx) throw new Error("useProjects must be used inside <ProjectProvider>");
+  if (!ctx)
+    throw new Error("useProjects must be used inside <ProjectProvider>");
   return ctx;
 }

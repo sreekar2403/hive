@@ -36,6 +36,9 @@ desktop app.
 ## Features
 
 - **Multi-Harness Routing**: Task-aware dispatch to best-fit harness (shared by the API and the retry loop)
+- **Live Model Discovery**: `opencode models`, `pi --list-models`, Ollama and LM Studio are queried directly, so the model picker lists what this machine can actually run (`GET /api/models`)
+- **Model Picker**: One searchable `harness / provider / model` control in the chat composer; picking a model pins the harness too
+- **Activity Trail**: Tool calls, thinking and token spend stream out of each CLI as it works and render under the message, live and after the fact
 - **Autonomous Loop**: Self-correct iterations with heuristic retry rules
 - **Permission System**: Prompts on destructive actions (`rm`, `push --force`, etc.), with a real approve/deny API (`/api/permissions`) that actually gates execution
 - **Branch-Per-Task**: Auto-managed git branches and PR creation
@@ -61,7 +64,32 @@ desktop app.
 
 ```bash
 pnpm install
+npm link                 # once: puts `hive` on your PATH
 
+hive                     # server + UI + desktop window, from any directory
+```
+
+`hive` is the everyday command. It starts the API server, the Vite dev server and the Electron
+window as one process group, streams their output into a single prefixed log, and stops all three
+on Ctrl+C or when you close the window. It always runs with the repo root as its working directory,
+so it works from anywhere.
+
+```bash
+hive                     # everything (server + UI + window)
+hive web                 # server + UI only; open http://localhost:3000 yourself
+hive server              # just the API server
+hive stop                # kill whatever is holding Hive's ports
+hive doctor              # check this machine can run it
+hive --port 3005         # move the API port (the UI follows via VITE_API_BASE)
+hive --devtools          # open DevTools with the window
+```
+
+If a server is already listening on the API port, `hive` reuses it instead of failing — so a second
+`hive` in another terminal just attaches a window to what's already running.
+
+The underlying package scripts still work if you'd rather run the pieces yourself:
+
+```bash
 # Development
 pnpm dev:server          # Run server on :3001 (tsx, no build step)
 pnpm dev:client          # Run the Vite dev server on :3000 (browser only)
@@ -82,7 +110,7 @@ pnpm format
 ```
 
 `pnpm dev:electron` starts the Vite dev server and the Electron shell together, pointed at
-`http://localhost:3000`. To try the desktop build the way it'll actually ship, run
+`http://localhost:3000` — but it does not start the API server, which is why `hive` exists. To try the desktop build the way it'll actually ship, run
 `pnpm --filter @hive/client electron:build` and launch the installer/binary it produces under
 `packages/client/release/`.
 
