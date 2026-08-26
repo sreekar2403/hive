@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
   Boxes,
+  Brain,
   Cpu,
-  KeyRound,
   Route,
   Shield,
   SlidersHorizontal,
@@ -11,10 +11,10 @@ import {
 import { Button, EmptyState, PageHeader } from "../components/ui";
 import { cn } from "../lib/cn";
 import { useSettings } from "./settings/useSettings";
-import { ProvidersSection } from "./settings/ProvidersSection";
 import { HarnessesSection } from "./settings/HarnessesSection";
 import { ModelsSection } from "./settings/ModelsSection";
 import { RoutingSection } from "./settings/RoutingSection";
+import { SecondBrainSection } from "./settings/SecondBrainSection";
 import {
   ExecutionSection,
   GeneralSection,
@@ -26,14 +26,8 @@ const SECTIONS: Array<{
   id: SettingsSectionId;
   label: string;
   description: string;
-  icon: typeof KeyRound;
+  icon: typeof Cpu;
 }> = [
-  {
-    id: "providers",
-    label: "Providers",
-    description: "Model providers and API keys",
-    icon: KeyRound,
-  },
   {
     id: "models",
     label: "Models",
@@ -43,7 +37,7 @@ const SECTIONS: Array<{
   {
     id: "harnesses",
     label: "Harnesses",
-    description: "The CLI agents Hive drives",
+    description: "The CLI agents Hive drives — they bring their own sign-in",
     icon: Boxes,
   },
   {
@@ -70,19 +64,23 @@ const SECTIONS: Array<{
     description: "Theme, defaults, storage",
     icon: SettingsIcon,
   },
+  {
+    id: "second-brain",
+    label: "Second Brain",
+    description: "Learning memory, soul.md, routing hints",
+    icon: Brain,
+  },
 ];
 
 export function SettingsPage() {
-  const [section, setSection] = useState<SettingsSectionId>("providers");
+  const [section, setSection] = useState<SettingsSectionId>("models");
   const {
     draft,
-    keyDrafts,
     loading,
     error,
     saving,
     dirty,
     update,
-    setProviderKeyDraft,
     discard,
     save,
     reload,
@@ -119,7 +117,7 @@ export function SettingsPage() {
         <PageHeader
           eyebrow="Inspect"
           title="Settings"
-          description="Wire up providers, choose which model does which kind of work, and set the limits the swarm runs under."
+          description="Point Hive at your agent CLIs — they carry their own sign-in — choose which model does which kind of work, and set the limits the swarm runs under."
         />
       </div>
 
@@ -168,14 +166,6 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {section === "providers" ? (
-                <ProvidersSection
-                  draft={draft}
-                  keyDrafts={keyDrafts}
-                  onChange={update}
-                  onKeyChange={setProviderKeyDraft}
-                />
-              ) : null}
               {section === "models" ? <ModelsSection /> : null}
               {section === "harnesses" ? (
                 <HarnessesSection draft={draft} onChange={update} />
@@ -191,6 +181,9 @@ export function SettingsPage() {
               ) : null}
               {section === "general" ? (
                 <GeneralSection draft={draft} onChange={update} />
+              ) : null}
+              {section === "second-brain" ? (
+                <SecondBrainSection draft={draft} onChange={update} />
               ) : null}
             </div>
           </div>

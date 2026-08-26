@@ -83,3 +83,4 @@ docs/superpowers/
 .pi/
 .venv/
 .env.agent
+.playwright-mcp/

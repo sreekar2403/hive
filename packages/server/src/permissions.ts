@@ -1,4 +1,15 @@
 import { Config } from "./config";
+import { broadcast } from "./routes/events";
+
+/** Best-effort SSE push so the Office floor reacts instantly; polling in
+ *  the client remains the correctness net if the stream ever drops. */
+function broadcastSafe(event: string, data: unknown): void {
+  try {
+    broadcast(event, data);
+  } catch {
+    // Observation only — permission flow must never depend on it.
+  }
+}
 
 export interface PermissionRequest {
   id: string;
@@ -50,6 +61,7 @@ export class PermissionManager {
     };
 
     this.pending.set(request.id, request);
+    broadcastSafe("permission:request", request);
 
     // Wait for approve()/deny() to settle this request, or time out.
     return new Promise<boolean>((resolve) => {
@@ -73,6 +85,7 @@ export class PermissionManager {
 
     request.approved = true;
     this.pending.delete(requestId);
+    broadcastSafe("permission:resolved", { ...request, approved: true });
     this.resolvers.get(requestId)?.(true);
     return true;
   }
@@ -87,6 +100,7 @@ export class PermissionManager {
       `[permissions] Denied ${requestId} (session ${request.sessionId})${reason ? `: ${reason}` : ""}`,
     );
     this.pending.delete(requestId);
+    broadcastSafe("permission:resolved", { ...request, approved: false });
     this.resolvers.get(requestId)?.(false);
     return true;
   }

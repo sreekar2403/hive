@@ -26,6 +26,8 @@ import {
 } from "../components/ui";
 import { API, subscribeToEvents } from "../lib/api";
 import { useProjects } from "../state/ProjectContext";
+import { useCapacity } from "../state/useCapacity";
+import { Markdown } from "../components/Markdown";
 import { cn } from "../lib/cn";
 import {
   COLUMNS,
@@ -36,7 +38,11 @@ import {
   harnessColorVar,
   harnessLabel,
 } from "./kanban/constants";
-import type { KanbanTask, TaskStatus } from "./kanban/types";
+import type {
+  KanbanTask,
+  TaskDetailPayload,
+  TaskStatus,
+} from "./kanban/types";
 import { useStickyState } from "../lib/useStickyState";
 
 type Density = "compact" | "comfortable";
@@ -74,6 +80,7 @@ export function KanbanPage() {
   );
 
   const [selected, setSelected] = useState<KanbanTask | null>(null);
+  const capacity = useCapacity();
   const [creatingIn, setCreatingIn] = useState<TaskStatus | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<TaskStatus | null>(null);
@@ -148,12 +155,19 @@ export function KanbanPage() {
     return groups;
   }, [visible]);
 
+  // "In progress" is the one column whose limit is not a convention: it is
+  // how many agents this machine will actually run at once, so it follows
+  // the capacity setting rather than a number baked into the constants.
   const columns = useMemo(
     () =>
       COLUMNS.filter(
         (c) => showTerminal || !TERMINAL_STATUSES.includes(c.id),
+      ).map((c) =>
+        c.id === "in_progress" && capacity
+          ? { ...c, wipLimit: capacity.effectiveAgents }
+          : c,
       ),
-    [showTerminal],
+    [showTerminal, capacity],
   );
 
   const announce = (message: string) => {
@@ -465,6 +479,7 @@ export function KanbanPage() {
       </div>
 
       <TaskDetail
+        key={selected?.id ?? "none"}
         task={selected}
         onClose={() => setSelected(null)}
         onMove={(s) => selected && void move(selected, s)}
@@ -776,6 +791,14 @@ function CreateTaskModal({
   );
 }
 
+/*
+ * The card's full record.
+ *
+ * A board card is the visible end of a run, so opening one shows the run:
+ * what it was asked, where it went, which files it touched and the trace it
+ * left. Everything past the header is fetched on open — a board of fifty
+ * cards should not carry fifty span trees around with it.
+ */
 function TaskDetail({
   task,
   onClose,
@@ -787,7 +810,42 @@ function TaskDetail({
   onMove: (status: TaskStatus) => void;
   onDelete: () => void;
 }) {
+  const [tab, setTab] = useState<"overview" | "files" | "activity" | "output">(
+    "overview",
+  );
+  const [detail, setDetail] = useState<TaskDetailPayload | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const taskId = task?.id ?? null;
+
+  useEffect(() => {
+    if (!taskId) return;
+    // The component is keyed by task id at the call site, so a different
+    // card mounts a fresh one — no state to reset here.
+    let cancelled = false;
+    API.get<TaskDetailPayload>(`/api/tasks/${taskId}/detail`)
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setDetailError(
+            err instanceof Error ? err.message : "Could not load this task",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
   if (!task) return null;
+
+  const files = detail?.files ?? [];
+  const spans = detail?.spans ?? [];
+  const timeline = detail?.timeline ?? [
+    { at: task.created_at, label: "Created" },
+  ];
+
   return (
     <Modal
       open
@@ -822,11 +880,19 @@ function TaskDetail({
             {COLUMNS_BY_ID[task.status]?.title ?? task.status}
           </Badge>
           <Badge>{harnessLabel(task.harness)}</Badge>
+          {task.model ? (
+            <span className="font-mono text-[11px] text-muted" title="Model">
+              {task.model}
+            </span>
+          ) : null}
           {task.branch_name ? (
             <span className="font-mono text-[11px] text-muted">
               {task.branch_name}
             </span>
           ) : null}
+          <span className="ml-auto font-mono text-[10px] text-faint">
+            {task.id.slice(0, 8)}
+          </span>
         </div>
 
         <div>
@@ -834,9 +900,10 @@ function TaskDetail({
           <p className="text-[13px] text-ink whitespace-pre-wrap">{task.prompt}</p>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <Metric label="Iterations" value={task.iterations} />
           <Metric label="Files changed" value={task.files_changed} />
+          <Metric label="Spans" value={spans.length} />
           <Metric
             label="Duration"
             value={
@@ -847,22 +914,123 @@ function TaskDetail({
           />
         </div>
 
-        {task.error ? (
-          <div>
-            <div className="eyebrow mb-1.5">Error</div>
-            <pre className="font-mono text-[11px] text-danger bg-danger-soft border border-danger rounded-md p-2.5 whitespace-pre-wrap max-h-40 overflow-y-auto">
-              {task.error}
-            </pre>
+        <SegmentedControl
+          value={tab}
+          onChange={(v) => setTab(v as typeof tab)}
+          options={[
+            { value: "overview", label: "Overview" },
+            {
+              value: "files",
+              label: files.length ? `Files (${files.length})` : "Files",
+            },
+            { value: "activity", label: "Activity" },
+            { value: "output", label: "Output" },
+          ]}
+        />
+
+        {detailError ? (
+          <p className="text-[12px] text-danger">{detailError}</p>
+        ) : null}
+
+        {tab === "overview" ? (
+          <div className="flex flex-col gap-3">
+            <div>
+              <div className="eyebrow mb-1.5">Timeline</div>
+              <ol className="flex flex-col gap-1.5">
+                {timeline.map((entry) => (
+                  <li
+                    key={`${entry.label}-${entry.at}`}
+                    className="flex items-center gap-2 text-[12px]"
+                  >
+                    <StatusDot
+                      tone={entry.label === "Failed" ? "danger" : "ok"}
+                    />
+                    <span className="text-ink">{entry.label}</span>
+                    <span className="ml-auto font-mono text-[11px] text-faint">
+                      {new Date(entry.at).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            {task.error ? (
+              <div>
+                <div className="eyebrow mb-1.5">Error</div>
+                <pre className="font-mono text-[11px] text-danger bg-danger-soft border border-danger rounded-md p-2.5 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                  {task.error}
+                </pre>
+              </div>
+            ) : null}
+            {task.session_id ? (
+              <p className="text-[12px] text-muted">
+                Came from a chat conversation — its other messages share this
+                run&rsquo;s trace in Logs.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
-        {task.output ? (
-          <div>
-            <div className="eyebrow mb-1.5">Output</div>
-            <pre className="font-mono text-[11px] text-muted bg-surface-2 border border-line rounded-md p-2.5 whitespace-pre-wrap max-h-56 overflow-y-auto">
+        {tab === "files" ? (
+          files.length === 0 ? (
+            <p className="text-[12px] text-muted">
+              {task.files_changed > 0
+                ? "This run reported changed files but did not record their paths."
+                : "This run left the working tree untouched."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-0.5 max-h-56 overflow-y-auto">
+              {files.map((f) => (
+                <li
+                  key={f}
+                  className="font-mono text-[11px] text-ink truncate"
+                  title={f}
+                >
+                  {f}
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
+
+        {tab === "activity" ? (
+          spans.length === 0 ? (
+            <p className="text-[12px] text-muted">
+              No trace was recorded for this card — it was added to the board
+              by hand rather than produced by a run.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
+              {spans.map((sp) => (
+                <li key={sp.id} className="flex items-center gap-2 text-[12px]">
+                  <StatusDot tone={sp.outcome === "failed" ? "danger" : "ok"} />
+                  <span className="text-faint font-mono text-[10px] w-16 shrink-0">
+                    {sp.type}
+                  </span>
+                  <span className="text-ink truncate flex-1">{sp.name}</span>
+                  <span
+                    className="font-mono text-[10px] text-faint"
+                    data-numeric
+                  >
+                    {sp.ended_at
+                      ? formatDuration(sp.ended_at - sp.started_at)
+                      : "…"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
+
+        {tab === "output" ? (
+          task.output ? (
+            <Markdown className="text-[13px] max-h-72 overflow-y-auto">
               {task.output}
-            </pre>
-          </div>
+            </Markdown>
+          ) : (
+            <p className="text-[12px] text-muted">
+              This run produced no output.
+            </p>
+          )
         ) : null}
       </div>
     </Modal>

@@ -61,6 +61,13 @@ export interface KanbanTask {
   harness: string | null;
   status: TaskStatus;
   branch_name: string | null;
+  /** The orchestrator run that produced this card, when one did. */
+  run_task_id: string | null;
+  /** The chat conversation the card came from, when it came from chat. */
+  session_id: string | null;
+  model: string | null;
+  /** JSON array of repo-relative paths the run touched. */
+  files: string | null;
   iterations: number;
   files_changed: number;
   output: string | null;
@@ -85,6 +92,10 @@ function ensureTable(): void {
       harness TEXT,
       status TEXT NOT NULL DEFAULT 'queued',
       branch_name TEXT,
+      run_task_id TEXT,
+      session_id TEXT,
+      model TEXT,
+      files TEXT,
       iterations INTEGER NOT NULL DEFAULT 0,
       files_changed INTEGER NOT NULL DEFAULT 0,
       output TEXT,
@@ -95,6 +106,20 @@ function ensureTable(): void {
       updated_at INTEGER NOT NULL
     )
   `);
+  // Boards created before runs were linked back predate these columns.
+  const columns = db.prepare("PRAGMA table_info(kanban_tasks)").all() as Array<{
+    name: string;
+  }>;
+  for (const [name, decl] of [
+    ["run_task_id", "TEXT"],
+    ["session_id", "TEXT"],
+    ["model", "TEXT"],
+    ["files", "TEXT"],
+  ] as const) {
+    if (!columns.some((c) => c.name === name)) {
+      db.exec(`ALTER TABLE kanban_tasks ADD COLUMN ${name} ${decl}`);
+    }
+  }
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_kanban_tasks_project ON kanban_tasks (project_id)`,
   );
@@ -152,6 +177,70 @@ router.get("/:id", (req: Request, res: Response) => {
   res.json(row);
 });
 
+/*
+ * GET /api/tasks/:id/detail — everything the board's task view shows.
+ *
+ * A card is the visible end of a run: the prompt that started it, the
+ * files it touched, the trace it left and the conversation it came from.
+ * Assembling that here keeps the client to one request instead of four,
+ * and lets a card with no run behind it degrade to just the card.
+ */
+router.get("/:id/detail", (req: Request, res: Response) => {
+  ensureTable();
+  const db = getDb();
+  const task = db
+    .prepare("SELECT * FROM kanban_tasks WHERE id = ?")
+    .get(req.params.id) as KanbanTask | undefined;
+  if (!task) return res.status(404).json({ error: "Not found" });
+
+  let files: string[] = [];
+  try {
+    const parsed = task.files ? JSON.parse(task.files) : [];
+    if (Array.isArray(parsed)) files = parsed.filter((f) => typeof f === "string");
+  } catch {
+    files = [];
+  }
+
+  // Spans and logs are written lazily, so their tables may not exist yet on
+  // a board whose first task has not run.
+  let spans: unknown[] = [];
+  let logs: unknown[] = [];
+  if (task.run_task_id) {
+    try {
+      spans = db
+        .prepare(
+          "SELECT * FROM spans WHERE task_id = ? ORDER BY started_at ASC LIMIT 500",
+        )
+        .all(task.run_task_id);
+    } catch {
+      spans = [];
+    }
+    try {
+      logs = db
+        .prepare(
+          "SELECT * FROM logs WHERE task_id = ? ORDER BY ts ASC LIMIT 200",
+        )
+        .all(task.run_task_id);
+    } catch {
+      logs = [];
+    }
+  }
+
+  // The card's own history, which is what a status column actually records.
+  const timeline: Array<{ at: number; label: string }> = [
+    { at: task.created_at, label: "Created" },
+  ];
+  if (task.started_at) timeline.push({ at: task.started_at, label: "Started" });
+  if (task.completed_at) {
+    timeline.push({
+      at: task.completed_at,
+      label: task.status === "failed" ? "Failed" : "Completed",
+    });
+  }
+
+  res.json({ task, files, spans, logs, timeline });
+});
+
 // POST /api/tasks
 router.post("/", (req: Request, res: Response) => {
   ensureTable();
@@ -180,6 +269,11 @@ router.post("/", (req: Request, res: Response) => {
     harness: typeof harness === "string" && harness ? harness : null,
     status: (status as TaskStatus) ?? "queued",
     branch_name: null,
+    // A card added by hand has no run behind it until one picks it up.
+    run_task_id: null,
+    session_id: null,
+    model: null,
+    files: null,
     iterations: 0,
     files_changed: 0,
     output: null,
@@ -195,8 +289,8 @@ router.post("/", (req: Request, res: Response) => {
 
   db.prepare(
     `INSERT INTO kanban_tasks
-      (id, project_id, prompt, harness, status, branch_name, iterations, files_changed, output, error, started_at, completed_at, created_at, updated_at)
-     VALUES (@id, @project_id, @prompt, @harness, @status, @branch_name, @iterations, @files_changed, @output, @error, @started_at, @completed_at, @created_at, @updated_at)`,
+      (id, project_id, prompt, harness, status, branch_name, run_task_id, session_id, model, files, iterations, files_changed, output, error, started_at, completed_at, created_at, updated_at)
+     VALUES (@id, @project_id, @prompt, @harness, @status, @branch_name, @run_task_id, @session_id, @model, @files, @iterations, @files_changed, @output, @error, @started_at, @completed_at, @created_at, @updated_at)`,
   ).run(task);
 
   broadcast("task:progress", { taskId: task.id, projectId: task.project_id, status: task.status });

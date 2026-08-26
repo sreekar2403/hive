@@ -14,8 +14,6 @@ import { cn } from "../../lib/cn";
 import {
   HARNESS_IDS,
   HARNESS_LABELS,
-  PROVIDER_IDS,
-  PROVIDER_LABELS,
   type RoutingRule,
   type SettingsConfig,
 } from "./types";
@@ -62,7 +60,6 @@ export function RoutingSection({
         pattern: "",
         harness: HARNESS_IDS[0],
         model: "",
-        provider: PROVIDER_IDS[0],
         reasoning: "",
         enabled: true,
       },
@@ -199,7 +196,7 @@ export function RoutingSection({
                     </label>
 
                     {/* Destination */}
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <label className="flex flex-col gap-1 min-w-0">
                         <span className="eyebrow">Harness</span>
                         <Select
@@ -224,21 +221,6 @@ export function RoutingSection({
                           placeholder="harness default"
                           aria-label="Model"
                         />
-                      </label>
-                      <label className="flex flex-col gap-1 min-w-0">
-                        <span className="eyebrow">Provider</span>
-                        <Select
-                          className="h-8 text-[13px]"
-                          value={rule.provider}
-                          onChange={(e) => patch(rule.id, { provider: e.target.value })}
-                          aria-label="Provider"
-                        >
-                          {PROVIDER_IDS.map((p) => (
-                            <option key={p} value={p}>
-                              {PROVIDER_LABELS[p]}
-                            </option>
-                          ))}
-                        </Select>
                       </label>
                     </div>
                   </div>

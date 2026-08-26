@@ -19,6 +19,9 @@ export interface AgentSnapshot {
   startedAt: number | null;
   filesTouched: string[];
   lastOutput: string | null;
+  /** Loop iterations used so far (null while idle) — drives budget pips. */
+  iteration: number | null;
+  maxIterations: number;
 }
 
 /**
@@ -89,6 +92,7 @@ function agentId(harness: string, seat: number): string {
 
 function busyAgent(harness: string, task: AgentTask, index: number): AgentSnapshot {
   const name = personaFor(harness, index);
+  const orchestrator = Orchestrator.getActive();
   return {
     id: agentId(harness, index),
     name,
@@ -100,6 +104,8 @@ function busyAgent(harness: string, task: AgentTask, index: number): AgentSnapsh
     startedAt: task.startedAt,
     filesTouched: task.filesChanged,
     lastOutput: lastLine(task.output),
+    iteration: task.iteration ?? null,
+    maxIterations: orchestrator?.getLoopBudget() ?? 1,
   };
 }
 
@@ -116,6 +122,8 @@ function idleAgent(harness: string): AgentSnapshot {
     startedAt: null,
     filesTouched: [],
     lastOutput: null,
+    iteration: null,
+    maxIterations: Orchestrator.getActive()?.getLoopBudget() ?? 1,
   };
 }
 

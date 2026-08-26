@@ -1,30 +1,7 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export type ProviderId =
-  | "anthropic"
-  | "openai"
-  | "openrouter"
-  | "google"
-  | "ollama"
-  | "lmstudio";
-
 export type HarnessId = "opencode" | "claude-code" | "pi";
-
-export interface ProviderConfig {
-  enabled: boolean;
-  /** Stored server-side only. Never echoed back raw over the API. */
-  apiKey: string;
-  /** Empty string means "use the provider's default endpoint". */
-  baseUrl: string;
-  /**
-   * How this provider is authenticated. `"sso"` means a harness CLI holds
-   * an OAuth credential and no API key is needed — see auth/sso.ts, which
-   * knows which CLI owns which provider and can check whether it is
-   * currently signed in.
-   */
-  authMode: "api-key" | "sso";
-}
 
 export interface HarnessConfig {
   enabled: boolean;
@@ -47,19 +24,88 @@ export interface RoutingRule {
   harness: string;
   /** Empty string falls back to the harness's configured default model. */
   model: string;
-  /** Empty string means "no specific provider pinned". */
-  provider: string;
   reasoning: string;
   enabled: boolean;
 }
 
+/**
+ * The Second Brain: a learning memory layer that sits beside the swarm and
+ * accumulates what it observes about *you* (preferences, habits) and about
+ * *the work* (which harness wins which category, how failures were fixed).
+ *
+ * Two scopes exist and are read in this order, most specific last:
+ *   - global, at `~/.hive/mem`, shared by every project on the machine
+ *   - project, at `<project>/mem`, checked in alongside the code it describes
+ *
+ * `mem/config.json` in either scope may override any field below, so a repo
+ * can, say, disable learning without touching the machine-wide setting.
+ * See secondBrain/ for the reader, writer, graph and learning agent.
+ */
+export interface SecondBrainConfig {
+  enabled: boolean;
+  /** Store directory, relative to a project root (or absolute). */
+  dir: string;
+  /** Machine-wide store. Empty string means `~/.hive/mem`. */
+  globalDir: string;
+  learning: {
+    enabled: boolean;
+    /** Which observations wake the learning agent immediately. */
+    triggers: {
+      onFailure: boolean;
+      onCorrection: boolean;
+      onExplicitNote: boolean;
+      /** Deeper synthesis over accumulated data, on a timer. */
+      periodic: boolean;
+    };
+    /** How often the periodic batch runs, in milliseconds. */
+    batchIntervalMs: number;
+    /**
+     * Catalog id (`harness/provider/model`) used for LLM-assisted synthesis.
+     * Empty means "heuristics only" — the layer stays fully functional
+     * without any model, it just derives less.
+     */
+    model: string;
+    /** Records below this confidence are stored but never surfaced to agents. */
+    minConfidence: number;
+    /** Cap on how many soul.md suggestions one batch may queue. */
+    maxSuggestionsPerBatch: number;
+  };
+  routing: {
+    /** Let learned harness performance re-rank the rules table's answer. */
+    augment: boolean;
+    /** Learned routing needs at least this many observations to speak up. */
+    minSamples: number;
+    /** ...and at least this success-rate gap before it overrides a rule. */
+    minMargin: number;
+  };
+  retrieval: {
+    maxPreferences: number;
+    maxLessons: number;
+    /** Cap the injected briefing so it can't crowd out the actual prompt. */
+    maxBriefingChars: number;
+  };
+}
+
 export interface Config {
-  providers: Record<ProviderId, ProviderConfig>;
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
     default: string;
     fallback: string;
     rules: RoutingRule[];
+    /**
+     * Catalog id (`harness/provider/model`) for LLM-based routing. Empty
+     * disables that layer — routing then stays keyword + semantic + learned.
+     */
+    llmModel: string;
+  };
+  /**
+   * Local model servers, reached directly over HTTP rather than through a
+   * harness CLI (they have no CLI to hold a credential — but they need no
+   * key either; the URL is the whole configuration).
+   */
+  localModels: {
+    ollama: string;
+    lmstudio: string;
   };
   permission: {
     enabled: boolean;
@@ -70,10 +116,29 @@ export interface Config {
     maxIterations: number;
     /** Per-task execution timeout, in milliseconds. */
     timeoutMs: number;
+    /**
+     * How many harness runs may execute at once. 0 hands the decision to
+     * capacity.ts, which sizes it against the machine.
+     */
     maxConcurrentAgents: number;
     retry: {
       enabled: boolean;
       maxRetries: number;
+    };
+    /**
+     * The staged loop — plan, implement, test, review, ship — with a gate
+     * after each stage. Off by default: it costs several harness runs per
+     * task, which is the right trade for real work and the wrong one for a
+     * question. See pipeline.ts.
+     */
+    pipeline: {
+      enabled: boolean;
+      /** Skip the planning stage. */
+      plan: boolean;
+      /** How many times failing tests may send work back to implement. */
+      maxRepairs: number;
+      /** Overrides test-command detection; empty means detect. */
+      testCommand: string;
     };
   };
   server: {
@@ -82,6 +147,15 @@ export interface Config {
   storage: {
     cacheDir: string;
   };
+  office: {
+    gridCols: number;
+    gridRows: number;
+    tileSize: number;
+  };
+  kanban: {
+    wipLimits: Record<string, number>;
+  };
+  secondBrain: SecondBrainConfig;
   general: {
     defaultProjectId: string;
     /**
@@ -130,6 +204,15 @@ export function loadConfig(configPath?: string): Config {
   if (process.env.PORT) {
     const port = parseInt(process.env.PORT, 10);
     if (!Number.isNaN(port)) config.server.port = port;
+  }
+
+  // Migration: configs written before providers moved into the harness CLIs
+  // carry a `providers` block (and per-rule `provider` pins). Strip them so
+  // the next saveConfig converges the file instead of resurrecting keys the
+  // app no longer reads.
+  delete (config as { providers?: unknown }).providers;
+  for (const rule of config.routing.rules) {
+    delete (rule as { provider?: unknown }).provider;
   }
 
   cachedConfig = config;
@@ -186,7 +269,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "test|spec|assert|expect|describe|it\\(|jest|vitest|mocha",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "Test-related task, routing to opencode",
       enabled: true,
     },
@@ -196,7 +278,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "refactor|clean|restructure|rename|move|extract",
       harness: "claude-code",
       model: "",
-      provider: "",
       reasoning: "Refactoring task, routing to claude-code",
       enabled: true,
     },
@@ -206,7 +287,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "document|readme|doc|writeup|explain|comment",
       harness: "claude-code",
       model: "",
-      provider: "",
       reasoning: "Documentation task, routing to claude-code",
       enabled: true,
     },
@@ -216,7 +296,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "deploy|build|ci|cd|docker|kubernetes|infra|aws|gcp|azure",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "DevOps task, routing to opencode",
       enabled: true,
     },
@@ -226,7 +305,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "design|ui|ux|css|style|theme|component",
       harness: "claude-code",
       model: "",
-      provider: "",
       reasoning: "UI/UX task, routing to claude-code",
       enabled: true,
     },
@@ -236,7 +314,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "research|search|find|look up|documentation|api doc",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "Research task, routing to opencode",
       enabled: true,
     },
@@ -246,7 +323,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "Default routing",
       enabled: true,
     },
@@ -255,34 +331,10 @@ function defaultRoutingRules(): RoutingRule[] {
 
 export function createDefaultConfig(): Config {
   return {
-    providers: {
-      anthropic: {
-        enabled: true,
-        apiKey: "",
-        baseUrl: "",
-        authMode: "api-key",
-      },
-      openai: { enabled: false, apiKey: "", baseUrl: "", authMode: "api-key" },
-      openrouter: {
-        enabled: false,
-        apiKey: "",
-        baseUrl: "",
-        authMode: "api-key",
-      },
-      google: { enabled: false, apiKey: "", baseUrl: "", authMode: "api-key" },
-      ollama: {
-        enabled: false,
-        apiKey: "",
-        baseUrl: "http://localhost:11434",
-        authMode: "api-key",
-      },
-      // Local model servers need no key; the base URL is the whole config.
-      lmstudio: {
-        enabled: false,
-        apiKey: "",
-        baseUrl: "http://localhost:1234",
-        authMode: "api-key",
-      },
+    // Local model servers need no key; the base URL is the whole config.
+    localModels: {
+      ollama: "http://localhost:11434",
+      lmstudio: "http://localhost:1234",
     },
     harnesses: {
       opencode: {
@@ -311,6 +363,7 @@ export function createDefaultConfig(): Config {
       default: "opencode",
       fallback: "claude-code",
       rules: defaultRoutingRules(),
+      llmModel: "",
     },
     permission: {
       enabled: true,
@@ -330,7 +383,13 @@ export function createDefaultConfig(): Config {
     loop: {
       maxIterations: 10,
       timeoutMs: 300000,
-      maxConcurrentAgents: 3,
+      maxConcurrentAgents: 0,
+      pipeline: {
+        enabled: false,
+        plan: true,
+        maxRepairs: 2,
+        testCommand: "",
+      },
       retry: {
         enabled: true,
         maxRetries: 3,
@@ -342,9 +401,64 @@ export function createDefaultConfig(): Config {
     storage: {
       cacheDir: "./.hive-cache",
     },
+    office: {
+      gridCols: 16,
+      gridRows: 9,
+      tileSize: 64,
+    },
+    kanban: {
+      wipLimits: {
+        backlog: 0,
+        queued: 0,
+        in_progress: 3,
+        review: 2,
+        testing: 2,
+        blocked: 0,
+        done: 0,
+        failed: 0,
+      },
+    },
+    secondBrain: createDefaultSecondBrainConfig(),
     general: {
       defaultProjectId: "",
       rootDirectory: "",
+    },
+  };
+}
+
+/**
+ * Defaults chosen so that a fresh install learns quietly and never blocks:
+ * observation is on, but nothing is written into soul.md without approval,
+ * and routing only listens to the learned signal once it has real evidence
+ * behind it (see `routing.minSamples` / `routing.minMargin`).
+ */
+export function createDefaultSecondBrainConfig(): SecondBrainConfig {
+  return {
+    enabled: true,
+    dir: "mem",
+    globalDir: "",
+    learning: {
+      enabled: true,
+      triggers: {
+        onFailure: true,
+        onCorrection: true,
+        onExplicitNote: true,
+        periodic: true,
+      },
+      batchIntervalMs: 6 * 60 * 60 * 1000,
+      model: "",
+      minConfidence: 0.35,
+      maxSuggestionsPerBatch: 5,
+    },
+    routing: {
+      augment: true,
+      minSamples: 5,
+      minMargin: 0.2,
+    },
+    retrieval: {
+      maxPreferences: 8,
+      maxLessons: 5,
+      maxBriefingChars: 2000,
     },
   };
 }

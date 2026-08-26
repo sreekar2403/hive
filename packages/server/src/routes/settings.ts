@@ -3,77 +3,33 @@ import spawn from "cross-spawn";
 import {
   Config,
   HarnessId,
-  ProviderId,
   deepMerge,
   loadConfig,
   saveConfig,
 } from "../config";
-import {
-  signOutSso,
-  ssoStatus,
-  startSso,
-  type AuthMode,
-  type SsoStatus,
-} from "../auth/sso";
 
 /**
- * Providers, harnesses and task-model routing — the control panel for the
- * whole swarm. See packages/client/src/pages/settings for the UI that
- * drives these endpoints.
+ * Harnesses and task-model routing — the control panel for the whole
+ * swarm. Credentials are not managed here: every harness CLI holds its own
+ * (that is Hive's premise), and local model servers need no key at all.
+ * See packages/client/src/pages/settings for the UI that drives these
+ * endpoints.
  */
 const router: Router = Router();
 
-const PROVIDER_IDS: ProviderId[] = [
-  "anthropic",
-  "openai",
-  "openrouter",
-  "google",
-  "ollama",
-  "lmstudio",
-];
-
 const HARNESS_IDS: HarnessId[] = ["opencode", "claude-code", "pi"];
 
-/** "sk-abcd...wxyz" -> "sk-…wxyz". Never enough to reconstruct the key. */
-function maskKey(key: string): string {
-  if (!key) return "";
-  if (key.length <= 8) return "•".repeat(key.length);
-  return `${key.slice(0, 3)}…${key.slice(-4)}`;
-}
-
-interface ProviderView {
-  enabled: boolean;
-  baseUrl: string;
-  hasKey: boolean;
-  keyHint: string | null;
-  authMode: AuthMode;
-  /** Live SSO state, so the UI never has to guess whether a CLI is signed in. */
-  sso: SsoStatus;
-}
-
-/** Config as sent to the client: providers' apiKey is never included raw. */
+/** Config as sent to the client. No secrets exist in this shape any more. */
 function toView(config: Config) {
-  const providers: Record<string, ProviderView> = {};
-  for (const id of PROVIDER_IDS) {
-    const p = config.providers[id];
-    providers[id] = {
-      enabled: p.enabled,
-      baseUrl: p.baseUrl,
-      hasKey: Boolean(p.apiKey),
-      keyHint: p.apiKey ? maskKey(p.apiKey) : null,
-      authMode: p.authMode ?? "api-key",
-      sso: ssoStatus(id),
-    };
-  }
-
   return {
-    providers,
+    localModels: config.localModels,
     harnesses: config.harnesses,
     routing: config.routing,
     permission: config.permission,
     loop: config.loop,
     server: config.server,
     storage: config.storage,
+    secondBrain: config.secondBrain,
     general: config.general,
   };
 }
@@ -120,31 +76,13 @@ router.put("/", (req: Request, res: Response) => {
 });
 
 function validatePartialConfig(body: any): void {
-  if (body.providers) {
-    if (typeof body.providers !== "object" || Array.isArray(body.providers)) {
-      throw new Error("providers must be an object");
+  if (body.localModels) {
+    if (typeof body.localModels !== "object" || Array.isArray(body.localModels)) {
+      throw new Error("localModels must be an object");
     }
-    for (const [id, patch] of Object.entries(body.providers)) {
-      if (!PROVIDER_IDS.includes(id as ProviderId)) {
-        throw new Error(`Unknown provider '${id}'`);
-      }
-      if (!patch || typeof patch !== "object") {
-        throw new Error(`providers.${id} must be an object`);
-      }
-      const p = patch as Record<string, unknown>;
-      if ("apiKey" in p && typeof p.apiKey !== "string") {
-        throw new Error(`providers.${id}.apiKey must be a string`);
-      }
-      if ("baseUrl" in p && typeof p.baseUrl !== "string") {
-        throw new Error(`providers.${id}.baseUrl must be a string`);
-      }
-      if ("enabled" in p && typeof p.enabled !== "boolean") {
-        throw new Error(`providers.${id}.enabled must be a boolean`);
-      }
-      if ("authMode" in p && p.authMode !== "api-key" && p.authMode !== "sso") {
-        throw new Error(
-          `providers.${id}.authMode must be "api-key" or "sso"`,
-        );
+    for (const [key, value] of Object.entries(body.localModels)) {
+      if (typeof value !== "string") {
+        throw new Error(`localModels.${key} must be a string (a base URL)`);
       }
     }
   }
@@ -199,6 +137,12 @@ function validatePartialConfig(body: any): void {
     }
   }
 
+  if (body.routing?.llmModel !== undefined) {
+    if (typeof body.routing.llmModel !== "string") {
+      throw new Error("routing.llmModel must be a string");
+    }
+  }
+
   if (body.permission?.destructiveActions) {
     if (!Array.isArray(body.permission.destructiveActions)) {
       throw new Error("permission.destructiveActions must be an array");
@@ -220,162 +164,127 @@ function validatePartialConfig(body: any): void {
     if ("timeoutMs" in l && (typeof l.timeoutMs !== "number" || l.timeoutMs < 1000)) {
       throw new Error("loop.timeoutMs must be at least 1000ms");
     }
+    if ("pipeline" in l && l.pipeline !== undefined) {
+      const pl = l.pipeline as Record<string, unknown>;
+      if (typeof pl !== "object" || Array.isArray(pl)) {
+        throw new Error("loop.pipeline must be an object");
+      }
+      if ("enabled" in pl && typeof pl.enabled !== "boolean") {
+        throw new Error("loop.pipeline.enabled must be a boolean");
+      }
+      if ("plan" in pl && typeof pl.plan !== "boolean") {
+        throw new Error("loop.pipeline.plan must be a boolean");
+      }
+      if (
+        "maxRepairs" in pl &&
+        (typeof pl.maxRepairs !== "number" || pl.maxRepairs < 0 || pl.maxRepairs > 10)
+      ) {
+        throw new Error("loop.pipeline.maxRepairs must be between 0 and 10");
+      }
+      if ("testCommand" in pl && typeof pl.testCommand !== "string") {
+        throw new Error("loop.pipeline.testCommand must be a string");
+      }
+    }
+    // 0 is meaningful: it hands the limit to capacity.ts, which sizes it
+    // against the machine rather than a number typed once on a laptop.
     if (
       "maxConcurrentAgents" in l &&
-      (typeof l.maxConcurrentAgents !== "number" || l.maxConcurrentAgents < 1)
+      (typeof l.maxConcurrentAgents !== "number" ||
+        l.maxConcurrentAgents < 0 ||
+        !Number.isFinite(l.maxConcurrentAgents))
     ) {
-      throw new Error("loop.maxConcurrentAgents must be a positive number");
+      throw new Error(
+        "loop.maxConcurrentAgents must be 0 (auto) or a positive number",
+      );
+    }
+  }
+
+  if (body.secondBrain) {
+    const b = body.secondBrain;
+    if (typeof b !== "object" || Array.isArray(b)) {
+      throw new Error("secondBrain must be an object");
+    }
+    if ("enabled" in b && typeof b.enabled !== "boolean") {
+      throw new Error("secondBrain.enabled must be a boolean");
+    }
+    // These two decide where files get written, so a wrong type here is a
+    // wrong path, not a wrong setting.
+    for (const key of ["dir", "globalDir"]) {
+      if (key in b && typeof b[key] !== "string") {
+        throw new Error(`secondBrain.${key} must be a string`);
+      }
+    }
+
+    if (b.learning) {
+      const l = b.learning;
+      if ("enabled" in l && typeof l.enabled !== "boolean") {
+        throw new Error("secondBrain.learning.enabled must be a boolean");
+      }
+      if ("model" in l && typeof l.model !== "string") {
+        throw new Error("secondBrain.learning.model must be a string");
+      }
+      if (
+        "batchIntervalMs" in l &&
+        (typeof l.batchIntervalMs !== "number" || l.batchIntervalMs < 60_000)
+      ) {
+        throw new Error(
+          "secondBrain.learning.batchIntervalMs must be at least 60000ms",
+        );
+      }
+      if ("minConfidence" in l && !isUnitInterval(l.minConfidence)) {
+        throw new Error(
+          "secondBrain.learning.minConfidence must be between 0 and 1",
+        );
+      }
+      if (
+        "maxSuggestionsPerBatch" in l &&
+        (typeof l.maxSuggestionsPerBatch !== "number" ||
+          l.maxSuggestionsPerBatch < 0)
+      ) {
+        throw new Error(
+          "secondBrain.learning.maxSuggestionsPerBatch must be zero or more",
+        );
+      }
+      if (l.triggers) {
+        for (const [name, value] of Object.entries(l.triggers)) {
+          if (typeof value !== "boolean") {
+            throw new Error(
+              `secondBrain.learning.triggers.${name} must be a boolean`,
+            );
+          }
+        }
+      }
+    }
+
+    if (b.routing) {
+      const r = b.routing;
+      if ("augment" in r && typeof r.augment !== "boolean") {
+        throw new Error("secondBrain.routing.augment must be a boolean");
+      }
+      if (
+        "minSamples" in r &&
+        (typeof r.minSamples !== "number" || r.minSamples < 1)
+      ) {
+        throw new Error("secondBrain.routing.minSamples must be at least 1");
+      }
+      if ("minMargin" in r && !isUnitInterval(r.minMargin)) {
+        throw new Error("secondBrain.routing.minMargin must be between 0 and 1");
+      }
+    }
+
+    if (b.retrieval) {
+      for (const [key, value] of Object.entries(b.retrieval)) {
+        if (typeof value !== "number" || value < 0) {
+          throw new Error(`secondBrain.retrieval.${key} must be zero or more`);
+        }
+      }
     }
   }
 }
 
-// POST /api/settings/providers/:id/test — probe a provider credential
-router.post("/providers/:id/test", async (req: Request, res: Response) => {
-  const id = req.params.id as ProviderId;
-  if (!PROVIDER_IDS.includes(id)) {
-    return res.status(404).json({ error: `Unknown provider '${id}'` });
-  }
-
-  const config = loadConfig();
-  const stored = config.providers[id];
-
-  const apiKey =
-    typeof req.body?.apiKey === "string" && req.body.apiKey
-      ? req.body.apiKey
-      : stored.apiKey;
-  const baseUrl =
-    typeof req.body?.baseUrl === "string" && req.body.baseUrl
-      ? req.body.baseUrl
-      : stored.baseUrl;
-
-  // An SSO provider has no key to test — what matters is whether the CLI
-  // that owns the credential is signed in, so report that instead of
-  // failing with "no API key configured".
-  if ((stored.authMode ?? "api-key") === "sso") {
-    const sso = ssoStatus(id);
-    return res.json({ success: sso.signedIn, message: sso.detail });
-  }
-
-  const result = await testProvider(id, apiKey, baseUrl);
-  res.json(result);
-});
-
-interface ProviderTestResult {
-  success: boolean;
-  message: string;
+function isUnitInterval(value: unknown): boolean {
+  return typeof value === "number" && value >= 0 && value <= 1;
 }
-
-async function testProvider(
-  id: ProviderId,
-  apiKey: string,
-  baseUrl: string,
-): Promise<ProviderTestResult> {
-  if (id !== "ollama" && !apiKey) {
-    return { success: false, message: "No API key configured" };
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    let url: string;
-    const headers: Record<string, string> = {};
-
-    switch (id) {
-      case "anthropic":
-        url = `${baseUrl || "https://api.anthropic.com"}/v1/models`;
-        headers["x-api-key"] = apiKey;
-        headers["anthropic-version"] = "2023-06-01";
-        break;
-      case "openai":
-        url = `${baseUrl || "https://api.openai.com"}/v1/models`;
-        headers.Authorization = `Bearer ${apiKey}`;
-        break;
-      case "openrouter":
-        url = `${baseUrl || "https://openrouter.ai/api"}/v1/key`;
-        headers.Authorization = `Bearer ${apiKey}`;
-        break;
-      case "google":
-        url = `${
-          baseUrl || "https://generativelanguage.googleapis.com"
-        }/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-        break;
-      case "ollama":
-        url = `${baseUrl || "http://localhost:11434"}/api/tags`;
-        break;
-      case "lmstudio":
-        url = `${baseUrl || "http://localhost:1234"}/v1/models`;
-        break;
-    }
-
-    const response = await fetch(url, { headers, signal: controller.signal });
-
-    if (response.ok) {
-      return {
-        success: true,
-        message:
-          id === "ollama" || id === "lmstudio" ? "Reachable" : "Key is valid",
-      };
-    }
-    if (response.status === 401 || response.status === 403) {
-      return { success: false, message: "Invalid API key" };
-    }
-    return {
-      success: false,
-      message: `Provider responded with ${response.status} ${response.statusText}`,
-    };
-  } catch (err) {
-    const isAbort = err instanceof Error && err.name === "AbortError";
-    return {
-      success: false,
-      message: isAbort
-        ? "Timed out reaching provider"
-        : err instanceof Error
-          ? err.message
-          : "Could not reach provider",
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Single sign-on                                                      */
-/* ------------------------------------------------------------------ */
-
-/** Narrows a path param to a known provider, answering 404 if it isn't. */
-function requireProvider(req: Request, res: Response): ProviderId | null {
-  const id = req.params.id as ProviderId;
-  if (!PROVIDER_IDS.includes(id)) {
-    res.status(404).json({ error: `Unknown provider '${id}'` });
-    return null;
-  }
-  return id;
-}
-
-// GET /api/settings/providers/:id/sso — is the owning CLI signed in?
-router.get("/providers/:id/sso", (req: Request, res: Response) => {
-  const id = requireProvider(req, res);
-  if (!id) return;
-  res.json(ssoStatus(id));
-});
-
-// POST /api/settings/providers/:id/sso/login — open the CLI's own flow
-router.post("/providers/:id/sso/login", (req: Request, res: Response) => {
-  const id = requireProvider(req, res);
-  if (!id) return;
-  const result = startSso(id);
-  // The flow is interactive and finishes in a terminal Hive doesn't own,
-  // so the status the client polls afterwards is the real answer.
-  res.json({ ...result, status: ssoStatus(id) });
-});
-
-// POST /api/settings/providers/:id/sso/logout
-router.post("/providers/:id/sso/logout", (req: Request, res: Response) => {
-  const id = requireProvider(req, res);
-  if (!id) return;
-  res.json({ ...signOutSso(id), status: ssoStatus(id) });
-});
 
 // GET /api/settings/harnesses — live availability probe of each harness
 router.get("/harnesses", async (_req: Request, res: Response) => {

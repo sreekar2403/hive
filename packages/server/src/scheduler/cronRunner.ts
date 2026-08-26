@@ -3,6 +3,7 @@ import { getDb } from "../db/database";
 import type { Schedule, ScheduleRun } from "../db/schedules";
 import { recordScheduleRun } from "../db/schedules";
 import { broadcast } from "../routes/events";
+import { Orchestrator } from "../orchestrator";
 
 const jobs = new Map<string, CronJob>();
 
@@ -26,6 +27,45 @@ export function fireSchedule(schedule: Schedule): ScheduleRun {
   return run;
 }
 
+/**
+ * Runs the Second Brain learning batch for all active orchestrators.
+ * This is called on a timer to process accumulated observations and
+ * generate soul.md suggestions.
+ */
+async function runLearningBatches(): Promise<void> {
+  const orchestrator = Orchestrator.getActive();
+  if (!orchestrator) return;
+
+  const tasks = orchestrator.getAllTasks();
+  const hasActiveTasks = tasks.some((t) => t.status === "pending" || t.status === "running");
+  if (hasActiveTasks) {
+    console.log("[cron] Skipping learning batch: tasks in progress");
+    return;
+  }
+
+  try {
+    // Run learning batch for each project. The argument is `force` — false
+    // means the brain's own interval and busy-check still apply.
+    const projects = getDb().prepare("SELECT id FROM projects").all() as { id: string }[];
+    for (const project of projects) {
+      const brain = orchestrator.brainForProject(project.id);
+      const queued = await brain.runLearningBatch(false);
+      if (queued && queued.length > 0) {
+        console.log(`[cron] Queued ${queued.length} soul.md suggestions for project ${project.id}`);
+      }
+    }
+
+    // Also run for global scope (no project)
+    const globalBrain = orchestrator.brainForProject(null);
+    const globalQueued = await globalBrain.runLearningBatch(false);
+    if (globalQueued && globalQueued.length > 0) {
+      console.log(`[cron] Queued ${globalQueued.length} global soul.md suggestions`);
+    }
+  } catch (err) {
+    console.error("[cron] Learning batch failed:", err);
+  }
+}
+
 export function startCronRunner() {
   const db = getDb();
   const schedules = db
@@ -40,6 +80,18 @@ export function startCronRunner() {
     jobs.set(s.id, job);
     job.start();
   }
+
+  // Start the learning batch runner - runs every hour by default. CronJob
+  // callbacks are sync, so the async body is fired off with its rejection
+  // handled — an unhandled promise rejection here would take down the
+  // process on a transient DB error.
+  const learningJob = new CronJob("0 * * * *", () => {
+    void runLearningBatches().catch((err) => {
+      console.error("[cron] Learning batch crashed:", err);
+    });
+  });
+  jobs.set("__learning_batch__", learningJob);
+  learningJob.start();
 }
 
 /**

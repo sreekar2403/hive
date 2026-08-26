@@ -11,6 +11,7 @@ import {
   Shield,
   FileText,
   Settings,
+  Brain,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 
@@ -39,6 +40,7 @@ const NAV_GROUPS = [
   {
     label: "Inspect",
     items: [
+      { path: "/brain", label: "Second Brain", icon: Brain },
       { path: "/git-diff", label: "Changes", icon: GitCompare },
       { path: "/permissions", label: "Permissions", icon: Shield },
       { path: "/logs", label: "Logs", icon: FileText },

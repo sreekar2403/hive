@@ -23,6 +23,8 @@ import { useLogs } from "../state/LogsContext";
 import { useProjects } from "../state/ProjectContext";
 import { ModelPicker } from "./chat/ModelPicker";
 import { ActivityTrail } from "./chat/ActivityTrail";
+import { SoulSuggestions } from "./chat/SoulSuggestions";
+import { Markdown } from "../components/Markdown";
 import { cn } from "../lib/cn";
 
 /*
@@ -222,6 +224,11 @@ export function ChatPage() {
             );
           })}
         </div>
+        {/* Pending soul.md suggestions surface here, next to the
+            conversations they came out of. */}
+        <div className="border-t border-line p-2 max-h-72 overflow-y-auto">
+          <SoulSuggestions projectId={activeProject?.id ?? null} />
+        </div>
       </aside>
 
       {/* Conversation */}
@@ -379,14 +386,13 @@ function Message({
       </div>
       <div
         className={cn(
-          "max-w-[85%] px-3.5 py-2.5 rounded-lg border text-[13px] whitespace-pre-wrap break-words",
+          "max-w-[85%] px-3.5 py-2.5 rounded-lg border text-[13px] break-words",
           failed
             ? "bg-danger-soft border-danger text-danger"
             : "bg-surface border-line text-ink",
-          looksLikeOutput(message.content) && "font-mono text-[12px]",
         )}
       >
-        {message.content || "(no output)"}
+        <Markdown>{message.content || "(no output)"}</Markdown>
       </div>
       {message.activity?.length ? (
         <ActivityTrail events={message.activity} />
@@ -396,9 +402,4 @@ function Message({
 }
 
 /** Terminal-ish output reads better monospaced. */
-function looksLikeOutput(text: string): boolean {
-  return (
-    text.includes("\n") &&
-    /(\$ |npm |pnpm |error|Error|\bat \w+|\.ts:|\.tsx:)/.test(text)
-  );
-}
+

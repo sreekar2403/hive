@@ -6,6 +6,7 @@ import {
   ChevronRight,
   FileText,
   Info,
+  MessagesSquare,
   Pause,
   Play,
   Search,
@@ -27,6 +28,7 @@ import {
   type LogLevel,
   type LogsMode,
   type SpanRow,
+  type TraceSummary,
 } from "../state/LogsContext";
 import { cn } from "../lib/cn";
 
@@ -267,8 +269,44 @@ function LogStream() {
 /* Traces                                                              */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Runs from the same chat are shown together. A trace still covers one
+ * message — that is what a run is — but a conversation is the unit a person
+ * was actually following, so the messages of one chat no longer scatter
+ * through the list as unrelated entries.
+ */
+function groupTraces(traces: TraceSummary[]) {
+  const groups: Array<{
+    key: string;
+    sessionId: string | null;
+    label: string;
+    traces: TraceSummary[];
+  }> = [];
+  for (const trace of traces) {
+    const key = trace.sessionId ?? `solo:${trace.taskId}`;
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.traces.push(trace);
+      continue;
+    }
+    groups.push({
+      key,
+      sessionId: trace.sessionId,
+      // The conversation is named after its oldest run, which is the last
+      // one in this newest-first list.
+      label: trace.name,
+      traces: [trace],
+    });
+  }
+  for (const group of groups) {
+    group.label = group.traces[group.traces.length - 1].name;
+  }
+  return groups;
+}
+
 function TraceExplorer() {
   const { traces, tracesLoading, selectedTaskId, selectTrace, spans } = useLogs();
+  const groups = useMemo(() => groupTraces(traces), [traces]);
 
   if (tracesLoading && traces.length === 0) {
     return <p className="px-6 py-4 text-[13px] text-muted">Loading traces…</p>;
@@ -287,7 +325,18 @@ function TraceExplorer() {
   return (
     <div className="h-full flex">
       <div className="w-80 shrink-0 border-r border-line overflow-y-auto">
-        {traces.map((t) => (
+        {groups.map((group) => (
+          <div key={group.key}>
+            {group.sessionId ? (
+              <div className="px-3 pt-3 pb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-faint">
+                <MessagesSquare className="size-3" />
+                <span className="truncate">{group.label}</span>
+                <span className="ml-auto font-mono" data-numeric>
+                  {group.traces.length}
+                </span>
+              </div>
+            ) : null}
+            {group.traces.map((t) => (
           <button
             key={t.taskId}
             onClick={() => selectTrace(t.taskId)}
@@ -319,6 +368,8 @@ function TraceExplorer() {
               </span>
             </div>
           </button>
+            ))}
+          </div>
         ))}
       </div>
 

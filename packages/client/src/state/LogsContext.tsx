@@ -39,6 +39,8 @@ export interface LogRow {
 
 export interface TraceSummary {
   taskId: string;
+  /** The chat conversation this run belongs to, when it came from one. */
+  sessionId: string | null;
   name: string;
   startedAt: number;
   durationMs: number;

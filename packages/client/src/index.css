@@ -247,4 +247,56 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /*
+    Rendered model output. ReactMarkdown emits plain semantic tags, and the
+    app's base layer deliberately strips heading and list styling — so the
+    block rhythm a markdown answer needs is restored here, scoped to it.
+  */
+  .hive-md > :first-child {
+    margin-top: 0;
+  }
+  .hive-md > :last-child {
+    margin-bottom: 0;
+  }
+  .hive-md p,
+  .hive-md ul,
+  .hive-md ol,
+  .hive-md blockquote {
+    margin: 0.5em 0;
+  }
+  .hive-md h1,
+  .hive-md h2,
+  .hive-md h3,
+  .hive-md h4 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 0.9em 0 0.4em;
+  }
+  .hive-md h1 { font-size: 1.35em; }
+  .hive-md h2 { font-size: 1.2em; }
+  .hive-md h3 { font-size: 1.08em; }
+  .hive-md h4 { font-size: 1em; }
+  .hive-md ul { list-style: disc; padding-left: 1.35em; }
+  .hive-md ol { list-style: decimal; padding-left: 1.35em; }
+  .hive-md li { margin: 0.15em 0; }
+  /* GFM task lists carry their own bullet — the checkbox. */
+  .hive-md li:has(> input[type="checkbox"]) {
+    list-style: none;
+    margin-left: -1.1em;
+  }
+  .hive-md li > input[type="checkbox"] {
+    margin-right: 0.4em;
+  }
+  .hive-md blockquote {
+    border-left: 2px solid var(--hive-border);
+    padding-left: 0.75em;
+    color: var(--hive-text-muted);
+  }
+  .hive-md hr {
+    border: 0;
+    border-top: 1px solid var(--hive-border);
+    margin: 1em 0;
+  }
+  .hive-md strong { font-weight: 600; }
+  .hive-md em { font-style: italic; }
 }

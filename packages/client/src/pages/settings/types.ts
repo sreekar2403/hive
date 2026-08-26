@@ -1,44 +1,10 @@
 /**
- * Mirrors packages/server/src/config.ts's Config shape, minus what the
- * server never sends over the wire (raw API keys). Kept as a local,
- * hand-written mirror rather than a shared import since @hive/shared only
- * carries runtime-agnostic types, not the server's on-disk config shape.
+ * Mirrors packages/server/src/config.ts's Config shape. There are no
+ * provider credentials here on purpose: every harness CLI holds its own
+ * authentication, and local model servers need no key.
  */
-
-export type ProviderId =
-  | "anthropic"
-  | "openai"
-  | "openrouter"
-  | "google"
-  | "ollama"
-  | "lmstudio";
 
 export type HarnessId = "opencode" | "claude-code" | "pi";
-
-export type AuthMode = "api-key" | "sso";
-
-/**
- * Mirrors SsoStatus in packages/server/src/auth/sso.ts. Every field is
- * observed server-side (a credential file, an env var) rather than
- * remembered, so the UI can state the sign-in state as fact.
- */
-export interface SsoStatus {
-  supported: boolean;
-  signedIn: boolean;
-  cli: string | null;
-  description: string | null;
-  detail: string;
-  command: string | null;
-}
-
-export interface ProviderView {
-  enabled: boolean;
-  baseUrl: string;
-  hasKey: boolean;
-  keyHint: string | null;
-  authMode: AuthMode;
-  sso: SsoStatus;
-}
 
 export interface HarnessConfig {
   enabled: boolean;
@@ -54,13 +20,15 @@ export interface RoutingRule {
   pattern: string;
   harness: string;
   model: string;
-  provider: string;
   reasoning: string;
   enabled: boolean;
 }
 
 export interface SettingsConfig {
-  providers: Record<ProviderId, ProviderView>;
+  localModels: {
+    ollama: string;
+    lmstudio: string;
+  };
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
     default: string;
@@ -80,6 +48,16 @@ export interface SettingsConfig {
       enabled: boolean;
       maxRetries: number;
     };
+    /**
+     * The staged loop. Absent in configs written before it existed, so
+     * every read has to tolerate undefined.
+     */
+    pipeline?: {
+      enabled: boolean;
+      plan: boolean;
+      maxRepairs: number;
+      testCommand: string;
+    };
   };
   server: {
     port: number;
@@ -87,6 +65,17 @@ export interface SettingsConfig {
   storage: {
     cacheDir: string;
   };
+  /** Office floor geometry. Absent in older configs — sections must tolerate undefined. */
+  office?: {
+    gridCols: number;
+    gridRows: number;
+    tileSize: number;
+  };
+  /** Per-column kanban WIP limits; 0 means unlimited. */
+  kanban?: {
+    wipLimits: Partial<Record<string, number>>;
+  };
+  secondBrain: SecondBrainConfig;
   general: {
     defaultProjectId: string;
     /** Folder the built-in General workspace runs in. Empty = `~/.hive/workspace`. */
@@ -105,34 +94,7 @@ export interface HarnessProbe {
   version: string | null;
 }
 
-export const PROVIDER_IDS: ProviderId[] = [
-  "anthropic",
-  "openai",
-  "openrouter",
-  "google",
-  "ollama",
-  "lmstudio",
-];
-
 export const HARNESS_IDS: HarnessId[] = ["opencode", "claude-code", "pi"];
-
-export const PROVIDER_LABELS: Record<ProviderId, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  openrouter: "OpenRouter",
-  google: "Google",
-  ollama: "Ollama (local)",
-  lmstudio: "LM Studio (local)",
-};
-
-export const PROVIDER_KEY_PLACEHOLDERS: Record<ProviderId, string> = {
-  anthropic: "sk-ant-…",
-  openai: "sk-…",
-  openrouter: "sk-or-…",
-  google: "AIza…",
-  ollama: "No key required",
-  lmstudio: "No key required",
-};
 
 export const HARNESS_LABELS: Record<HarnessId, string> = {
   opencode: "opencode",
@@ -140,11 +102,40 @@ export const HARNESS_LABELS: Record<HarnessId, string> = {
   pi: "pi",
 };
 
+export interface SecondBrainConfig {
+  enabled: boolean;
+  dir: string;
+  globalDir: string;
+  learning: {
+    enabled: boolean;
+    triggers: {
+      onFailure: boolean;
+      onCorrection: boolean;
+      onExplicitNote: boolean;
+      periodic: boolean;
+    };
+    batchIntervalMs: number;
+    model: string;
+    minConfidence: number;
+    maxSuggestionsPerBatch: number;
+  };
+  routing: {
+    augment: boolean;
+    minSamples: number;
+    minMargin: number;
+  };
+  retrieval: {
+    maxPreferences: number;
+    maxLessons: number;
+    maxBriefingChars: number;
+  };
+}
+
 export type SettingsSectionId =
-  | "providers"
   | "models"
   | "harnesses"
   | "routing"
   | "execution"
   | "permissions"
-  | "general";
+  | "general"
+  | "second-brain";

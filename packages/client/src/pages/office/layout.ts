@@ -1,10 +1,14 @@
 import type { TaskPhase, TilePoint } from "./types";
 
+export type { TilePoint };
+
 /**
  * The Office floor's tile grid. Small enough to keep A* trivially fast,
  * big enough that seven zones plus corridors don't feel cramped.
+ *
+ * TILE is 32 because every baked pixel-art frame assumes it.
  */
-export const TILE = 30;
+export const TILE = 32;
 export const COLS = 28;
 export const ROWS = 22;
 
@@ -30,7 +34,15 @@ export type FurnitureKind =
   | "table"
   | "counter"
   | "couch"
-  | "boxes";
+  | "boxes"
+  // Retro rebuild props (see docs/office-design.md):
+  | "sideboard"
+  | "coffee-machine"
+  | "sink"
+  | "dispenser"
+  | "plant"
+  | "window"
+  | "mailbox";
 
 export interface FurnitureDef {
   kind: FurnitureKind;
@@ -130,7 +142,7 @@ export const ZONES: ZoneDef[] = [
     tint: "neutral",
     slots: [
       { x: 2, y: 19 },
-      { x: 6, y: 19 },
+      { x: 8, y: 20 },
       { x: 2, y: 20 },
     ],
   },
@@ -139,6 +151,43 @@ export const ZONES: ZoneDef[] = [
 export const ZONES_BY_ID: Record<TaskPhase, ZoneDef> = Object.fromEntries(
   ZONES.map((z) => [z.id, z]),
 ) as Record<TaskPhase, ZoneDef>;
+
+/* ------------------------------------------------------------------ */
+/* Ambient-life anchors                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The coffee economy in the Break Room: fetch a clean mug from the
+ * sideboard, brew at the machine, rinse it at the sink. Each entry is the
+ * tile an agent STANDS on — the prop itself sits one tile north.
+ */
+export const COFFEE = {
+  sideboard: { x: 2, y: 18 },
+  machine: { x: 3, y: 18 },
+  sink: { x: 4, y: 18 },
+} as const;
+
+/** Idle errands: stand tiles next to their props. */
+export const ERRANDS: {
+  kind: "plant" | "window" | "dispenser";
+  stand: TilePoint;
+}[] = [
+  { kind: "plant", stand: { x: 10, y: 16 } },
+  { kind: "plant", stand: { x: 22, y: 7 } },
+  { kind: "window", stand: { x: 13, y: 1 } },
+  { kind: "dispenser", stand: { x: 6, y: 18 } },
+];
+
+/** Where break-room conversations happen. */
+export const BREAK_SPOTS: TilePoint[] = [
+  { x: 2, y: 19 },
+  { x: 5, y: 19 },
+  { x: 6, y: 20 },
+  { x: 7, y: 20 },
+];
+
+/** Completed work is posted here; the flag raises on a completion. */
+export const MAILBOX: TilePoint = { x: 26, y: 15 };
 
 export const FURNITURE: FurnitureDef[] = [
   // Intake
@@ -163,10 +212,19 @@ export const FURNITURE: FurnitureDef[] = [
   // Shipping
   { kind: "table", rect: { x: 21, y: 10, w: 3, h: 1 } },
   { kind: "boxes", rect: { x: 24, y: 12, w: 2, h: 2 } },
-  // Break Room
-  { kind: "counter", rect: { x: 2, y: 18, w: 2, h: 1 } },
-  { kind: "couch", rect: { x: 5, y: 18, w: 3, h: 1 } },
+  // Break Room — the coffee corner runs along its top edge
+  { kind: "sideboard", rect: { x: 2, y: 17, w: 1, h: 1 } },
+  { kind: "coffee-machine", rect: { x: 3, y: 17, w: 1, h: 1 } },
+  { kind: "sink", rect: { x: 4, y: 17, w: 1, h: 1 } },
+  { kind: "dispenser", rect: { x: 6, y: 17, w: 1, h: 1 } },
+  { kind: "couch", rect: { x: 6, y: 19, w: 3, h: 1 } },
   { kind: "table", rect: { x: 3, y: 20, w: 2, h: 1 } },
+  // Corridor greenery and wall dressing
+  { kind: "plant", rect: { x: 9, y: 16, w: 1, h: 1 } },
+  { kind: "plant", rect: { x: 21, y: 7, w: 1, h: 1 } },
+  { kind: "window", rect: { x: 12, y: 0, w: 2, h: 1 } },
+  // Completed-work mailbox south of Shipping
+  { kind: "mailbox", rect: { x: 26, y: 15, w: 1, h: 1 } },
 ];
 
 /** Tile → world-pixel center, in the world container's local space. */

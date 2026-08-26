@@ -18,6 +18,7 @@ interface LogDbRow {
 interface SpanDbRow {
   id: string;
   task_id: string;
+  session_id: string | null;
   parent_id: string | null;
   name: string;
   type: string;
@@ -44,6 +45,7 @@ function toSpan(r: SpanDbRow): SpanRow {
   return {
     id: r.id,
     taskId: r.task_id,
+    sessionId: r.session_id ?? null,
     parentId: r.parent_id,
     name: r.name,
     type: r.type as SpanRow["type"],
@@ -124,23 +126,30 @@ router.get("/", (req: Request, res: Response) => {
 router.get("/traces", (req: Request, res: Response) => {
   const projectId =
     typeof req.query.projectId === "string" ? req.query.projectId : null;
+  const sessionId =
+    typeof req.query.sessionId === "string" && req.query.sessionId
+      ? req.query.sessionId
+      : null;
 
   try {
     const rows = getDb()
       .prepare(
         `SELECT
            s.task_id                              AS taskId,
+           MAX(s.session_id)                      AS sessionId,
            MIN(s.started_at)                      AS startedAt,
            MAX(COALESCE(s.ended_at, s.started_at)) AS endedAt,
            COUNT(*)                               AS spanCount,
            SUM(CASE WHEN s.outcome = 'failed' THEN 1 ELSE 0 END) AS failures
          FROM spans s
+         ${sessionId ? "WHERE s.session_id = ?" : ""}
          GROUP BY s.task_id
          ORDER BY startedAt DESC
          LIMIT 100`,
       )
-      .all() as Array<{
+      .all(...(sessionId ? [sessionId] : [])) as Array<{
       taskId: string;
+      sessionId: string | null;
       startedAt: number;
       endedAt: number;
       spanCount: number;
@@ -157,6 +166,7 @@ router.get("/traces", (req: Request, res: Response) => {
         const root = roots.find((x) => x.task_id === r.taskId);
         return {
           taskId: r.taskId,
+          sessionId: r.sessionId,
           name: root?.name ?? r.taskId,
           startedAt: r.startedAt,
           durationMs: r.endedAt - r.startedAt,
@@ -180,6 +190,102 @@ router.get("/traces", (req: Request, res: Response) => {
     res.json({ traces });
   } catch (err) {
     if (tableMissing(err)) return res.json({ traces: [] });
+    throw err;
+  }
+});
+
+/*
+ * GET /api/logs/conversations?projectId= — one row per chat conversation.
+ *
+ * A trace covers a single message. A conversation is the thing a person
+ * actually followed, so its runs are rolled up here and the individual
+ * traces stay reachable underneath.
+ */
+router.get("/conversations", (req: Request, res: Response) => {
+  const projectId =
+    typeof req.query.projectId === "string" ? req.query.projectId : null;
+
+  try {
+    const rows = getDb()
+      .prepare(
+        `SELECT
+           s.session_id                            AS sessionId,
+           COUNT(DISTINCT s.task_id)               AS runCount,
+           COUNT(*)                                AS spanCount,
+           MIN(s.started_at)                       AS startedAt,
+           MAX(COALESCE(s.ended_at, s.started_at)) AS endedAt,
+           SUM(CASE WHEN s.outcome = 'failed' THEN 1 ELSE 0 END) AS failures
+         FROM spans s
+         WHERE s.session_id IS NOT NULL
+         GROUP BY s.session_id
+         ORDER BY startedAt DESC
+         LIMIT 100`,
+      )
+      .all() as Array<{
+      sessionId: string;
+      runCount: number;
+      spanCount: number;
+      startedAt: number;
+      endedAt: number;
+      failures: number;
+    }>;
+
+    const roots = getDb()
+      .prepare("SELECT * FROM spans WHERE parent_id IS NULL AND session_id IS NOT NULL")
+      .all() as SpanDbRow[];
+
+    const conversations = rows
+      .map((r) => {
+        const mine = roots.filter((x) => x.session_id === r.sessionId);
+        const first = mine.sort((a, b) => a.started_at - b.started_at)[0];
+        return {
+          sessionId: r.sessionId,
+          name: first?.name ?? r.sessionId,
+          runCount: r.runCount,
+          spanCount: r.spanCount,
+          startedAt: r.startedAt,
+          durationMs: r.endedAt - r.startedAt,
+          status: r.failures > 0 ? "failed" : "ok",
+          taskIds: mine.map((x) => x.task_id),
+          detail: first?.detail ?? null,
+        };
+      })
+      .filter((c) => {
+        if (!projectId) return true;
+        try {
+          const runProject = c.detail ? JSON.parse(c.detail).projectId : null;
+          return !runProject || runProject === projectId;
+        } catch {
+          return true;
+        }
+      });
+
+    res.json({ conversations });
+  } catch (err) {
+    if (tableMissing(err)) return res.json({ conversations: [] });
+    throw err;
+  }
+});
+
+/*
+ * GET /api/logs/conversations/:sessionId — every span of every run in one
+ * conversation, in order, so the whole exchange reads as a single trace.
+ */
+router.get("/conversations/:sessionId", (req: Request, res: Response) => {
+  try {
+    const spans = getDb()
+      .prepare(
+        "SELECT * FROM spans WHERE session_id = ? ORDER BY started_at ASC",
+      )
+      .all(req.params.sessionId) as SpanDbRow[];
+    if (spans.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json({
+      sessionId: req.params.sessionId,
+      taskIds: [...new Set(spans.map((s) => s.task_id))],
+      spans: spans.map(toSpan),
+    });
+  } catch (err) {
+    if (tableMissing(err)) return res.status(404).json({ error: "Not found" });
     throw err;
   }
 });

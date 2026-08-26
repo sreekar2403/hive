@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { HashRouter, Routes, Route, Outlet } from "react-router-dom";
-import { Sidebar } from "./components/Sidebar";
+import { HashRouter, Routes, Route, Outlet } from "react-router-dom";import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { ThemeContext, type Theme } from "./components/ui";
 import { ProjectProvider } from "./state/ProjectContext";
@@ -16,6 +15,7 @@ import { SchedulePage } from "./pages/SchedulePage";
 import { GitDiffPage } from "./pages/GitDiffPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { PermissionsPage } from "./pages/PermissionsPage";
+import BrainPage from "./pages/BrainPage";
 
 // pixi.js is the largest dependency in the bundle and only the Office
 // uses it, so it gets its own chunk.
@@ -101,6 +101,7 @@ function App() {
                   <Route path="memory" element={<MemoryPage />} />
                   <Route path="git-diff" element={<GitDiffPage />} />
                   <Route path="permissions" element={<PermissionsPage />} />
+                  <Route path="brain" element={<BrainPage />} />
                   <Route path="logs" element={<LogsPage />} />
                   <Route path="settings" element={<SettingsPage />} />
                 </Route>
