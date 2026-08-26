@@ -42,6 +42,8 @@ export interface LogRow {
 export interface SpanRow {
   id: string;
   taskId: string;
+  /** The chat conversation this run belongs to, when it came from one. */
+  sessionId: string | null;
   parentId: string | null;
   name: string;
   type: SpanType;
@@ -77,6 +79,7 @@ function ensureTables(): void {
     CREATE TABLE IF NOT EXISTS spans (
       id TEXT PRIMARY KEY,
       task_id TEXT NOT NULL,
+      session_id TEXT,
       parent_id TEXT,
       name TEXT NOT NULL,
       type TEXT NOT NULL,
@@ -86,8 +89,41 @@ function ensureTables(): void {
       detail TEXT
     )
   `);
+  // Databases created before conversations were traced predate session_id.
+  const columns = db.prepare("PRAGMA table_info(spans)").all() as Array<{
+    name: string;
+  }>;
+  if (!columns.some((c) => c.name === "session_id")) {
+    db.exec("ALTER TABLE spans ADD COLUMN session_id TEXT");
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_spans_task ON spans (task_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_spans_session ON spans (session_id)`);
   ready = true;
+}
+
+/**
+ * Which conversation each task belongs to.
+ *
+ * Spans are opened from a dozen call sites that know a task id and nothing
+ * else. Rather than thread a session id through all of them, a task
+ * announces its conversation once and every span it opens is stamped with
+ * it — so the Logs screen can show one trace per conversation instead of
+ * one per message.
+ */
+const taskSessions = new Map<string, string>();
+
+export function registerTaskSession(taskId: string, sessionId: string): void {
+  taskSessions.set(taskId, sessionId);
+  // Bounded: this is a live-run index, not history. The database column is
+  // the durable copy.
+  if (taskSessions.size > 500) {
+    const oldest = taskSessions.keys().next().value;
+    if (oldest !== undefined) taskSessions.delete(oldest);
+  }
+}
+
+export function sessionForTask(taskId: string): string | null {
+  return taskSessions.get(taskId) ?? null;
 }
 
 function serialise(value: unknown): string | null {
@@ -155,10 +191,19 @@ export function startSpan(
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO spans (id, task_id, parent_id, name, type, started_at, detail)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO spans (id, task_id, session_id, parent_id, name, type, started_at, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, taskId, parentId, name, type, Date.now(), serialise(detail));
+    .run(
+      id,
+      taskId,
+      sessionForTask(taskId),
+      parentId,
+      name,
+      type,
+      Date.now(),
+      serialise(detail),
+    );
   return id;
 }
 
@@ -191,12 +236,13 @@ export function recordSpan(
   ensureTables();
   getDb()
     .prepare(
-      `INSERT INTO spans (id, task_id, parent_id, name, type, started_at, ended_at, outcome, detail)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO spans (id, task_id, session_id, parent_id, name, type, started_at, ended_at, outcome, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       randomUUID(),
       taskId,
+      sessionForTask(taskId),
       parentId,
       name,
       type,

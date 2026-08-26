@@ -255,12 +255,10 @@ async function fromPi(execPath: string): Promise<CatalogSource> {
 }
 
 /**
- * Claude Code has no list command. The aliases always work; if an
- * Anthropic key is configured, the concrete model ids are added too, so
- * pinning an exact snapshot is possible.
+ * Claude Code has no list command and Hive holds no provider API keys —
+ * credentials live inside the CLI. The documented aliases are the catalogue.
  */
 async function fromClaudeCode(): Promise<CatalogSource> {
-  const config = loadConfig();
   const models: ModelOption[] = CLAUDE_ALIASES.map((entry) =>
     option("claude-code", "anthropic", entry.model, {
       ref: entry.model,
@@ -268,38 +266,13 @@ async function fromClaudeCode(): Promise<CatalogSource> {
     }),
   );
 
-  const anthropic = config.providers.anthropic;
-  let error: string | null = null;
-
-  if (anthropic?.apiKey) {
-    const base = anthropic.baseUrl || "https://api.anthropic.com";
-    const res = await getJson(`${base}/v1/models?limit=100`, {
-      "x-api-key": anthropic.apiKey,
-      "anthropic-version": "2023-06-01",
-    });
-    if (res.ok && Array.isArray(res.data?.data)) {
-      for (const entry of res.data.data) {
-        if (!entry?.id) continue;
-        models.push(
-          option("claude-code", "anthropic", entry.id, {
-            ref: entry.id,
-            contextLabel: entry.display_name ?? null,
-          }),
-        );
-      }
-    } else {
-      error = `Aliases only — the Anthropic API said: ${res.error}`;
-    }
-  } else {
-    error = "Aliases only — add an Anthropic API key to list exact model ids";
-  }
-
   return {
     id: "claude-code",
     kind: "harness",
     label: HARNESS_LABEL["claude-code"],
     ok: true,
-    error,
+    error:
+      "Documented aliases only — Claude Code has no model list command; run `claude /model` to see what your account offers",
     models,
     checkedAt: Date.now(),
   };
@@ -373,8 +346,8 @@ async function build(): Promise<Catalog> {
     fromOpenCode(config.harnesses.opencode?.path || "opencode"),
     fromClaudeCode(),
     fromPi(config.harnesses.pi?.path || "pi"),
-    fromOllama(config.providers.ollama?.baseUrl ?? ""),
-    fromLmStudio(config.providers.lmstudio?.baseUrl ?? ""),
+    fromOllama(config.localModels?.ollama ?? ""),
+    fromLmStudio(config.localModels?.lmstudio ?? ""),
   ]);
 
   const options: Catalog["options"] = [];

@@ -29,6 +29,8 @@ export class LoopEngine {
   private preamble = "";
   /** Learned routing advice for this run, passed through to the Router. */
   private hints: RoutingHint[] = [];
+  /** Conversation history for context, prepended to the initial prompt. */
+  private conversationHistory: Array<{ role: string; content: string }> = [];
 
   constructor(config: Config, harnesses: Map<string, Harness>, router?: Router) {
     this.config = config;
@@ -44,7 +46,8 @@ export class LoopEngine {
     };
   }
 
-  start(initialPrompt: string): LoopState {
+  start(initialPrompt: string, conversationHistory?: Array<{ role: string; content: string }>): LoopState {
+    this.conversationHistory = conversationHistory ?? [];
     this.state = {
       ...this.state,
       currentPrompt: initialPrompt,
@@ -83,11 +86,15 @@ export class LoopEngine {
       preamble?: string;
       /** Learned routing advice; advisory, see Router.applyHints. */
       hints?: RoutingHint[];
+      /** Conversation history for context. */
+      conversationHistory?: Array<{ role: string; content: string }>;
     },
   ): Promise<LoopState> {
     const traced = Boolean(taskId);
     this.preamble = options?.preamble ?? "";
     this.hints = options?.hints ?? [];
+
+    this.start(this.state.currentPrompt, options?.conversationHistory);
 
     while (this.state.iteration < this.state.maxIterations) {
       this.state.iteration++;
@@ -96,7 +103,7 @@ export class LoopEngine {
       const prompt = this.buildPrompt();
 
       // Route to harness
-      const decision = this.route(options?.harness);
+      const decision = await this.route(options?.harness);
       const harness = this.harnesses.get(decision.harness);
 
       const iterationSpan =
@@ -220,6 +227,19 @@ export class LoopEngine {
   private buildPrompt(): string {
     const parts: string[] = [];
     if (this.preamble) parts.push(this.preamble);
+
+    // Include conversation history for context (only on first iteration).
+    // Fences use "===": with no preamble this block leads the prompt, and
+    // the prompt is a positional CLI argument — a leading "---" would be
+    // parsed as an unknown option, killing the run before it starts.
+    if (this.state.iteration === 1 && this.conversationHistory.length > 0) {
+      parts.push("=== Conversation history ===");
+      for (const msg of this.conversationHistory.slice(-8)) {
+        parts.push(`${msg.role}: ${msg.content}`);
+      }
+      parts.push("=== End conversation history ===");
+    }
+
     parts.push(this.state.currentPrompt);
 
     if (this.state.previousOutput) {
@@ -236,7 +256,7 @@ export class LoopEngine {
     return parts.join("\n");
   }
 
-  private route(pinned?: string): RoutingDecision {
+  private async route(pinned?: string): Promise<RoutingDecision> {
     if (pinned && this.harnesses.has(pinned)) {
       return {
         harness: pinned,

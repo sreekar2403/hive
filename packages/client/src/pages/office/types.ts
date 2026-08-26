@@ -25,6 +25,9 @@ export interface AgentSnapshot {
   startedAt: number | null;
   filesTouched: string[];
   lastOutput: string | null;
+  /** Loop iterations used so far (null while idle) — drives budget pips. */
+  iteration?: number | null;
+  maxIterations?: number;
 }
 
 export interface TilePoint {

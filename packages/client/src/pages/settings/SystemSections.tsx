@@ -12,6 +12,7 @@ import {
 } from "../../components/ui";
 import { useTheme } from "../../components/ui";
 import { useProjects } from "../../state/ProjectContext";
+import { useCapacity } from "../../state/useCapacity";
 import type { SettingsConfig } from "./types";
 
 type Change = (updater: (prev: SettingsConfig) => SettingsConfig) => void;
@@ -24,8 +25,20 @@ export function ExecutionSection({
   draft: SettingsConfig;
   onChange: Change;
 }) {
+  const capacity = useCapacity();
   const setLoop = (patch: Partial<SettingsConfig["loop"]>) =>
     onChange((prev) => ({ ...prev, loop: { ...prev.loop, ...patch } }));
+
+  // Configs written before the staged loop existed have no pipeline block.
+  const pipeline = draft.loop.pipeline ?? {
+    enabled: false,
+    plan: true,
+    maxRepairs: 2,
+    testCommand: "",
+  };
+  const setPipeline = (
+    patch: Partial<NonNullable<SettingsConfig["loop"]["pipeline"]>>,
+  ) => setLoop({ pipeline: { ...pipeline, ...patch } });
 
   return (
     <div className="flex flex-col gap-4">
@@ -70,18 +83,25 @@ export function ExecutionSection({
           </Field>
           <Field
             label="Agents at once"
-            hint="Across every harness. Higher uses more of your machine."
+            hint={
+              capacity
+                ? `0 = size to this machine (${capacity.system.cpus} cores, ${Math.round(capacity.system.totalMemMb / 1024)} GB → ${capacity.system.recommendedAgents}).`
+                : "Across every harness. 0 sizes the limit to your machine."
+            }
           >
             {(id) => (
               <Input
                 id={id}
                 type="number"
-                min={1}
+                min={0}
                 max={32}
                 value={draft.loop.maxConcurrentAgents}
                 onChange={(e) =>
                   setLoop({
-                    maxConcurrentAgents: Math.max(1, Number(e.target.value) || 1),
+                    maxConcurrentAgents: Math.max(
+                      0,
+                      Math.min(32, Number(e.target.value) || 0),
+                    ),
                   })
                 }
               />
@@ -105,6 +125,105 @@ export function ExecutionSection({
             </div>
           </div>
         </div>
+
+        <div className="px-4 pb-4">
+          <div className="eyebrow mb-2">Staged loop</div>
+          <p className="text-[12px] text-muted max-w-[62ch] mb-2.5">
+            Runs each task as plan → implement → test → review → ship, with a
+            gate after every stage: a run that changes no files, leaves tests
+            failing, or leaves conflict markers in the diff is sent back
+            rather than reported as done. It costs several harness runs per
+            task.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-medium text-ink">
+                Use the staged loop
+              </span>
+              <div className="flex items-center gap-2 h-9">
+                <Switch
+                  checked={pipeline.enabled}
+                  onChange={(v) => setPipeline({ enabled: v })}
+                  label={pipeline.enabled ? "On" : "Off"}
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-medium text-ink">
+                Plan before implementing
+              </span>
+              <div className="flex items-center gap-2 h-9">
+                <Switch
+                  checked={pipeline.plan}
+                  onChange={(v) => setPipeline({ plan: v })}
+                  disabled={!pipeline.enabled}
+                  label={pipeline.plan ? "On" : "Off"}
+                />
+              </div>
+            </div>
+            <Field
+              label="Repair attempts"
+              hint="How many times failing tests may send the work back."
+            >
+              {(id) => (
+                <Input
+                  id={id}
+                  type="number"
+                  min={0}
+                  max={10}
+                  disabled={!pipeline.enabled}
+                  value={pipeline.maxRepairs}
+                  onChange={(e) =>
+                    setPipeline({
+                      maxRepairs: Math.max(
+                        0,
+                        Math.min(10, Number(e.target.value) || 0),
+                      ),
+                    })
+                  }
+                />
+              )}
+            </Field>
+            <Field
+              label="Test command"
+              hint="Blank detects it from the project (npm/pnpm test, cargo test, pytest…)."
+            >
+              {(id) => (
+                <Input
+                  id={id}
+                  placeholder="detect automatically"
+                  disabled={!pipeline.enabled}
+                  value={pipeline.testCommand}
+                  onChange={(e) => setPipeline({ testCommand: e.target.value })}
+                />
+              )}
+            </Field>
+          </div>
+        </div>
+
+        {capacity ? (
+          <div className="mt-4 flex items-center gap-4 flex-wrap rounded-md border border-line bg-surface-2 px-3 py-2 text-[12px] text-muted">
+            <span>
+              Running now{" "}
+              <span className="text-ink" data-numeric>
+                {capacity.load.running}
+              </span>{" "}
+              / {capacity.load.limit}
+            </span>
+            {capacity.load.queued > 0 ? (
+              <span>
+                Queued{" "}
+                <span className="text-ink" data-numeric>
+                  {capacity.load.queued}
+                </span>
+              </span>
+            ) : null}
+            <span className="ml-auto font-mono text-[11px] text-faint">
+              {capacity.system.platform} · {capacity.system.cpus} cores ·{" "}
+              {Math.round(capacity.system.totalMemMb / 1024)} GB
+            </span>
+          </div>
+        ) : null}
       </Card>
     </div>
   );
@@ -331,6 +450,217 @@ export function GeneralSection({
               Change with the PORT environment variable, then restart.
             </span>
           </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader eyebrow="Office Floor" title="Grid settings" />
+        <div className="p-4 grid grid-cols-2 gap-4">
+          <Field label="Grid columns" hint="Number of columns in the office grid.">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={8}
+                max={32}
+                value={draft.office?.gridCols ?? 16}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    office: {
+                      gridCols: Math.max(8, Math.min(32, Number(e.target.value) || 16)),
+                      gridRows: prev.office?.gridRows ?? 9,
+                      tileSize: prev.office?.tileSize ?? 64,
+                    },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Grid rows" hint="Number of rows in the office grid.">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={6}
+                max={24}
+                value={draft.office?.gridRows ?? 9}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    office: {
+                      gridCols: prev.office?.gridCols ?? 16,
+                      gridRows: Math.max(6, Math.min(24, Number(e.target.value) || 9)),
+                      tileSize: prev.office?.tileSize ?? 64,
+                    },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Tile size (px)" hint="Size of each grid tile in pixels.">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={32}
+                max={128}
+                value={draft.office?.tileSize ?? 64}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    office: {
+                      gridCols: prev.office?.gridCols ?? 16,
+                      gridRows: prev.office?.gridRows ?? 9,
+                      tileSize: Math.max(32, Math.min(128, Number(e.target.value) || 64)),
+                    },
+                  }))
+                }
+              />
+            )}
+          </Field>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader eyebrow="Kanban" title="WIP limits per column" />
+        <div className="p-4 grid grid-cols-2 gap-4">
+          <Field label="Backlog" hint="Work-in-progress limit for Backlog column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.backlog ?? 0}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, backlog: Math.max(0, Number(e.target.value) || 0) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Queued" hint="Work-in-progress limit for Queued column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.queued ?? 0}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, queued: Math.max(0, Number(e.target.value) || 0) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="In Progress" hint="Work-in-progress limit for In Progress column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.in_progress ?? 3}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, in_progress: Math.max(0, Number(e.target.value) || 3) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Review" hint="Work-in-progress limit for Review column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.review ?? 2}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, review: Math.max(0, Number(e.target.value) || 2) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Testing" hint="Work-in-progress limit for Testing column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.testing ?? 2}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, testing: Math.max(0, Number(e.target.value) || 2) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Blocked" hint="Work-in-progress limit for Blocked column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.blocked ?? 0}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, blocked: Math.max(0, Number(e.target.value) || 0) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Done" hint="Work-in-progress limit for Done column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.done ?? 0}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, done: Math.max(0, Number(e.target.value) || 0) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label="Failed" hint="Work-in-progress limit for Failed column (0 = unlimited).">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                max={50}
+                value={draft.kanban?.wipLimits?.failed ?? 0}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, failed: Math.max(0, Number(e.target.value) || 0) } },
+                  }))
+                }
+              />
+            )}
+          </Field>
         </div>
       </Card>
     </div>

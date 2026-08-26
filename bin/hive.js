@@ -47,6 +47,7 @@ const green = paint("32");
 const blue = paint("36");
 const magenta = paint("35");
 const red = paint("31");
+const yellow = paint("93");
 
 function note(message) {
   console.log(`${amber("hive")} ${message}`);
@@ -93,12 +94,15 @@ ${bold("hive")} — start the Hive desktop app
   ${bold("hive server")}          API server only
   ${bold("hive stop")}            stop whatever is already listening on Hive's ports
   ${bold("hive doctor")}          check this machine can run all of the above
+  ${bold("hive doctor --deep")}   also run one real prompt per CLI ${dim("(costs tokens)")}
 
 Options
   -p, --port <n>       API server port          ${dim(`(default ${DEFAULT_API_PORT})`)}
       --ui-port <n>    Vite dev server port     ${dim(`(default ${DEFAULT_UI_PORT})`)}
       --devtools       open DevTools with the window
       --no-window      same as ${bold("hive web")}
+      --deep           doctor: verify each CLI's event stream still parses
+      --json           doctor: machine-readable report on stdout
   -h, --help           this message
   -v, --version        print the version
 
@@ -111,6 +115,8 @@ function parseArgs(argv) {
     apiPort: Number(process.env.PORT) || DEFAULT_API_PORT,
     uiPort: Number(process.env.HIVE_UI_PORT) || DEFAULT_UI_PORT,
     devtools: false,
+    deep: false,
+    json: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -132,6 +138,12 @@ function parseArgs(argv) {
         break;
       case "--devtools":
         options.devtools = true;
+        break;
+      case "--deep":
+        options.deep = true;
+        break;
+      case "--json":
+        options.json = true;
         break;
       case "--no-window":
         options.mode = "web";
@@ -455,41 +467,295 @@ function stopCommand(options) {
   if (stopped === 0) note("nothing was listening on Hive's ports.");
 }
 
-function doctorCommand(options) {
-  const rows = [
-    ["repo", ROOT, fs.existsSync(path.join(ROOT, "package.json"))],
-    ["node", process.version, true],
-    [
-      "deps",
-      path.join(ROOT, "node_modules"),
-      fs.existsSync(path.join(ROOT, "node_modules")),
-    ],
-    ["tsx", TOOLS.tsx, fs.existsSync(TOOLS.tsx)],
-    ["vite", TOOLS.vite, fs.existsSync(TOOLS.vite)],
-    ["electron", TOOLS.electron, fs.existsSync(TOOLS.electron)],
-  ];
+/**
+ * `hive doctor` — can this machine run Hive, and will it behave?
+ *
+ * Three tiers, because they cost wildly different amounts:
+ *   1. the checkout   — node, deps, the tool entrypoints we spawn
+ *   2. the outside    — git, pnpm, the harness CLIs, the ports
+ *   3. `--deep`       — a real prompt per CLI, verifying its event stream
+ *                       still parses (see harnesses/health.ts)
+ *
+ * Every failure prints what to do about it. A check that cannot be run is
+ * reported as unknown rather than as a pass.
+ */
 
-  let ok = true;
-  for (const [label, detail, present] of rows) {
-    ok = ok && present;
-    console.log(
-      `  ${present ? green("ok  ") : red("miss")} ${bold(label.padEnd(9))} ${dim(detail)}`,
+const CHECK_MARKS = { ok: "ok  ", warn: "warn", miss: "miss", info: "info" };
+
+function reportLine(state, label, detail) {
+  const paintState =
+    state === "ok" ? green : state === "miss" ? red : state === "warn" ? yellow : dim;
+  console.log(
+    `  ${paintState(CHECK_MARKS[state])} ${bold(String(label).padEnd(12))} ${dim(detail)}`,
+  );
+}
+
+/** `<cmd> --version`, cross-platform, without a shell. */
+function probeVersion(command) {
+  try {
+    // Windows resolves the .cmd/.ps1 shims npm installs only through a
+    // shell, so the command goes as one string — passing an args array
+    // alongside shell:true is deprecated (DEP0190) and unescaped.
+    const onWindows = process.platform === "win32";
+    const proc = onWindows
+      ? spawnSync(`${command} --version`, {
+          timeout: 5000,
+          encoding: "utf8",
+          shell: true,
+        })
+      : spawnSync(command, ["--version"], { timeout: 5000, encoding: "utf8" });
+    if (proc.status !== 0) return null;
+    const text = `${proc.stdout || ""}${proc.stderr || ""}`.trim();
+    return text.split(/\r?\n/)[0] || "installed";
+  } catch {
+    return null;
+  }
+}
+
+async function doctorCommand(options) {
+  const report = { checks: [], deep: null, ok: true };
+  const add = (state, label, detail, hint) => {
+    report.checks.push({ state, label, detail, hint: hint ?? null });
+    if (state === "miss") report.ok = false;
+  };
+
+  /* 1. the checkout */
+  const pkgPath = path.join(ROOT, "package.json");
+  add(
+    fs.existsSync(pkgPath) ? "ok" : "miss",
+    "repo",
+    ROOT,
+    "hive must be run from its own checkout — reinstall with install.sh.",
+  );
+  const major = Number(process.versions.node.split(".")[0]);
+  add(
+    major >= 20 ? "ok" : "miss",
+    "node",
+    `${process.version} (need >= 20)`,
+    "Install Node 20 or newer: https://nodejs.org",
+  );
+  add(
+    fs.existsSync(path.join(ROOT, "node_modules")) ? "ok" : "miss",
+    "deps",
+    path.join(ROOT, "node_modules"),
+    "Run `pnpm install` in the checkout.",
+  );
+  for (const key of ["tsx", "vite", "electron"]) {
+    add(
+      fs.existsSync(TOOLS[key]) ? "ok" : "miss",
+      key,
+      TOOLS[key],
+      "Run `pnpm install` — this entrypoint ships with the workspace deps.",
     );
   }
 
-  Promise.all([
+  /* 2. the outside world */
+  const git = probeVersion("git");
+  add(
+    git ? "ok" : "miss",
+    "git",
+    git ?? "not found on PATH",
+    "Harnesses run against a git working tree; changed files are read from git.",
+  );
+  const pnpm = probeVersion("pnpm");
+  add(
+    pnpm ? "ok" : "warn",
+    "pnpm",
+    pnpm ?? "not found on PATH (only needed to install)",
+    "npm i -g pnpm",
+  );
+
+  const clis = [
+    { name: "opencode", command: "opencode" },
+    { name: "claude", command: "claude" },
+    { name: "pi", command: "pi" },
+  ];
+  const installed = [];
+  const harnessRows = [];
+  for (const cli of clis) {
+    const version = probeVersion(cli.command);
+    if (version) installed.push(cli.name);
+    const row = {
+      state: version ? "ok" : "warn",
+      label: cli.name,
+      detail: version ?? "not installed (optional)",
+      hint: null,
+    };
+    report.checks.push(row);
+    harnessRows.push(row);
+  }
+
+  /* config + local model servers */
+  const configPath = path.join(ROOT, "hive.config.json");
+  const hasConfig = fs.existsSync(configPath);
+  let configValid = true;
+  if (hasConfig) {
+    try {
+      JSON.parse(fs.readFileSync(configPath, "utf8"));
+    } catch (err) {
+      configValid = false;
+      add(
+        "miss",
+        "config",
+        `${configPath} is not valid JSON: ${err.message}`,
+        "Fix or delete it — Hive recreates a default on the next start.",
+      );
+    }
+  }
+  if (configValid) {
+    add(
+      hasConfig ? "ok" : "info",
+      "config",
+      hasConfig ? configPath : "using defaults (created on first start)",
+    );
+  }
+
+  const [api, ui, ollama, lmstudio] = await Promise.all([
     hiveIsListening(options.apiPort),
     portInUse(options.uiPort),
-  ]).then(([api, ui]) => {
-    console.log(
-      `  ${dim("--")}   ${bold("ports".padEnd(9))} ${dim(
-        `api ${options.apiPort}: ${api ? "hive running" : "free"} · ui ${options.uiPort}: ${
-          ui ? "in use" : "free"
-        }`,
-      )}`,
+    get("http://localhost:11434/api/tags").then((c) => c === 200).catch(() => false),
+    get("http://localhost:1234/v1/models").then((c) => c === 200).catch(() => false),
+  ]);
+  add(
+    "info",
+    "ports",
+    `api ${options.apiPort}: ${api ? "hive running" : "free"} · ui ${options.uiPort}: ${ui ? "in use" : "free"}`,
+    ui && !api ? "Something else holds the UI port — `hive stop` or --ui-port." : undefined,
+  );
+  add(
+    "info",
+    "local models",
+    `ollama: ${ollama ? "up" : "not running"} · lm studio: ${lmstudio ? "up" : "not running"}`,
+  );
+
+  /* print tiers 1 and 2, harnesses in their own block */
+  for (const check of report.checks) {
+    if (harnessRows.includes(check)) continue;
+    reportLine(check.state, check.label, check.detail);
+  }
+  console.log(`  ${dim("--")}   ${bold("CLI harnesses")}`);
+  for (const row of harnessRows) {
+    reportLine(row.state, row.label, row.detail);
+  }
+
+  if (installed.length === 0) {
+    report.ok = false;
+    console.log("");
+    console.error(
+      `  ${red("miss")} ${bold("harnesses".padEnd(12))} ${dim("no agent CLI found on PATH")}`,
     );
-    if (!ok) fail("Something is missing.", INSTALL_HINT);
+    console.error(
+      `       ${dim("Hive drives other CLIs; install at least one:")}`,
+    );
+    console.error(`       ${dim("claude   → npm i -g @anthropic-ai/claude-code")}`);
+    console.error(`       ${dim("opencode → npm i -g opencode-ai")}`);
+  }
+
+  /* 3. the deep check */
+  let deepFailed = false;
+  if (options.deep) {
+    console.log("");
+    note("running one real prompt per installed CLI — this costs tokens…");
+    report.deep = await runDeepProbe();
+    if (report.deep?.probes) {
+      for (const probe of report.deep.probes) {
+        if (!probe.installed) {
+          reportLine("info", probe.harness, "not installed — skipped");
+          continue;
+        }
+        if (probe.streamOk) {
+          reportLine(
+            "ok",
+            probe.harness,
+            `event stream parses (${probe.eventsParsed} events)`,
+          );
+        } else {
+          report.ok = false;
+          deepFailed = true;
+          reportLine("miss", probe.harness, probe.error ?? "stream did not parse");
+          // A timeout and a format change are different problems and need
+          // different advice.
+          console.error(
+            /did not answer/.test(probe.error ?? "")
+              ? `       ${dim("The CLI is installed but not answering — check its auth/login and that it runs on its own.")}`
+              : `       ${dim("Its output format may have changed. packages/server/src/harnesses/eventStream.ts is what parses it.")}`,
+          );
+        }
+      }
+    } else {
+      reportLine("warn", "deep", report.deep?.error ?? "probe could not run");
+    }
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+  }
+
+  if (!report.ok) {
+    for (const check of report.checks) {
+      if (check.state === "miss" && check.hint) {
+        console.error(`       ${dim(check.hint)}`);
+      }
+    }
+    console.error("");
+    // The install hint is about this checkout; a harness that failed its
+    // deep probe is not fixed by reinstalling Hive.
+    fail(
+      "Some checks did not pass.",
+      deepFailed && report.checks.every((c) => c.state !== "miss")
+        ? "Re-run `hive doctor --deep` after fixing the CLI above."
+        : INSTALL_HINT,
+    );
+  }
+
+  console.log("");
+  if (!hasConfig) {
+    note("first run — Hive writes a default hive.config.json when it starts.");
+    console.log(`  ${dim("Run")} ${bold("hive")} ${dim("for the desktop app, or")} ${bold("hive web")} ${dim("for the browser.")}`);
+  } else {
     note("ready — run `hive` to start everything.");
+  }
+  if (!options.deep) {
+    console.log(
+      `  ${dim("Tip:")} ${bold("hive doctor --deep")} ${dim("also checks each CLI still emits the event stream Hive parses.")}`,
+    );
+  }
+}
+
+/** Runs the TypeScript deep probe under tsx and reads its JSON report. */
+function runDeepProbe() {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(TOOLS.tsx)) {
+      resolve({ error: "tsx is not installed — run `pnpm install`." });
+      return;
+    }
+    const script = path.join(
+      ROOT,
+      "packages",
+      "server",
+      "src",
+      "scripts",
+      "doctorProbe.ts",
+    );
+    const child = spawn(process.execPath, [TOOLS.tsx, script], {
+      cwd: ROOT,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (c) => (out += c.toString()));
+    child.stderr.on("data", (c) => (err += c.toString()));
+    child.on("error", (e) => resolve({ error: e.message }));
+    child.on("close", () => {
+      // The probe prints one JSON object last; anything tsx logged before it
+      // is noise.
+      const line = out.trim().split(/\r?\n/).filter(Boolean).pop();
+      try {
+        resolve(JSON.parse(line));
+      } catch {
+        resolve({ error: err.trim().slice(0, 300) || "probe produced no report" });
+      }
+    });
   });
 }
 
@@ -497,7 +763,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
 
   if (options.mode === "stop") return stopCommand(options);
-  if (options.mode === "doctor") return doctorCommand(options);
+  if (options.mode === "doctor") return await doctorCommand(options);
 
   if (!fs.existsSync(path.join(ROOT, "node_modules"))) {
     fail("Dependencies are not installed.", INSTALL_HINT);

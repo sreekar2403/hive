@@ -1,6 +1,8 @@
 import { Config, loadConfig } from "./config";
 import { HiveServer } from "./server";
 import { OpenCodeHarness, ClaudeCodeHarness, PiHarness } from "./harnesses";
+import { OllamaDirectHarness } from "./harnesses/ollamaDirect";
+import { LMStudioDirectHarness } from "./harnesses/lmstudioDirect";
 
 async function main() {
   // Load configuration (defaults, layered with hive.config.json and PORT env var)
@@ -9,6 +11,10 @@ async function main() {
   // Initialize harnesses
   const harnesses = new Map<string, any>();
 
+  // Registration is deliberately cheap: each isAvailable() is a `--version`
+  // spawn with a short timeout. Deep event-stream validation happens per run
+  // (see runHarness's unparseable-stream detection), never at boot — running
+  // a real prompt through every CLI here would cost tokens and minutes.
   const opencodeHarness = new OpenCodeHarness();
   if (await opencodeHarness.isAvailable()) {
     harnesses.set("opencode", opencodeHarness);
@@ -25,6 +31,19 @@ async function main() {
   if (await piHarness.isAvailable()) {
     harnesses.set("pi", piHarness);
     console.log("Pi harness available");
+  }
+
+  // Direct API harnesses for local model servers
+  const ollamaDirectHarness = new OllamaDirectHarness(config.localModels?.ollama || "http://localhost:11434");
+  if (await ollamaDirectHarness.isAvailable()) {
+    harnesses.set("ollama-direct", ollamaDirectHarness);
+    console.log("Ollama Direct harness available");
+  }
+
+  const lmstudioDirectHarness = new LMStudioDirectHarness(config.localModels?.lmstudio || "http://localhost:1234");
+  if (await lmstudioDirectHarness.isAvailable()) {
+    harnesses.set("lmstudio-direct", lmstudioDirectHarness);
+    console.log("LM Studio Direct harness available");
   }
 
   if (harnesses.size === 0) {

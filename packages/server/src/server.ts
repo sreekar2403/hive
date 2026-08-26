@@ -3,10 +3,12 @@ import cors from "cors";
 import http from "http";
 import path from "path";
 import fs from "fs";
+import { randomUUID } from "crypto";
 import { Orchestrator } from "./orchestrator";
 import { Config } from "./config";
 import { SharedMemory } from "./sharedMemory";
 import { Harness } from "@hive/shared/harness";
+import { getDb } from "./db/database";
 import scheduleRoutes from "./routes/schedules";
 import workflowRoutes from "./routes/workflows";
 import projectRoutes from "./routes/projects";
@@ -17,10 +19,20 @@ import memoryRoutes, { setSharedMemory } from "./routes/memory";
 import agentRoutes from "./routes/agents";
 import brainRoutes from "./routes/brain";
 import modelRoutes from "./routes/models";
+import capacityRoutes from "./routes/capacity";
+import harnessRoutes from "./routes/harnesses";
+import messageRoutes from "./routes/messages";
 import { resolveModelRef } from "./models/catalog";
 import taskRoutes from "./routes/tasks";
 import { startCronRunner } from "./scheduler/cronRunner";
 import eventsRouter, { broadcast } from "./routes/events";
+import {
+  appendMessage,
+  ensureSession,
+  getSession,
+  recentMessages,
+} from "./chatSessions";
+import { registerTaskSession } from "./telemetry";
 
 // Serve static files from public directory (works in both dev and compiled modes)
 const publicDir = (() => {
@@ -35,11 +47,9 @@ class HiveServer {
   private orchestrator: Orchestrator;
   private sharedMemory: SharedMemory;
   private config: Config;
-  private sessions: Map<string, any>;
 
   constructor(config: Config, harnesses: Map<string, Harness>) {
     this.config = config;
-    this.sessions = new Map();
     this.sharedMemory = new SharedMemory(config);
     this.orchestrator = new Orchestrator(config, harnesses);
     this.app = express();
@@ -63,19 +73,18 @@ class HiveServer {
       // The client owns its session ids and sends one with every message.
       // Adopting an id we haven't seen (a client that outlived a server
       // restart, say) has to work: the alternative was a 500 from pushing
-      // onto a session record that was never created.
+      // onto a session record that was never created. The record lives in
+      // SQLite, so a restart no longer restarts the conversation.
       const session =
         typeof sessionId === "string" && sessionId ? sessionId : this.generateId();
-      let sessionData = this.sessions.get(session);
-      if (!sessionData) {
-        sessionData = {
-          id: session,
-          createdAt: Date.now(),
-          projectId: typeof projectId === "string" ? projectId : null,
-          messages: [],
-        };
-        this.sessions.set(session, sessionData);
-      }
+      ensureSession(session, typeof projectId === "string" ? projectId : null);
+
+      // The user's turn is recorded before the run, not after: a task that
+      // crashes still happened, and the next message must see it.
+      appendMessage(session, { role: "user", content: message });
+
+      // Declared out here so the error path can close the card it opened.
+      let kanbanTaskId: string | null = null;
 
       try {
         // A model picked in the UI arrives as a catalog id
@@ -98,8 +107,53 @@ class HiveServer {
           {
             model: picked?.ref ?? null,
             agent: typeof agent === "string" && agent ? agent : null,
+            // Pass conversation history for context. The turn just
+            // recorded is dropped — it is the prompt itself, and repeating
+            // it as "history" made every message look like a reply to
+            // itself.
+            conversationHistory: recentMessages(session, 11)
+              .slice(0, -1)
+              .map((m) => ({ role: m.role, content: m.content })),
           },
         );
+
+        // Every span this run opens is stamped with the conversation, so
+        // the Logs screen can show one trace per chat instead of one per
+        // message.
+        registerTaskSession(task.id, session);
+
+        // Create a corresponding kanban task for tracking
+        if (projectId) {
+          const db = getDb();
+          const now = Date.now();
+          kanbanTaskId = randomUUID();
+          const branchName = `hive/${projectId}/${kanbanTaskId}`;
+          db.prepare(
+            `INSERT INTO kanban_tasks
+              (id, project_id, prompt, harness, status, branch_name, run_task_id, session_id, model, files, iterations, files_changed, output, error, started_at, completed_at, created_at, updated_at)
+             VALUES (@id, @project_id, @prompt, @harness, @status, @branch_name, @run_task_id, @session_id, @model, @files, @iterations, @files_changed, @output, @error, @started_at, @completed_at, @created_at, @updated_at)`,
+          ).run({
+            id: kanbanTaskId,
+            project_id: projectId,
+            prompt: message.trim(),
+            harness: task.harness,
+            run_task_id: task.id,
+            session_id: session,
+            model: picked?.ref ?? null,
+            files: null,
+            status: "in_progress",
+            branch_name: branchName,
+            iterations: 0,
+            files_changed: 0,
+            output: null,
+            error: null,
+            started_at: now,
+            completed_at: null,
+            created_at: now,
+            updated_at: now,
+          });
+        }
+
         broadcast("task:started", {
           sessionId: session,
           taskId: task.id,
@@ -109,19 +163,39 @@ class HiveServer {
 
         const result = await this.orchestrator.executeTask(task.id);
 
-        // Store session message
-        sessionData.messages.push({
-          role: "user",
-          content: message,
-          timestamp: Date.now(),
-        });
+        // Update kanban task with result
+        if (kanbanTaskId && projectId) {
+          const db = getDb();
+          const completedAt = Date.now();
+          db.prepare(
+            `UPDATE kanban_tasks SET
+               status = @status,
+               iterations = @iterations,
+               files_changed = @files_changed,
+               files = @files,
+               output = @output,
+               error = @error,
+               completed_at = @completed_at,
+               updated_at = @updated_at
+             WHERE id = @id`,
+          ).run({
+            id: kanbanTaskId,
+            status: result.status === "completed" ? "done" : "failed",
+            iterations: result.iteration,
+            files_changed: task.filesChanged.length,
+            files: JSON.stringify(task.filesChanged ?? []),
+            output: result.output,
+            error: result.status === "failed" ? (result.error ?? "Unknown error") : null,
+            completed_at: completedAt,
+            updated_at: completedAt,
+          });
+        }
 
-        sessionData.messages.push({
+        appendMessage(session, {
           role: "assistant",
           content: result.output,
           taskId: result.id,
           status: result.status,
-          timestamp: Date.now(),
         });
 
         broadcast(result.status === "failed" ? "task:failed" : "task:completed", {
@@ -142,6 +216,28 @@ class HiveServer {
           events: result.events,
         });
       } catch (err) {
+        // A run that threw leaves its board card mid-flight; close it out
+        // rather than stranding the column on "in progress" forever.
+        const detail = err instanceof Error ? err.message : String(err);
+        if (kanbanTaskId) {
+          try {
+            const failedAt = Date.now();
+            getDb()
+              .prepare(
+                `UPDATE kanban_tasks
+                    SET status = 'failed', error = ?, completed_at = ?, updated_at = ?
+                  WHERE id = ?`,
+              )
+              .run(detail, failedAt, failedAt, kanbanTaskId);
+          } catch {
+            // The board is a view onto the run, never the reason it failed.
+          }
+        }
+        appendMessage(session, {
+          role: "assistant",
+          content: `The run could not be completed: ${detail}`,
+          status: "failed",
+        });
         broadcast("task:failed", {
           sessionId: session,
           error: err instanceof Error ? err.message : String(err),
@@ -155,7 +251,7 @@ class HiveServer {
 
     // Session status endpoint
     app.get("/api/session/:sessionId", async (req, res) => {
-      const session = this.sessions.get(req.params.sessionId);
+      const session = getSession(req.params.sessionId);
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
       }
@@ -179,6 +275,15 @@ class HiveServer {
 
     // Providers, harnesses and task-model routing
     app.use("/api/settings", settingsRoutes);
+
+    // What this machine can run at once, and what it is running
+    app.use("/api/capacity", capacityRoutes);
+
+    // Are the CLIs installed, and do they still speak the stream we parse
+    app.use("/api/harnesses", harnessRoutes);
+
+    // Messages between agents working the same session
+    app.use("/api/messages", messageRoutes);
 
     // Shared memory browsing/editing
     setSharedMemory(this.sharedMemory);

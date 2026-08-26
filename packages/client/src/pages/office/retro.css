@@ -1,0 +1,238 @@
+/*
+ * Retro-pixel chrome for the Office floor.
+ *
+ * Scoped under `.hive-retro` so the rest of hive keeps its own design
+ * language. Rules of the canon (docs/office-design.md): no border-radius,
+ * no blur, no gradients beyond flat fills; shadows are hard offsets;
+ * spacing snaps to 4px.
+ *
+ * The palette is white-first, matching retroTheme.ts: the floor is a paper
+ * model, so chrome sitting on top of it is white card on hairline grey.
+ * The chunky triple-inset SNES panel is kept for the modal dialog, where
+ * weight is the point, and avoided everywhere it would compete with the
+ * floor.
+ */
+
+.hive-retro {
+  /* Mirrors CREAM/INK/ACCENTS in retroTheme.ts — keep the two in step. */
+  --rp-cream-50: #ffffff;
+  --rp-cream-100: #fbfbfd;
+  --rp-cream-200: #f1f2f5;
+  --rp-cream-300: #e3e5ea;
+  --rp-paper: #ffffff;
+  --rp-ink-900: #22242b;
+  --rp-ink-700: #4b4f5a;
+  --rp-ink-500: #878c99;
+  --rp-ink-300: #c2c7d0;
+  --rp-coral: #ef7d7d;
+  --rp-mint: #62c07a;
+  --rp-sky: #45b8b0;
+  --rp-lemon: #e0bb44;
+  --rp-lilac: #9f8ff0;
+
+  /*
+   * The floor is always daylight (design decision D1). Shared chrome
+   * (PageHeader, EmptyState, badges) paints with the app's theme tokens,
+   * so remap those tokens here: in dark mode `--hive-text` is near-white
+   * and would vanish against white.
+   */
+  --hive-text: var(--rp-ink-900);
+  --hive-text-muted: var(--rp-ink-500);
+  --hive-text-faint: var(--rp-ink-300);
+  --hive-border: var(--rp-ink-300);
+  --hive-border-strong: var(--rp-ink-700);
+  --hive-bg: var(--rp-cream-100);
+  --hive-surface: var(--rp-cream-50);
+  --hive-surface-2: var(--rp-cream-200);
+  --hive-surface-3: var(--rp-cream-300);
+
+  font-family: "Pixelify Sans", system-ui, sans-serif;
+  color: var(--rp-ink-900);
+  background: var(--rp-cream-50);
+}
+
+.hive-retro .rp-title {
+  font-family: "Press Start 2P", monospace;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+
+.hive-retro .rp-mono {
+  font-family: "VT323", monospace;
+  font-size: 16px;
+  line-height: 18px;
+}
+
+.hive-retro .rp-small {
+  font-size: 13px;
+}
+
+/* ---- SNES three-layer panel ------------------------------------- */
+
+.hive-retro .rp-panel {
+  background: var(--rp-cream-50);
+  box-shadow: inset 0 0 0 1px var(--rp-cream-300);
+  padding: 12px;
+}
+
+.hive-retro .rp-panel--inset {
+  background: var(--rp-cream-200);
+  box-shadow: inset 0 0 0 1px var(--rp-cream-300);
+}
+
+.hive-retro .rp-panel--active {
+  box-shadow: inset 0 0 0 2px var(--rp-sky);
+}
+
+.hive-retro .rp-panel--dialog {
+  background: var(--rp-cream-50);
+  box-shadow:
+    inset 0 0 0 2px var(--rp-ink-900),
+    inset 0 0 0 4px var(--rp-cream-50),
+    inset 0 0 0 5px var(--rp-ink-300);
+  filter: drop-shadow(4px 4px 0 rgba(34, 36, 43, 0.18));
+}
+
+/* ---- Chunky buttons ---------------------------------------------- */
+
+.hive-retro .rp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--rp-ink-900);
+  background: var(--rp-cream-50);
+  border: 1px solid var(--rp-ink-300);
+  cursor: pointer;
+  transition: none;
+}
+
+.hive-retro .rp-btn:hover {
+  background: var(--rp-cream-200);
+  border-color: var(--rp-ink-500);
+}
+
+.hive-retro .rp-btn:active {
+  transform: translate(0, 2px);
+  box-shadow: none;
+}
+
+.hive-retro .rp-btn:focus-visible {
+  outline: 2px solid var(--rp-ink-900);
+  outline-offset: 2px;
+}
+
+.hive-retro .rp-btn--primary {
+  background: var(--rp-ink-900);
+  color: var(--rp-cream-50);
+}
+
+.hive-retro .rp-btn--primary:hover {
+  background: var(--rp-ink-700);
+}
+
+.hive-retro .rp-btn--mint {
+  background: var(--rp-mint);
+}
+
+.hive-retro .rp-btn--coral {
+  background: var(--rp-coral);
+  color: var(--rp-cream-50);
+}
+
+.hive-retro .rp-btn--ghost {
+  background: transparent;
+  border-color: var(--rp-ink-500);
+  color: var(--rp-ink-700);
+}
+
+.hive-retro .rp-btn[disabled] {
+  background: var(--rp-cream-200);
+  color: var(--rp-ink-300);
+  border-color: var(--rp-cream-300);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---- Floating card (legend, overlays on the floor) ---------------- */
+
+/*
+ * What sits *on* the floor is a plain white card with a hairline: the
+ * triple-inset panel below is a heavy frame, and two heavy frames over a
+ * diorama is what made this view feel crowded.
+ */
+.hive-retro .rp-card {
+  background: color-mix(in srgb, var(--rp-cream-50) 94%, transparent);
+  border: 1px solid var(--rp-cream-300);
+  box-shadow: 0 1px 0 rgba(34, 36, 43, 0.06);
+}
+
+.hive-retro .rp-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 10px;
+  color: var(--rp-ink-500);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.hive-retro .rp-card__head:hover {
+  color: var(--rp-ink-900);
+}
+
+/* ---- Status badges ------------------------------------------------ */
+
+.hive-retro .rp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 13px;
+  line-height: 18px;
+  text-transform: lowercase;
+  background: color-mix(in srgb, currentColor 12%, var(--rp-cream-50));
+  border: 1px solid currentColor;
+}
+
+.hive-retro .rp-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+}
+
+/* ---- Dialog -------------------------------------------------------- */
+
+.hive-retro .rp-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(34, 36, 43, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.hive-retro .rp-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rp-ink-300) transparent;
+}
+
+/* ---- Motion -------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .hive-retro *,
+  .hive-retro *::before,
+  .hive-retro *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

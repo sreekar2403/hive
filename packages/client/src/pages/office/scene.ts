@@ -8,294 +8,241 @@ import {
   type FurnitureDef,
   type ZoneDef,
 } from "./layout";
-
-export interface Palette {
-  carpet: number;
-  carpetAlt: number;
-  wall: number;
-  wallTrim: number;
-  line: number;
-  ink: number;
-  muted: number;
-  faint: number;
-  desk: number;
-  deskEdge: number;
-  partition: number;
-  metal: number;
-  screen: number;
-  signPlate: number;
-  tints: Record<string, number>;
-}
+import { drawProp, type PropKind } from "./pixelArt";
+import { CREAM, INK, WORLD, ZONE_TINT_COLOR } from "./retroTheme";
 
 /**
- * The office reads as a real workplace rather than a game board: flat
- * carpet, grey partitions, wood-tone desks. Only the zone signage carries
- * colour, so the floor stays calm and the characters are what you notice.
- * Structural colours are fixed; theme tokens supply text and signage so
- * labels stay legible in both themes.
+ * The static office, baked once: an open floor around white-floored rooms
+ * joined by corridors, light walls, pixel props, and a signpost per zone.
+ *
+ * Daylight white palette (spec D1, retuned) — the diorama does not follow
+ * the app theme. Structure is carried by *value*, not by colour: the plan
+ * has to read at a glance without any surface competing with the agents
+ * standing on it. Every child carries zIndex = its world-space foot line so
+ * characters sort believably against furniture and walls.
  */
-export function readPalette(el: HTMLElement, dark: boolean): Palette {
-  const cs = getComputedStyle(el);
-  const hex = (name: string, fallback: number) =>
-    cssColorToHex(cs.getPropertyValue(name).trim()) ?? fallback;
 
-  const structural = dark
-    ? {
-        carpet: 0x2a2b2f,
-        carpetAlt: 0x2f3034,
-        wall: 0x3c3e44,
-        wallTrim: 0x4a4d54,
-        desk: 0x6f5842,
-        deskEdge: 0x5a4636,
-        partition: 0x45484f,
-        metal: 0x585c64,
-        screen: 0x8fb8d8,
-        signPlate: 0x1d1f24,
-      }
-    : {
-        carpet: 0xd8d4cb,
-        carpetAlt: 0xdedad1,
-        wall: 0xbdb9b0,
-        wallTrim: 0xa9a49a,
-        desk: 0xb08c62,
-        deskEdge: 0x94734d,
-        partition: 0xc3bfb6,
-        metal: 0x9a9ea6,
-        screen: 0x5b8dd9,
-        signPlate: 0xf4f3ef,
-      };
+const DESK_VARIANTS: PropKind[] = ["desk-open", "desk-dual", "desk-laptop"];
 
-  return {
-    ...structural,
-    line: hex("--hive-border", dark ? 0x262b33 : 0xdcdcd5),
-    ink: hex("--hive-text", dark ? 0xe9e7e2 : 0x15181d),
-    muted: hex("--hive-text-muted", dark ? 0x8b919c : 0x6b7079),
-    faint: hex("--hive-text-faint", dark ? 0x656b75 : 0x9aa0a8),
-    tints: {
-      info: hex("--hive-info", 0x5b8dd9),
-      ok: hex("--hive-success", 0x4fa97c),
-      warn: hex("--hive-warn", 0xd9a441),
-      accent: hex("--hive-accent", 0xe8a33d),
-      danger: hex("--hive-danger", 0xd9584c),
-      neutral: hex("--hive-text-faint", 0x8b919c),
-    },
-  };
-}
+/**
+ * Signage sorts above everything static.
+ *
+ * A signpost is a label for a room, not an object standing in it, so it
+ * has no business being occluded by the furniture it names — the Server
+ * Room's title used to disappear behind its own racks, which sort at their
+ * foot line two rows lower. Well below the bubbles' 1_000_000, so an agent
+ * speaking in front of a sign still reads.
+ */
+const SIGN_Z = 800_000;
 
-function cssColorToHex(value: string): number | null {
-  if (!value) return null;
-  if (value.startsWith("#")) {
-    const h = value.slice(1);
-    const full =
-      h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
-    const n = parseInt(full.slice(0, 6), 16);
-    return Number.isNaN(n) ? null : n;
-  }
-  const m = value.match(/rgba?\(([^)]+)\)/);
-  if (m) {
-    const [r, g, b] = m[1].split(/[,\s/]+/).map(Number);
-    if ([r, g, b].some(Number.isNaN)) return null;
-    return (r << 16) | (g << 8) | b;
-  }
-  return null;
-}
-
-/** Draws the static office: carpet, walls, zone signage, furniture. */
-export function buildFloor(palette: Palette): Container {
+export function buildFloor(): Container {
   const layer = new Container();
+  layer.sortableChildren = true;
 
-  layer.addChild(drawCarpet(palette));
-  for (const zone of ZONES) layer.addChild(drawZoneFloor(zone, palette));
-  layer.addChild(drawPerimeter(palette));
-  for (const zone of ZONES) {
-    if (zone.enclosed) layer.addChild(drawRoomWalls(zone, palette));
+  // Ground pass: one flat Graphics, always beneath everything.
+  const ground = new Graphics();
+  ground.zIndex = -Infinity;
+  drawGrass(ground);
+  drawPaths(ground);
+  for (const zone of ZONES) drawZoneFloor(ground, zone);
+  layer.addChild(ground);
+
+  drawPerimeter(layer);
+
+  for (const item of FURNITURE) {
+    const holder = new Container();
+    const g = new Graphics();
+    drawProp(g, propKindFor(item), item.rect.w, item.rect.h);
+    g.x = item.rect.x * TILE;
+    g.y = item.rect.y * TILE;
+    // Sort by the prop's visual foot line: multi-tile props sort at their
+    // bottom edge so agents walking "behind" them are occluded correctly.
+    holder.addChild(g);
+    holder.zIndex = (item.rect.y + item.rect.h) * TILE;
+    layer.addChild(holder);
   }
 
-  const furniture = new Graphics();
-  for (const item of FURNITURE) drawFurniture(furniture, item, palette);
-  layer.addChild(furniture);
-
-  for (const zone of ZONES) layer.addChild(drawZoneSign(zone, palette));
+  for (const zone of ZONES) {
+    if (zone.enclosed) drawRoomWalls(layer, zone);
+    layer.addChild(drawSignpost(zone));
+  }
 
   return layer;
 }
 
-/** Flat carpet with a faint weave — no checkerboard. */
-function drawCarpet(palette: Palette): Graphics {
-  const g = new Graphics();
-  g.rect(0, 0, COLS * TILE, ROWS * TILE).fill(palette.carpet);
-  for (let y = 0; y < ROWS * TILE; y += 6) {
-    g.rect(0, y, COLS * TILE, 1).fill({ color: palette.carpetAlt, alpha: 0.5 });
+/** Legacy kinds map onto retro props; desks cycle through three flavours. */
+function propKindFor(item: FurnitureDef): PropKind {
+  if (item.kind === "desk") {
+    return DESK_VARIANTS[(item.rect.x + item.rect.y) % DESK_VARIANTS.length];
   }
-  return g;
+  return item.kind;
 }
 
-/** A slightly different carpet tone marks each zone's footprint. */
-function drawZoneFloor(zone: ZoneDef, palette: Palette): Graphics {
+function drawGrass(g: Graphics): void {
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      g.rect(x * TILE, y * TILE, TILE, TILE).fill(
+        (x + y) % 2 === 0 ? WORLD.grassLight : WORLD.grassDark,
+      );
+    }
+  }
+}
+
+/** Sand paths: the two corridor belts plus the vertical connectors. */
+function drawPaths(g: Graphics): void {
+  const belt = (x: number, y: number, w: number, h: number) => {
+    g.rect(x * TILE, y * TILE, w * TILE, h * TILE).fill(WORLD.path);
+  };
+  belt(1, 7, COLS - 2, 2);
+  belt(1, 15, COLS - 2, 2);
+  belt(8, 1, 1, 19);
+  belt(18, 9, 1, 8);
+  belt(21, 1, 1, 19);
+}
+
+function drawZoneFloor(g: Graphics, zone: ZoneDef): void {
   const { x, y, w, h } = zone.rect;
-  const g = new Graphics();
-  g.rect(x * TILE, y * TILE, w * TILE, h * TILE).fill({
-    color: palette.carpetAlt,
-    alpha: 0.9,
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      g.rect((x + dx) * TILE, (y + dy) * TILE, TILE, TILE).fill(
+        (x + dx + y + dy) % 2 === 0 ? WORLD.woodLight : WORLD.woodDark,
+      );
+    }
+  }
+  // One accent stripe along the zone's north edge ties signage to space.
+  // Held at half strength: it is a label for the room, not a feature of it.
+  g.rect(x * TILE, y * TILE, w * TILE, 2).fill({
+    color: ZONE_TINT_COLOR[zone.tint] ?? INK[500],
+    alpha: 0.5,
   });
-  g.rect(x * TILE, y * TILE, w * TILE, h * TILE).stroke({
-    color: palette.tints[zone.tint] ?? palette.muted,
-    width: 1,
-    alpha: 0.22,
-  });
-  return g;
 }
 
-function drawPerimeter(palette: Palette): Graphics {
+function drawPerimeter(layer: Container): void {
   const g = new Graphics();
   const w = COLS * TILE;
   const h = ROWS * TILE;
-  g.rect(0, 0, w, TILE).fill(palette.wall);
-  g.rect(0, h - TILE, w, TILE).fill(palette.wall);
-  g.rect(0, 0, TILE, h).fill(palette.wall);
-  g.rect(w - TILE, 0, TILE, h).fill(palette.wall);
-  g.rect(TILE - 2, TILE - 2, w - 2 * TILE + 4, h - 2 * TILE + 4).stroke({
-    color: palette.wallTrim,
-    width: 2,
-  });
-  return g;
+  const t = TILE;
+
+  const wallBand = (x: number, y: number, ww: number, hh: number) => {
+    g.rect(x, y, ww, hh).fill(WORLD.wall);
+    // A lit top edge and one soft shadow line are enough to read as a wall.
+    // The old hard ink outline framed the whole floor like a border, which
+    // is most of what made it feel boxed in.
+    g.rect(x, y, ww, 1).fill({ color: CREAM[50], alpha: 0.7 });
+    g.rect(x, y + hh - 1, ww, 1).fill({ color: INK[500], alpha: 0.45 });
+  };
+
+  wallBand(0, 0, w, t);
+  wallBand(0, h - t, w, t);
+  wallBand(0, 0, t, h);
+  wallBand(w - t, 0, t, h);
+
+  g.zIndex = 0; // perimeter sits at the outermost rows anyway
+  layer.addChild(g);
 }
 
-function drawRoomWalls(zone: ZoneDef, palette: Palette): Graphics {
-  const g = new Graphics();
+function drawRoomWalls(layer: Container, zone: ZoneDef): void {
   const { x, y, w, h } = zone.rect;
-  const put = (cx: number, cy: number) =>
-    g.rect(cx * TILE, cy * TILE, TILE, TILE).fill(palette.wall);
+  const doors = new Set((zone.doors ?? []).map((d) => `${d.x},${d.y}`));
+
+  const seg = new Graphics();
+  const put = (cx: number, cy: number, door: boolean) => {
+    const px = cx * TILE;
+    const py = cy * TILE;
+    if (door) {
+      // Doorway: floor continues through, threshold strip marks the gap.
+      seg.rect(px, py, TILE, TILE).fill(WORLD.path);
+      seg
+        .rect(px, py + TILE - 3, TILE, 3)
+        .fill({ color: INK[500], alpha: 0.3 });
+      return;
+    }
+    seg.rect(px, py, TILE, TILE).fill(WORLD.wall);
+    seg.rect(px, py, TILE, 1).fill({ color: CREAM[50], alpha: 0.7 });
+    seg.rect(px, py + TILE - 1, TILE, 1).fill({ color: INK[500], alpha: 0.45 });
+  };
 
   for (let dx = 0; dx < w; dx++) {
-    put(x + dx, y);
-    put(x + dx, y + h - 1);
+    put(x + dx, y, doors.has(`${x + dx},${y}`));
+    put(x + dx, y + h - 1, doors.has(`${x + dx},${y + h - 1}`));
   }
-  for (let dy = 0; dy < h; dy++) {
-    put(x, y + dy);
-    put(x + w - 1, y + dy);
+  for (let dy = 1; dy < h - 1; dy++) {
+    put(x, y + dy, doors.has(`${x},${y + dy}`));
+    put(x + w - 1, y + dy, doors.has(`${x + w - 1},${y + dy}`));
   }
-  // Door gaps read as openings, not painted-over wall.
-  for (const door of zone.doors ?? []) {
-    g.rect(door.x * TILE, door.y * TILE, TILE, TILE).fill(palette.carpetAlt);
-    g.rect(door.x * TILE, door.y * TILE, TILE, 3).fill(palette.wallTrim);
-  }
-  return g;
+
+  // North walls sort just below characters standing in the room's first
+  // interior row; side/south walls sort at their own foot lines.
+  const holder = new Container();
+  holder.addChild(seg);
+  holder.zIndex = y * TILE + TILE - 1;
+  layer.addChild(holder);
 }
 
-/** An office sign: small plate with a colour tab, mounted top-left. */
-function drawZoneSign(zone: ZoneDef, palette: Palette): Container {
+/**
+ * Zone signpost: a small white card with the zone's tint down its left
+ * edge, standing in the room's corner.
+ *
+ * It used to be a wooden plank in a 2px black box, which put a second heavy
+ * rectangle inside every room. The card carries the same information at a
+ * fraction of the weight — the tint chip does the identifying, and the
+ * border only has to separate the card from the floor beneath it.
+ */
+function drawSignpost(zone: ZoneDef): Container {
   const c = new Container();
-  const tint = palette.tints[zone.tint] ?? palette.muted;
-  const px = zone.rect.x * TILE + 5;
-  const py = zone.rect.y * TILE + (zone.enclosed ? TILE + 4 : 4);
+  const px = zone.rect.x * TILE + 4;
+  // A walled room wears its sign on the wall itself — the one row inside its
+  // footprint that neither furniture nor an agent ever occupies. Open zones
+  // keep theirs just inside the top edge.
+  const py = zone.rect.y * TILE + (zone.enclosed ? 1 : 6);
+  const tint = ZONE_TINT_COLOR[zone.tint] ?? INK[500];
+
+  const g = new Graphics();
+  if (!zone.enclosed) g.rect(px + 5, py + 12, 3, 12).fill(INK[300]); // post
+  g.rect(px, py, 14 * 8, 22).fill(CREAM[50]); // card (resized after measure)
+  // No zIndex here: any zIndex on a child makes pixi sort this container's
+  // children, which would lift the plank above the labels it sits behind.
+  c.addChild(g);
 
   const label = new Text({
     text: zone.label.toUpperCase(),
     style: new TextStyle({
-      fontFamily: "IBM Plex Mono, monospace",
-      fontSize: 8.5,
-      fontWeight: "600",
-      letterSpacing: 1.1,
-      fill: palette.ink,
-      // pixi under-measures the texture when letterSpacing is set and
-      // clips the final glyph without it.
+      fontFamily: "'Pixelify Sans', monospace",
+      fontSize: 13,
+      fill: INK[900],
       padding: 4,
     }),
   });
   const sub = new Text({
-    text: zone.sublabel,
+    text: zone.sublabel.split("·")[0].trim(),
     style: new TextStyle({
-      fontFamily: "IBM Plex Mono, monospace",
-      fontSize: 7,
-      fill: palette.muted,
+      fontFamily: "'Pixelify Sans', monospace",
+      fontSize: 11,
+      fill: INK[500],
       padding: 4,
     }),
   });
 
   const width = Math.max(label.width, sub.width) + 14;
-  const plate = new Graphics();
-  plate.roundRect(px, py, width, 22, 2).fill({ color: palette.signPlate, alpha: 0.92 });
-  plate.roundRect(px, py, width, 22, 2).stroke({ color: tint, width: 1, alpha: 0.5 });
-  plate.rect(px, py, 3, 22).fill(tint);
+  // Repaint the plank to the measured width. Height fits both text lines
+  // (14px label + 12px sublabel) with a 2px breathing gap top and bottom.
+  const height = 30;
+  const plank = c.children[0] as Graphics;
+  plank.clear();
+  if (!zone.enclosed) {
+    plank
+      .rect(px + Math.round(width / 2) - 2, py + height - 2, 3, 12)
+      .fill(INK[300]);
+  }
+  plank.rect(px, py, width, height).fill(CREAM[50]);
+  plank.rect(px, py, width, height).stroke({ color: INK[300], width: 1 });
+  plank.rect(px, py, 3, height).fill(tint);
 
   label.x = px + 8;
-  label.y = py + 3;
+  label.y = py + 2;
   sub.x = px + 8;
-  sub.y = py + 12;
-
-  c.addChild(plate, label, sub);
+  sub.y = py + 16;
+  c.addChild(label, sub);
+  c.zIndex = SIGN_Z + py;
   return c;
-}
-
-function drawFurniture(g: Graphics, item: FurnitureDef, palette: Palette) {
-  const { x, y, w, h } = item.rect;
-  const px = x * TILE;
-  const py = y * TILE;
-  const pw = w * TILE;
-  const ph = h * TILE;
-
-  const desktop = (color: number, edge: number) => {
-    g.roundRect(px + 2, py + 3, pw - 4, ph - 5, 2).fill(edge);
-    g.roundRect(px + 2, py + 2, pw - 4, ph - 5, 2).fill(color);
-  };
-
-  switch (item.kind) {
-    case "desk":
-    case "reception": {
-      desktop(palette.desk, palette.deskEdge);
-      // Cubicle partition along the back edge.
-      g.rect(px + 2, py - 3, pw - 4, 5).fill(palette.partition);
-      // Monitor + keyboard, so a desk reads as a workstation.
-      const mx = px + pw / 2;
-      g.rect(mx - 1.5, py + 9, 3, 4).fill(palette.metal);
-      g.roundRect(mx - 8, py + 2, 16, 9, 1).fill(palette.metal);
-      g.roundRect(mx - 7, py + 3, 14, 7, 1).fill(palette.screen);
-      g.roundRect(mx - 6, py + 14, 12, 3, 1).fill(palette.metal);
-      break;
-    }
-    case "table": {
-      desktop(palette.desk, palette.deskEdge);
-      // Chairs around the table.
-      for (let i = 0; i < w; i++) {
-        g.circle(px + TILE * (i + 0.5), py - 5, 4).fill(palette.metal);
-        g.circle(px + TILE * (i + 0.5), py + ph + 5, 4).fill(palette.metal);
-      }
-      break;
-    }
-    case "counter": {
-      desktop(palette.metal, palette.wallTrim);
-      // Coffee machine.
-      g.roundRect(px + 6, py + 2, 10, 14, 2).fill(palette.wallTrim);
-      g.rect(px + 8, py + 12, 6, 3).fill(palette.desk);
-      break;
-    }
-    case "couch": {
-      g.roundRect(px + 3, py + 4, pw - 6, ph - 6, 4).fill(palette.partition);
-      g.roundRect(px + 3, py + 1, pw - 6, 7, 3).fill(palette.metal);
-      break;
-    }
-    case "rack": {
-      g.roundRect(px + 3, py + 2, pw - 6, ph - 4, 2).fill(palette.metal);
-      g.roundRect(px + 3, py + 2, pw - 6, ph - 4, 2).stroke({
-        color: palette.wallTrim,
-        width: 1,
-      });
-      for (let i = 0; i < h * 3; i++) {
-        g.rect(px + 6, py + 6 + i * 9, pw - 12, 4).fill({
-          color: palette.tints.ok,
-          alpha: 0.65,
-        });
-      }
-      break;
-    }
-    case "boxes": {
-      for (let i = 0; i < 2; i++) {
-        const bx = px + 4 + i * 14;
-        g.roundRect(bx, py + 8 - i * 4, 13, 13, 1).fill(palette.desk);
-        g.rect(bx, py + 13 - i * 4, 13, 2).fill(palette.deskEdge);
-      }
-      break;
-    }
-  }
 }

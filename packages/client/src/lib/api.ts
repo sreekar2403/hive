@@ -65,7 +65,10 @@ export type HiveEventType =
   | "task:progress"
   | "agent:update"
   | "schedule:fired"
-  | "log";
+  | "log"
+  | "agent:activity"
+  | "permission:request"
+  | "permission:resolved";
 
 const EVENT_TYPES: HiveEventType[] = [
   "task:started",
@@ -75,6 +78,11 @@ const EVENT_TYPES: HiveEventType[] = [
   "agent:update",
   "schedule:fired",
   "log",
+  // Harness tool/thinking events, consumed by the Office floor's live layer.
+  "agent:activity",
+  // Permission escalations, consumed by the Conference Room approvals UI.
+  "permission:request",
+  "permission:resolved",
 ];
 
 export type StreamStatus = "connecting" | "open" | "offline";

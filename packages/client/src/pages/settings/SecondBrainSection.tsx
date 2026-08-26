@@ -6,9 +6,11 @@ import {
   CardHeader,
   Field,
   Input,
+  Select,
   Switch,
   Textarea,
 } from "../../components/ui";
+import { useModelCatalog } from "../../state/useModelCatalog";
 import type { SettingsConfig } from "./types";
 
 type Change = (updater: (prev: SettingsConfig) => SettingsConfig) => void;
@@ -23,6 +25,7 @@ export function SecondBrainSection({
   const [soulContent, setSoulContent] = useState("");
   const [soulLoading, setSoulLoading] = useState(false);
   const [soulError, setSoulError] = useState<string | null>(null);
+  const { catalog } = useModelCatalog();
 
   const setSecondBrain = (patch: Partial<SettingsConfig["secondBrain"]>) =>
     onChange((prev) => ({ ...prev, secondBrain: { ...prev.secondBrain, ...patch } }));
@@ -38,6 +41,11 @@ export function SecondBrainSection({
 
   const setRetrieval = (patch: Partial<SettingsConfig["secondBrain"]["retrieval"]>) =>
     setSecondBrain({ retrieval: { ...draft.secondBrain.retrieval, ...patch } });
+
+  const modelOptions = catalog.options.map((opt) => ({
+    value: opt.id,
+    label: `${opt.harness}/${opt.provider}/${opt.model}`,
+  }));
 
   const fetchSoul = async () => {
     setSoulLoading(true);
@@ -166,12 +174,19 @@ export function SecondBrainSection({
             className="col-span-2 max-w-lg"
           >
             {(id) => (
-              <Input
+              <Select
                 id={id}
                 className="font-mono text-[12px]"
                 value={draft.secondBrain.learning.model}
                 onChange={(e) => setLearning({ model: e.target.value })}
-              />
+              >
+                <option value="">Heuristics only (no model)</option>
+                {modelOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
             )}
           </Field>
 

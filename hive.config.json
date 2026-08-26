@@ -1,41 +1,7 @@
 {
-  "providers": {
-    "anthropic": {
-      "enabled": true,
-      "apiKey": "",
-      "baseUrl": "",
-      "authMode": "sso"
-    },
-    "openai": {
-      "enabled": false,
-      "apiKey": "",
-      "baseUrl": "",
-      "authMode": "api-key"
-    },
-    "openrouter": {
-      "enabled": false,
-      "apiKey": "",
-      "baseUrl": "",
-      "authMode": "api-key"
-    },
-    "google": {
-      "enabled": false,
-      "apiKey": "",
-      "baseUrl": "",
-      "authMode": "api-key"
-    },
-    "ollama": {
-      "enabled": false,
-      "apiKey": "",
-      "baseUrl": "http://localhost:11434",
-      "authMode": "api-key"
-    },
-    "lmstudio": {
-      "enabled": false,
-      "apiKey": "",
-      "baseUrl": "http://localhost:1234",
-      "authMode": "api-key"
-    }
+  "localModels": {
+    "ollama": "http://localhost:11434",
+    "lmstudio": "http://localhost:1234"
   },
   "harnesses": {
     "opencode": {
@@ -70,7 +36,6 @@
         "pattern": "test|spec|assert|expect|describe|it\\(|jest|vitest|mocha",
         "harness": "opencode",
         "model": "",
-        "provider": "",
         "reasoning": "Test-related task, routing to opencode",
         "enabled": true
       },
@@ -80,7 +45,6 @@
         "pattern": "refactor|clean|restructure|rename|move|extract",
         "harness": "claude-code",
         "model": "",
-        "provider": "",
         "reasoning": "Refactoring task, routing to claude-code",
         "enabled": true
       },
@@ -90,7 +54,6 @@
         "pattern": "document|readme|doc|writeup|explain|comment",
         "harness": "claude-code",
         "model": "",
-        "provider": "",
         "reasoning": "Documentation task, routing to claude-code",
         "enabled": true
       },
@@ -100,7 +63,6 @@
         "pattern": "deploy|build|ci|cd|docker|kubernetes|infra|aws|gcp|azure",
         "harness": "opencode",
         "model": "",
-        "provider": "",
         "reasoning": "DevOps task, routing to opencode",
         "enabled": true
       },
@@ -110,7 +72,6 @@
         "pattern": "design|ui|ux|css|style|theme|component",
         "harness": "claude-code",
         "model": "",
-        "provider": "",
         "reasoning": "UI/UX task, routing to claude-code",
         "enabled": true
       },
@@ -120,7 +81,6 @@
         "pattern": "research|search|find|look up|documentation|api doc",
         "harness": "opencode",
         "model": "",
-        "provider": "",
         "reasoning": "Research task, routing to opencode",
         "enabled": true
       },
@@ -130,11 +90,11 @@
         "pattern": "",
         "harness": "opencode",
         "model": "",
-        "provider": "",
         "reasoning": "Default routing",
         "enabled": true
       }
-    ]
+    ],
+    "llmModel": ""
   },
   "permission": {
     "enabled": true,
@@ -152,7 +112,7 @@
     ]
   },
   "loop": {
-    "maxIterations": 7,
+    "maxIterations": 8,
     "timeoutMs": 300000,
     "maxConcurrentAgents": 3,
     "retry": {
@@ -165,6 +125,51 @@
   },
   "storage": {
     "cacheDir": "./.hive-cache"
+  },
+  "office": {
+    "gridCols": 16,
+    "gridRows": 9,
+    "tileSize": 64
+  },
+  "kanban": {
+    "wipLimits": {
+      "backlog": 0,
+      "queued": 0,
+      "in_progress": 3,
+      "review": 2,
+      "testing": 2,
+      "blocked": 0,
+      "done": 0,
+      "failed": 0
+    }
+  },
+  "secondBrain": {
+    "enabled": true,
+    "dir": "mem",
+    "globalDir": "",
+    "learning": {
+      "enabled": true,
+      "triggers": {
+        "onFailure": true,
+        "onCorrection": true,
+        "onExplicitNote": true,
+        "periodic": true
+      },
+      "batchIntervalMs": 21600000,
+      "model": "opencode/opencode/hy3-free",
+      "minConfidence": 0.35,
+      "maxSuggestionsPerBatch": 5
+    },
+    "routing": {
+      "augment": true,
+      "minSamples": 5,
+      "minMargin": 0.2
+    },
+    "retrieval": {
+      "maxPreferences": 8,
+      "maxLessons": 5,
+      "maxBriefingChars": 2000
+    }
   },
   "general": {
     "defaultProjectId": "",

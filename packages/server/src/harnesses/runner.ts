@@ -71,6 +71,19 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
       const cleanStderr = stripAnsi(stderr);
       const parsed = parser.finalText();
 
+      // Hard check for "the CLI changed its event stream": output arrived
+      // but none of it parsed into events. Without this, a CLI update
+      // silently empties the chat window's activity trail. The run itself
+      // is not failed here — some CLIs legitimately print plain text —
+      // but the mismatch is surfaced so it can be diagnosed.
+      if (collected.length === 0 && cleanStdout.trim().length > 0) {
+        const hint =
+          `[harness] ${command} produced ${cleanStdout.length} chars of stdout ` +
+          `but 0 parseable events — its output format may have changed. ` +
+          `Falling back to raw text.`;
+        console.warn(hint);
+      }
+
       resolve({
         success: code === 0,
         exitCode: code ?? 1,
@@ -100,5 +113,135 @@ export function probeAvailable(command: string): Promise<boolean> {
     } catch {
       resolve(false);
     }
+  });
+}
+
+/**
+ * Opt-in deep check: runs a real prompt through a harness CLI and verifies
+ * its event stream parses. Expensive (a real model call) and slow, so it
+ * belongs behind an explicit user action — Settings' "Re-check", `hive
+ * doctor --deep` — never on the boot path.
+ *
+ * `parser` may be null for CLIs without a structured stream; those are only
+ * checked for a clean exit.
+ */
+export async function probeHarnessHealth(
+  command: string,
+  args: string[],
+  parser: StreamParser | null,
+  testPrompt = "Reply with exactly: ok",
+  cwd = process.cwd(),
+  timeoutMs = 30000,
+): Promise<{ healthy: boolean; error?: string; eventsParsed: number }> {
+  return new Promise((resolve) => {
+    let eventsParsed = 0;
+    let stderr = "";
+    let settled = false;
+
+    const finish = (result: {
+      healthy: boolean;
+      error?: string;
+      eventsParsed: number;
+    }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn(command, [...args, testPrompt], {
+        cwd,
+        env: { ...process.env, NO_COLOR: "1" },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch (err) {
+      finish({
+        healthy: false,
+        error: `Could not start ${command}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        eventsParsed: 0,
+      });
+      return;
+    }
+
+    // Kill the child on timeout — otherwise a hung CLI keeps running (and
+    // possibly burning tokens) after the check has already given up.
+    const timer = setTimeout(() => {
+      proc.kill();
+      finish({
+        healthy: false,
+        error: `${command} did not answer a one-word prompt within ${Math.round(
+          timeoutMs / 1000,
+        )}s`,
+        eventsParsed,
+      });
+    }, timeoutMs);
+
+    const countEvents = (events: HarnessEvent[] | undefined | null) => {
+      if (!Array.isArray(events)) return;
+      for (const e of events) {
+        if (!e?.type || !e?.at) {
+          clearTimeout(timer);
+          finish({
+            healthy: false,
+            error: "Parser produced a malformed event (missing type or timestamp)",
+            eventsParsed,
+          });
+          return;
+        }
+        eventsParsed++;
+      }
+    };
+
+    proc.stdin?.end();
+
+    proc.stdout?.on("data", (data: Buffer) => {
+      const text = stripAnsi(data.toString());
+      if (parser) countEvents(parser.push(text));
+    });
+
+    proc.stderr?.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (settled) return;
+
+      if (parser) countEvents(parser.finish());
+
+      if (code !== 0) {
+        finish({
+          healthy: false,
+          error: `${command} exited with code ${code}: ${stderr.slice(0, 200)}`,
+          eventsParsed,
+        });
+        return;
+      }
+
+      if (parser && eventsParsed === 0) {
+        finish({
+          healthy: false,
+          error:
+            `${command} ran but its output produced no parseable events — ` +
+            `the CLI's output format may have changed`,
+          eventsParsed: 0,
+        });
+        return;
+      }
+
+      finish({ healthy: true, eventsParsed });
+    });
+
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      finish({
+        healthy: false,
+        error: `Failed to spawn ${command}: ${err.message}`,
+        eventsParsed,
+      });
+    });
   });
 }

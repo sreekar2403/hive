@@ -1,30 +1,7 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export type ProviderId =
-  | "anthropic"
-  | "openai"
-  | "openrouter"
-  | "google"
-  | "ollama"
-  | "lmstudio";
-
 export type HarnessId = "opencode" | "claude-code" | "pi";
-
-export interface ProviderConfig {
-  enabled: boolean;
-  /** Stored server-side only. Never echoed back raw over the API. */
-  apiKey: string;
-  /** Empty string means "use the provider's default endpoint". */
-  baseUrl: string;
-  /**
-   * How this provider is authenticated. `"sso"` means a harness CLI holds
-   * an OAuth credential and no API key is needed — see auth/sso.ts, which
-   * knows which CLI owns which provider and can check whether it is
-   * currently signed in.
-   */
-  authMode: "api-key" | "sso";
-}
 
 export interface HarnessConfig {
   enabled: boolean;
@@ -47,8 +24,6 @@ export interface RoutingRule {
   harness: string;
   /** Empty string falls back to the harness's configured default model. */
   model: string;
-  /** Empty string means "no specific provider pinned". */
-  provider: string;
   reasoning: string;
   enabled: boolean;
 }
@@ -112,12 +87,25 @@ export interface SecondBrainConfig {
 }
 
 export interface Config {
-  providers: Record<ProviderId, ProviderConfig>;
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
     default: string;
     fallback: string;
     rules: RoutingRule[];
+    /**
+     * Catalog id (`harness/provider/model`) for LLM-based routing. Empty
+     * disables that layer — routing then stays keyword + semantic + learned.
+     */
+    llmModel: string;
+  };
+  /**
+   * Local model servers, reached directly over HTTP rather than through a
+   * harness CLI (they have no CLI to hold a credential — but they need no
+   * key either; the URL is the whole configuration).
+   */
+  localModels: {
+    ollama: string;
+    lmstudio: string;
   };
   permission: {
     enabled: boolean;
@@ -128,10 +116,29 @@ export interface Config {
     maxIterations: number;
     /** Per-task execution timeout, in milliseconds. */
     timeoutMs: number;
+    /**
+     * How many harness runs may execute at once. 0 hands the decision to
+     * capacity.ts, which sizes it against the machine.
+     */
     maxConcurrentAgents: number;
     retry: {
       enabled: boolean;
       maxRetries: number;
+    };
+    /**
+     * The staged loop — plan, implement, test, review, ship — with a gate
+     * after each stage. Off by default: it costs several harness runs per
+     * task, which is the right trade for real work and the wrong one for a
+     * question. See pipeline.ts.
+     */
+    pipeline: {
+      enabled: boolean;
+      /** Skip the planning stage. */
+      plan: boolean;
+      /** How many times failing tests may send work back to implement. */
+      maxRepairs: number;
+      /** Overrides test-command detection; empty means detect. */
+      testCommand: string;
     };
   };
   server: {
@@ -139,6 +146,14 @@ export interface Config {
   };
   storage: {
     cacheDir: string;
+  };
+  office: {
+    gridCols: number;
+    gridRows: number;
+    tileSize: number;
+  };
+  kanban: {
+    wipLimits: Record<string, number>;
   };
   secondBrain: SecondBrainConfig;
   general: {
@@ -189,6 +204,15 @@ export function loadConfig(configPath?: string): Config {
   if (process.env.PORT) {
     const port = parseInt(process.env.PORT, 10);
     if (!Number.isNaN(port)) config.server.port = port;
+  }
+
+  // Migration: configs written before providers moved into the harness CLIs
+  // carry a `providers` block (and per-rule `provider` pins). Strip them so
+  // the next saveConfig converges the file instead of resurrecting keys the
+  // app no longer reads.
+  delete (config as { providers?: unknown }).providers;
+  for (const rule of config.routing.rules) {
+    delete (rule as { provider?: unknown }).provider;
   }
 
   cachedConfig = config;
@@ -245,7 +269,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "test|spec|assert|expect|describe|it\\(|jest|vitest|mocha",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "Test-related task, routing to opencode",
       enabled: true,
     },
@@ -255,7 +278,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "refactor|clean|restructure|rename|move|extract",
       harness: "claude-code",
       model: "",
-      provider: "",
       reasoning: "Refactoring task, routing to claude-code",
       enabled: true,
     },
@@ -265,7 +287,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "document|readme|doc|writeup|explain|comment",
       harness: "claude-code",
       model: "",
-      provider: "",
       reasoning: "Documentation task, routing to claude-code",
       enabled: true,
     },
@@ -275,7 +296,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "deploy|build|ci|cd|docker|kubernetes|infra|aws|gcp|azure",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "DevOps task, routing to opencode",
       enabled: true,
     },
@@ -285,7 +305,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "design|ui|ux|css|style|theme|component",
       harness: "claude-code",
       model: "",
-      provider: "",
       reasoning: "UI/UX task, routing to claude-code",
       enabled: true,
     },
@@ -295,7 +314,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "research|search|find|look up|documentation|api doc",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "Research task, routing to opencode",
       enabled: true,
     },
@@ -305,7 +323,6 @@ function defaultRoutingRules(): RoutingRule[] {
       pattern: "",
       harness: "opencode",
       model: "",
-      provider: "",
       reasoning: "Default routing",
       enabled: true,
     },
@@ -314,34 +331,10 @@ function defaultRoutingRules(): RoutingRule[] {
 
 export function createDefaultConfig(): Config {
   return {
-    providers: {
-      anthropic: {
-        enabled: true,
-        apiKey: "",
-        baseUrl: "",
-        authMode: "api-key",
-      },
-      openai: { enabled: false, apiKey: "", baseUrl: "", authMode: "api-key" },
-      openrouter: {
-        enabled: false,
-        apiKey: "",
-        baseUrl: "",
-        authMode: "api-key",
-      },
-      google: { enabled: false, apiKey: "", baseUrl: "", authMode: "api-key" },
-      ollama: {
-        enabled: false,
-        apiKey: "",
-        baseUrl: "http://localhost:11434",
-        authMode: "api-key",
-      },
-      // Local model servers need no key; the base URL is the whole config.
-      lmstudio: {
-        enabled: false,
-        apiKey: "",
-        baseUrl: "http://localhost:1234",
-        authMode: "api-key",
-      },
+    // Local model servers need no key; the base URL is the whole config.
+    localModels: {
+      ollama: "http://localhost:11434",
+      lmstudio: "http://localhost:1234",
     },
     harnesses: {
       opencode: {
@@ -370,6 +363,7 @@ export function createDefaultConfig(): Config {
       default: "opencode",
       fallback: "claude-code",
       rules: defaultRoutingRules(),
+      llmModel: "",
     },
     permission: {
       enabled: true,
@@ -389,7 +383,13 @@ export function createDefaultConfig(): Config {
     loop: {
       maxIterations: 10,
       timeoutMs: 300000,
-      maxConcurrentAgents: 3,
+      maxConcurrentAgents: 0,
+      pipeline: {
+        enabled: false,
+        plan: true,
+        maxRepairs: 2,
+        testCommand: "",
+      },
       retry: {
         enabled: true,
         maxRetries: 3,
@@ -400,6 +400,23 @@ export function createDefaultConfig(): Config {
     },
     storage: {
       cacheDir: "./.hive-cache",
+    },
+    office: {
+      gridCols: 16,
+      gridRows: 9,
+      tileSize: 64,
+    },
+    kanban: {
+      wipLimits: {
+        backlog: 0,
+        queued: 0,
+        in_progress: 3,
+        review: 2,
+        testing: 2,
+        blocked: 0,
+        done: 0,
+        failed: 0,
+      },
     },
     secondBrain: createDefaultSecondBrainConfig(),
     general: {

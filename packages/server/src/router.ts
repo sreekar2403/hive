@@ -3,16 +3,12 @@ import { Config } from "./config";
 import { Harness } from "@hive/shared/harness";
 import { categorize, keywords } from "./secondBrain/categorize";
 import type { RoutingHint } from "./secondBrain/types";
+import { resolveModelRef } from "./models/catalog";
 
-/**
- * RoutingDecision plus the provider a rule pinned, if any. Kept as a local
- * extension (rather than editing the shared package) since the provider is
- * only meaningful to callers that care about task routing configuration.
- */
+/** RoutingDecision enriched with the layer that decided and how sure it was. */
 export interface RoutingResult extends RoutingDecision {
-  provider?: string;
   /** Which layer decided: useful in the logs when a route looks surprising. */
-  strategy?: "rule" | "learned" | "semantic" | "default" | "fallback";
+  strategy?: "rule" | "learned" | "semantic" | "llm" | "default" | "fallback";
   /** The task type this prompt was classified as. */
   category?: string;
   /** 0…1 — how sure the deciding layer was. Rules are certain by fiat. */
@@ -100,10 +96,10 @@ export class Router {
    * That is the difference between "augment" and "replace", and it is why a
    * new install with an empty brain routes exactly as it did before.
    */
-  route(
+  async route(
     query: string,
     availableHarnessesOrOptions?: string[] | RouteOptions,
-  ): RoutingResult {
+  ): Promise<RoutingResult> {
     const options: RouteOptions = Array.isArray(availableHarnessesOrOptions)
       ? { availableHarnesses: availableHarnessesOrOptions }
       : (availableHarnessesOrOptions ?? {});
@@ -123,6 +119,13 @@ export class Router {
 
     const category = this.classify(query);
     const decision = this.heuristicRoute(query, available, category);
+
+    // Try LLM-based routing if configured
+    const llmDecision = await this.llmRoute(query, available);
+    if (llmDecision) {
+      return this.applyHints(llmDecision, available, options.hints ?? []);
+    }
+
     return this.applyHints(decision, available, options.hints ?? []);
   }
 
@@ -158,7 +161,6 @@ export class Router {
         return {
           harness: rule.harness,
           model: rule.model || this.getDefaultModel(rule.harness),
-          provider: rule.provider || undefined,
           reasoning:
             rule.reasoning || `${rule.taskType} task, routing to ${rule.harness}`,
           strategy: "rule",
@@ -179,7 +181,6 @@ export class Router {
       return {
         harness: defaultRule.harness,
         model: defaultRule.model || this.getDefaultModel(defaultRule.harness),
-        provider: defaultRule.provider || undefined,
         reasoning:
           defaultRule.reasoning || `Default routing to ${defaultRule.harness}`,
         strategy: "default",
@@ -244,12 +245,74 @@ export class Router {
     return {
       harness,
       model: rule.model || this.getDefaultModel(harness),
-      provider: rule.provider || undefined,
       reasoning: `Reads like ${best.category} work (no keyword rule matched), routing to ${harness}`,
       strategy: "semantic",
       category: best.category,
       confidence: Math.min(0.9, best.score * 2),
     };
+  }
+
+  /**
+   * LLM-based routing: uses an LLM to classify the prompt and pick the best harness.
+   * This is an optional layer that runs when a routing model is configured.
+   * It runs after semantic routing and before the default/fallback.
+   */
+  private async llmRoute(query: string, available: string[]): Promise<RoutingResult | null> {
+    const routingModel = this.config.routing?.llmModel;
+    if (!routingModel) return null;
+
+    const resolved = await resolveModelRef(routingModel);
+    if (!resolved) return null;
+
+    const harness = this.harnesses.get(resolved.harness);
+    if (!harness || !(await harness.isAvailable())) return null;
+
+    const harnessDescriptions = available.map((h) => {
+      const rule = (this.config.routing.rules ?? []).find((r) => r.harness === h && r.enabled);
+      return `- ${h}: ${rule?.reasoning || "General purpose"}`;
+    }).join("\n");
+
+    const prompt = `You are a task router for a multi-agent coding system. Given a user's prompt, choose the best harness to handle it.
+
+Available harnesses:
+${harnessDescriptions}
+
+User prompt: "${query}"
+
+Respond with ONLY the harness name (one of: ${available.join(", ")}) and a brief reason. Format:
+HARNESS: <name>
+REASON: <reason>`;
+
+    try {
+      const result = await harness.execute(prompt, {
+        model: resolved.ref,
+        timeout: 10000,
+      });
+
+      if (!result.success || !result.output) return null;
+
+      // Parse the LLM response
+      const lines = result.output.trim().split("\n");
+      let chosenHarness = "";
+      let reason = "";
+      for (const line of lines) {
+        if (line.startsWith("HARNESS:")) chosenHarness = line.slice(8).trim();
+        if (line.startsWith("REASON:")) reason = line.slice(7).trim();
+      }
+
+      if (!chosenHarness || !available.includes(chosenHarness)) return null;
+
+      return {
+        harness: chosenHarness,
+        model: this.getDefaultModel(chosenHarness),
+        reasoning: `LLM routing: ${reason}`,
+        strategy: "llm",
+        category: "llm-classified",
+        confidence: 0.85,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**

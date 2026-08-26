@@ -359,46 +359,49 @@ export function Switch({
 }) {
   const geometry = SWITCH_SIZES[size];
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "group relative inline-flex items-center shrink-0 rounded-full",
-        // The border is transparent and the background is *not* clipped to
-        // the padding box, so the track paints edge to edge behind it.
-        "border-transparent transition-colors duration-150",
-        "disabled:opacity-45 disabled:pointer-events-none",
-        geometry.track,
-        // The ring draws the track's edge, so it can't crowd the knob the
-        // way a real border would.
-        checked
-          ? "bg-accent ring-1 ring-inset ring-black/10"
-          : "bg-surface-3 ring-1 ring-inset ring-line-strong hover:bg-surface-2",
-      )}
-    >
-      <span
-        aria-hidden="true"
+    <label className="inline-flex items-center gap-2 cursor-pointer">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
         className={cn(
-          "pointer-events-none flex items-center justify-center rounded-full",
-          "shadow-sm transition-transform duration-150",
-          geometry.knob,
-          checked ? "bg-accent-fg" : "bg-surface",
+          "group relative inline-flex items-center shrink-0 rounded-full",
+          // The border is transparent and the background is *not* clipped to
+          // the padding box, so the track paints edge to edge behind it.
+          "border-transparent transition-colors duration-150",
+          "disabled:opacity-45 disabled:pointer-events-none",
+          geometry.track,
+          // The ring draws the track's edge, so it can't crowd the knob the
+          // way a real border would.
+          checked
+            ? "bg-accent ring-1 ring-inset ring-black/10"
+            : "bg-surface-3 ring-1 ring-inset ring-line-strong hover:bg-surface-2",
         )}
-        style={{ transform: checked ? geometry.travel : "translateX(0)" }}
       >
-        {/* On/off is carried by more than position, which matters at a
-            glance and for anyone who can't separate the two colours. */}
-        {checked ? (
-          <Check className={cn(geometry.glyph, "text-accent")} strokeWidth={3.5} />
-        ) : (
-          <Minus className={cn(geometry.glyph, "text-faint")} strokeWidth={3.5} />
-        )}
-      </span>
-    </button>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none flex items-center justify-center rounded-full",
+            "shadow-sm transition-transform duration-150",
+            geometry.knob,
+            checked ? "bg-accent-fg" : "bg-surface",
+          )}
+          style={{ transform: checked ? geometry.travel : "translateX(0)" }}
+        >
+          {/* On/off is carried by more than position, which matters at a
+              glance and for anyone who can't separate the two colours. */}
+          {checked ? (
+            <Check className={cn(geometry.glyph, "text-accent")} strokeWidth={3.5} />
+          ) : (
+            <Minus className={cn(geometry.glyph, "text-faint")} strokeWidth={3.5} />
+          )}
+        </span>
+      </button>
+      <span className="text-[13px] text-ink select-none">{label}</span>
+    </label>
   );
 }
 

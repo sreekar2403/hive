@@ -5,7 +5,7 @@ import { ResourceManager } from "./resourceManager";
 import { SharedMemory } from "./sharedMemory";
 import { Config } from "./config";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import * as fs from "fs";
 import { getDb } from "./db/database";
 import { broadcast } from "./routes/events";
@@ -14,6 +14,18 @@ import { ensureRootDirectory, isGeneralProject } from "./generalWorkspace";
 import { SecondBrain } from "./secondBrain";
 import { keywords } from "./secondBrain/categorize";
 import { createHarnessSynthesizer } from "./secondBrain/synthesizer";
+import { effectiveAgentLimit } from "./capacity";
+import { runPipeline, type StageName } from "./pipeline";
+import { runGit } from "./branches";
+import { briefingFor as mailBriefingFor } from "./agentMail";
+import {
+  branchNameFor,
+  commitAll,
+  createWorktree,
+  mergeAll,
+  removeWorktree,
+  type Worktree,
+} from "./branches";
 
 /**
  * Where a task's agent currently stands on the Office floor. Each phase is
@@ -51,6 +63,12 @@ export interface AgentTask {
   agent: string | null;
   /** Tool calls, thinking and status from the harness, in order. */
   events: HarnessEvent[];
+  /** Previous messages in this conversation for context. */
+  conversationHistory?: Array<{ role: string; content: string }>;
+  /** Iterations the loop actually used, mirrored from LoopEngine state. */
+  iteration?: number;
+  /** Why the loop gave up, when it did. */
+  error?: string | null;
 }
 
 /** A long run can emit thousands of events; the trail keeps the newest. */
@@ -97,7 +115,7 @@ function dwell(ms: number): Promise<void> {
  */
 export function looksLikeCorrection(previous: string, next: string): boolean {
   const reversal =
-    /^\s*(no|nope|not|actually|instead|rather|wrong|undo|revert|that'?s not|don'?t|stop)/i;
+    /^\s*(no|nope|not|actually|instead|rather|wrong|undo|revert|that'?s not|don'?t|stop)/i;
   if (reversal.test(next)) return true;
 
   const previousTerms = new Set(keywords(previous, 12));
@@ -110,7 +128,9 @@ export function looksLikeCorrection(previous: string, next: string): boolean {
 
 function classifyWorkPhase(prompt: string): TaskPhase {
   const p = prompt.toLowerCase();
-  if (/\b(test|spec|assert|expect|qa|verify|validate|jest|vitest|mocha)\b/.test(p)) {
+  if (
+    /\b(test|spec|assert|expect|qa|verify|validate|jest|vitest|mocha)\b/.test(p)
+  ) {
     return "qa";
   }
   if (
@@ -124,6 +144,52 @@ function classifyWorkPhase(prompt: string): TaskPhase {
     return "shipping";
   }
   return "bullpen";
+}
+
+/**
+ * Admission control for harness runs.
+ *
+ * `loop.maxConcurrentAgents` was configuration nobody enforced: every
+ * request spawned its CLI immediately, so ten chats at once meant ten model
+ * processes fighting over the same machine. Runs past the limit now wait
+ * here in arrival order instead of being rejected — a queued task is still
+ * going to happen, it is just not happening yet.
+ */
+export class ConcurrencyGate {
+  private running = 0;
+  private waiting: Array<() => void> = [];
+
+  constructor(private limitFn: () => number) {}
+
+  get active(): number {
+    return this.running;
+  }
+
+  get queued(): number {
+    return this.waiting.length;
+  }
+
+  get limit(): number {
+    return Math.max(1, this.limitFn());
+  }
+
+  async acquire(): Promise<void> {
+    if (this.running < this.limit) {
+      this.running++;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiting.push(resolve));
+    this.running++;
+  }
+
+  release(): void {
+    this.running = Math.max(0, this.running - 1);
+    // The limit can drop while runs are in flight (Settings changed); only
+    // admit the next one once we are back under it.
+    if (this.running < this.limit) {
+      this.waiting.shift()?.();
+    }
+  }
 }
 
 export class Orchestrator {
@@ -149,6 +215,10 @@ export class Orchestrator {
    * them. Keyed by resolved cwd; the unscoped case keys on "".
    */
   private brains: Map<string, SecondBrain>;
+  /** Caps how many harness runs execute at once. See ConcurrencyGate. */
+  private gate: ConcurrencyGate;
+  /** Isolated checkouts held by parallel tasks, keyed by task id. */
+  private worktrees: Map<string, Worktree> = new Map();
 
   constructor(config: Config, harnesses: Map<string, Harness>) {
     this.config = config;
@@ -157,6 +227,11 @@ export class Orchestrator {
     this.loopEngine = new LoopEngine(config, harnesses, this.router);
     this.permissionManager = new PermissionManager(config);
     this.resourceManager = new ResourceManager(config);
+    // Read through a function so a Settings change takes effect on the next
+    // admission rather than needing a restart.
+    this.gate = new ConcurrencyGate(() =>
+      effectiveAgentLimit(this.config.loop?.maxConcurrentAgents),
+    );
     this.sharedMemory = new SharedMemory(config);
     this.tasks = new Map();
     this.brains = new Map();
@@ -178,7 +253,11 @@ export class Orchestrator {
     prompt: string,
     harness?: string,
     projectId?: string | null,
-    selection?: { model?: string | null; agent?: string | null },
+    selection?: {
+      model?: string | null;
+      agent?: string | null;
+      conversationHistory?: Array<{ role: string; content: string }>;
+    },
   ): Promise<AgentTask> {
     const taskId = this.generateId();
     const branchName = `hive/${sessionId}/${taskId}`;
@@ -200,6 +279,7 @@ export class Orchestrator {
       model: selection?.model ?? null,
       agent: selection?.agent ?? null,
       events: [],
+      conversationHistory: selection?.conversationHistory ?? [],
     };
 
     this.tasks.set(taskId, task);
@@ -215,6 +295,53 @@ export class Orchestrator {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
 
+    // Wait for a slot before anything else happens. A task holding one is
+    // "running"; until then it is queued in Intake, which is exactly what
+    // the Office floor already shows.
+    if (this.gate.active >= this.gate.limit) {
+      const waitStart = Date.now();
+      log(
+        "info",
+        "orchestrator",
+        `Queued behind ${this.gate.active} running agents (limit ${this.gate.limit})`,
+        { taskId: task.id, projectId: task.projectId },
+      );
+      await this.gate.acquire();
+      recordSpan(
+        task.id,
+        "Waited for a free agent slot",
+        "task",
+        null,
+        waitStart,
+        "ok",
+        { limit: this.gate.limit },
+      );
+    } else {
+      await this.gate.acquire();
+    }
+
+    try {
+      return await this.runTask(task, onIteration);
+    } finally {
+      // Whatever happened — success, failure, a throw from a harness — the
+      // slot goes back so the next queued run can start.
+      this.gate.release();
+    }
+  }
+
+  /** How much work is in flight, for the Settings and Office screens. */
+  loadSnapshot(): { running: number; queued: number; limit: number } {
+    return {
+      running: this.gate.active,
+      queued: this.gate.queued,
+      limit: this.gate.limit,
+    };
+  }
+
+  private async runTask(
+    task: AgentTask,
+    onIteration?: LoopCallback,
+  ): Promise<AgentTask> {
     task.status = "running";
 
     // One root span per run; everything below nests under it so the Logs
@@ -289,13 +416,15 @@ export class Orchestrator {
         : null;
     const decision: RoutingResult = pinned
       ? { harness: pinned, model: "", reasoning: "Pinned by the caller" }
-      : this.router.route(task.prompt, {
+      : await this.router.route(task.prompt, {
           hints: brain.getRoutingHints(task.prompt),
         });
     task.harness = decision.harness;
     recordSpan(
       task.id,
-      pinned ? `Pinned to ${decision.harness}` : `Routed to ${decision.harness}`,
+      pinned
+        ? `Pinned to ${decision.harness}`
+        : `Routed to ${decision.harness}`,
       "route",
       rootSpan,
       routeStart,
@@ -308,10 +437,15 @@ export class Orchestrator {
         category: decision.category ?? category,
       },
     );
-    log("info", "router", `Routed to ${decision.harness}: ${decision.reasoning}`, {
-      taskId: task.id,
-      projectId: task.projectId,
-    });
+    log(
+      "info",
+      "router",
+      `Routed to ${decision.harness}: ${decision.reasoning}`,
+      {
+        taskId: task.id,
+        projectId: task.projectId,
+      },
+    );
 
     // Which zone the work itself belongs in — see classifyWorkPhase. The
     // pause lets the floor show the walk out of Intake rather than
@@ -356,6 +490,42 @@ export class Orchestrator {
       );
     }
 
+    // Anything a peer agent said about this session, read once and folded
+    // into the same preamble the Second Brain briefing uses. Parallel
+    // agents cannot see each other's worktrees, so this is the only way
+    // one hears what another already did.
+    let mail = "";
+    try {
+      mail = mailBriefingFor(task.sessionId, task.id);
+    } catch {
+      // The mailbox is a convenience; a task must not fail over it.
+    }
+    if (mail) {
+      briefing.text = briefing.text ? `${briefing.text}
+
+${mail}` : mail;
+      log("info", "orchestrator", "Read messages from other agents", {
+        taskId: task.id,
+        projectId: task.projectId,
+      });
+    }
+
+    // The staged loop, when it is turned on: plan → implement → test →
+    // review → ship, each with a gate that can send the work back. It
+    // drives the same phases the Office floor already draws, so the stage a
+    // task is in is literally the room its character is standing in.
+    if (this.config.loop?.pipeline?.enabled) {
+      return await this.runStagedTask(task, {
+        cwd,
+        rootSpan,
+        category,
+        brain,
+        briefing,
+        pinned,
+        onIteration,
+      });
+    }
+
     // Initialize loop engine with the prompt
     this.loopEngine.start(task.prompt);
 
@@ -367,13 +537,16 @@ export class Orchestrator {
       filesChanged,
     ) => {
       task.output = output;
+      // Live budget: the office floor draws pips from the snapshot, so the
+      // count has to move while the loop runs, not only once it settles.
+      task.iteration = iteration;
 
       // Update resource manager with files
       if (filesChanged?.length) {
         task.filesChanged = filesChanged;
-        const existingTask = await this.resourceManager.getTask(taskId);
+        const existingTask = await this.resourceManager.getTask(task.id);
         if (existingTask) {
-          await this.resourceManager.updateTaskStatus(taskId, "running");
+          await this.resourceManager.updateTaskStatus(task.id, "running");
         }
       }
 
@@ -405,6 +578,7 @@ export class Orchestrator {
         agent: task.agent ?? undefined,
         preamble: briefing.text,
         hints: brain.getRoutingHints(task.prompt),
+        conversationHistory: task.conversationHistory,
         // Tool calls and thinking reach the chat window through here.
         onEvent: (harnessEvent) => {
           task.events.push(harnessEvent);
@@ -424,6 +598,8 @@ export class Orchestrator {
 
     task.status = result.success ? "completed" : "failed";
     task.completedAt = Date.now();
+    task.iteration = result.iteration;
+    task.error = result.error;
 
     log(
       result.success ? "info" : "error",
@@ -513,26 +689,280 @@ export class Orchestrator {
     return task;
   }
 
+  /** Which room a pipeline stage puts the agent in. */
+  private static readonly STAGE_PHASES: Record<StageName, TaskPhase> = {
+    plan: "intake",
+    implement: "bullpen",
+    test: "qa",
+    review: "conference",
+    ship: "shipping",
+  };
+
+  /**
+   * Runs a task through the staged pipeline.
+   *
+   * Each stage is one harness run through the same LoopEngine the direct
+   * path uses, so retries, routing, telemetry and the live event stream all
+   * behave identically — the pipeline decides *what to ask for next* and
+   * whether the answer was good enough, not how to ask.
+   */
+  private async runStagedTask(
+    task: AgentTask,
+    context: {
+      /** Undefined when no project is scoped; falls back to the server's cwd. */
+      cwd: string | undefined;
+      rootSpan: string;
+      category: string;
+      brain: SecondBrain;
+      briefing: { text: string };
+      pinned: string | null;
+      onIteration?: LoopCallback;
+    },
+  ): Promise<AgentTask> {
+    const { rootSpan, brain, briefing, pinned, onIteration } = context;
+    const cwd = context.cwd ?? process.cwd();
+    const pipelineConfig = this.config.loop.pipeline;
+
+    const runStage = async (input: {
+      stage: StageName;
+      prompt: string;
+      attempt: number;
+    }) => {
+      this.setPhase(task, Orchestrator.STAGE_PHASES[input.stage]);
+      const stageSpan = startSpan(
+        task.id,
+        `Stage: ${input.stage}${input.attempt > 1 ? ` (attempt ${input.attempt})` : ""}`,
+        "iteration",
+        rootSpan,
+        { stage: input.stage },
+      );
+
+      // A fresh engine per stage: LoopEngine carries per-run state, and a
+      // stage is a run.
+      const engine = new LoopEngine(this.config, this.harnesses, this.router);
+      engine.start(input.prompt);
+
+      let lastOutput = "";
+      let lastFiles: string[] = [];
+      const state = await engine.run(
+        async (iteration, output, success, filesChanged) => {
+          lastOutput = output;
+          if (filesChanged?.length) {
+            lastFiles = filesChanged;
+            task.filesChanged = filesChanged;
+          }
+          task.output = output;
+          task.iteration = iteration;
+          broadcast("agent:update", {
+            taskId: task.id,
+            sessionId: task.sessionId,
+            projectId: task.projectId,
+            phase: task.phase,
+            harness: task.harness,
+            iteration,
+            stage: input.stage,
+          });
+          if (onIteration) await onIteration(iteration, output, success, filesChanged);
+        },
+        task.id,
+        stageSpan,
+        task.projectId,
+        {
+          cwd,
+          harness: pinned ?? undefined,
+          model: task.model ?? undefined,
+          agent: task.agent ?? undefined,
+          preamble: briefing.text,
+          hints: brain.getRoutingHints(task.prompt),
+          conversationHistory: task.conversationHistory,
+          onEvent: (harnessEvent) => {
+            task.events.push(harnessEvent);
+            if (task.events.length > MAX_TASK_EVENTS) {
+              task.events.splice(0, task.events.length - MAX_TASK_EVENTS);
+            }
+            broadcast("agent:activity", {
+              taskId: task.id,
+              sessionId: task.sessionId,
+              projectId: task.projectId,
+              harness: task.harness,
+              event: harnessEvent,
+            });
+          },
+        },
+      );
+
+      endSpan(stageSpan, state.success ? "ok" : "failed");
+      return {
+        success: state.success,
+        output: lastOutput,
+        filesChanged: lastFiles,
+        stderr: state.error ?? undefined,
+      };
+    };
+
+    const result = await runPipeline(task.prompt, runStage, {
+      cwd,
+      plan: pipelineConfig.plan,
+      maxRepairs: pipelineConfig.maxRepairs,
+      testCommand: pipelineConfig.testCommand || undefined,
+      onStage: (stage, phase, stageResult) => {
+        if (phase !== "end" || !stageResult) return;
+        log(
+          stageResult.verdict === "failed" ? "warn" : "info",
+          "pipeline",
+          `${stage}: ${stageResult.reason}`,
+          { taskId: task.id, projectId: task.projectId },
+        );
+      },
+    });
+
+    task.status = result.success ? "completed" : "failed";
+    task.completedAt = Date.now();
+    task.filesChanged = result.filesChanged;
+    // The reason a stage stopped is the useful answer here; the harness's
+    // own last words are usually about the sub-task, not the outcome.
+    task.output = result.success
+      ? result.output
+      : `${result.reason}\n\n${result.output}`;
+    task.error = result.success ? null : result.reason;
+
+    endSpan(rootSpan, result.success ? "ok" : "failed", {
+      stages: result.stages.map((stage) => ({
+        stage: stage.stage,
+        verdict: stage.verdict,
+        reason: stage.reason,
+      })),
+      filesChanged: result.filesChanged.length,
+    });
+
+    brain.learning.taskFinished(task.id);
+
+    // A run that made it to ship is done; one that did not needs a human,
+    // and the Conference Room is where that is said out loud.
+    this.setPhase(task, result.success ? "break-room" : "conference");
+    return task;
+  }
+
+  /**
+   * Starts several tasks that can run at the same time without colliding.
+   *
+   * Each one gets its own branch *and* its own git worktree, so two agents
+   * editing the same file are editing two different checkouts of it. They
+   * previously shared a single branch name that was never created, which
+   * meant parallel work landed on top of itself in one directory and
+   * `git diff` attributed every change to whoever asked last.
+   *
+   * A task whose worktree cannot be created still runs — in the main
+   * checkout, exactly as before — because refusing to work at all on a
+   * non-git directory would be a worse answer than working unisolated.
+   */
   async createParallelBranches(
     sessionId: string,
     tasks: Array<{ prompt: string; harness?: string }>,
+    projectId: string | null = null,
   ): Promise<AgentTask[]> {
-    // Create a shared branch for parallel tasks
-    const branchName = `hive/${sessionId}/parallel`;
-
+    const repoPath = this.workingTreeFor(projectId) ?? process.cwd();
     const createdTasks: AgentTask[] = [];
+
     for (const taskDef of tasks) {
       const task = await this.createTask(
         sessionId,
         taskDef.prompt,
         taskDef.harness,
+        projectId,
       );
-      task.branchName = branchName;
+
+      const branch = branchNameFor(task.id, taskDef.prompt);
+      const created = createWorktree(repoPath, branch);
+      if (created.ok && created.worktree) {
+        task.branchName = branch;
+        this.worktrees.set(task.id, created.worktree);
+        log("info", "orchestrator", `Isolated ${branch} at ${created.worktree.path}`, {
+          taskId: task.id,
+          projectId,
+        });
+      } else {
+        // Say so rather than quietly sharing a tree: the caller's whole
+        // reason for asking was that these run at once.
+        task.branchName = branch;
+        log(
+          "warn",
+          "orchestrator",
+          `Could not isolate ${branch} (${created.error}); running in the main checkout`,
+          { taskId: task.id, projectId },
+        );
+      }
+
       this.tasks.set(task.id, task);
       createdTasks.push(task);
     }
 
     return createdTasks;
+  }
+
+  /**
+   * Commits each finished parallel task on its own branch and merges them
+   * back one at a time, stopping at the first conflict.
+   *
+   * Worktrees are only removed for branches that actually landed; a
+   * conflicted one is left on disk so its changes can still be looked at.
+   */
+  async collectParallelBranches(
+    taskIds: string[],
+    targetBranch = "main",
+    projectId: string | null = null,
+  ): Promise<{
+    merged: string[];
+    conflicted: { branch: string; files: string[] } | null;
+    skipped: string[];
+  }> {
+    const repoPath = this.workingTreeFor(projectId) ?? process.cwd();
+    const branches: string[] = [];
+    const skipped: string[] = [];
+
+    for (const taskId of taskIds) {
+      const worktree = this.worktrees.get(taskId);
+      if (!worktree) {
+        skipped.push(taskId);
+        continue;
+      }
+      const task = this.tasks.get(taskId);
+      const commit = commitAll(
+        worktree.path,
+        `hive: ${task?.prompt?.slice(0, 60) ?? taskId}`,
+      );
+      // An agent that changed nothing has nothing to merge — that is an
+      // outcome, not a failure.
+      if (!commit.ok || !commit.committed) {
+        skipped.push(taskId);
+        continue;
+      }
+      branches.push(worktree.branch);
+    }
+
+    const result = mergeAll(repoPath, branches, targetBranch);
+
+    for (const [taskId, worktree] of this.worktrees) {
+      if (!result.merged.includes(worktree.branch)) continue;
+      removeWorktree(repoPath, worktree.path);
+      this.worktrees.delete(taskId);
+    }
+
+    return {
+      merged: result.merged,
+      conflicted: result.failed
+        ? {
+            branch: result.failed.branch,
+            files: result.failed.outcome.conflicts,
+          }
+        : null,
+      skipped,
+    };
+  }
+
+  /** The isolated checkout a parallel task runs in, if it has one. */
+  worktreeFor(taskId: string): Worktree | null {
+    return this.worktrees.get(taskId) ?? null;
   }
 
   async createSequentialBranches(
@@ -551,47 +981,73 @@ export class Orchestrator {
     return createdTasks;
   }
 
+  /**
+   * Pushes a task branch and opens a pull request for it.
+   *
+   * Runs in the project's own repository rather than wherever the server
+   * happens to have been started, and reports what actually went wrong —
+   * "no branch", "push rejected", "gh not installed" are different
+   * problems with different fixes.
+   */
   async mergeToPR(
     sessionId: string,
     branchName: string,
     targetBranch: string = "main",
-  ): Promise<string | null> {
-    try {
-      // Check if branch exists
-      const branches = execSync("git branch --list", { encoding: "utf-8" });
-      if (!branches.includes(branchName)) {
-        console.warn(`Branch ${branchName} does not exist`);
-        return null;
-      }
+    projectId: string | null = null,
+  ): Promise<{ url: string | null; error: string | null }> {
+    const repoPath = this.workingTreeFor(projectId) ?? process.cwd();
 
-      // Push branch
-      execSync(`git push origin ${branchName}`, { stdio: "pipe" });
-
-      // Create PR
-      const prUrl = await this.createPullRequest(branchName, targetBranch);
-      return prUrl;
-    } catch (err) {
-      console.error("Failed to create PR:", err);
-      return null;
+    const exists = runGit(
+      ["rev-parse", "--verify", `refs/heads/${branchName}`],
+      repoPath,
+    );
+    if (!exists.ok) {
+      return { url: null, error: `Branch ${branchName} does not exist.` };
     }
+
+    const push = runGit(["push", "-u", "origin", branchName], repoPath);
+    if (!push.ok) {
+      return { url: null, error: `Could not push ${branchName}: ${push.output}` };
+    }
+
+    return this.createPullRequest(branchName, targetBranch, repoPath, sessionId);
   }
 
   private async createPullRequest(
     sourceBranch: string,
     targetBranch: string,
-  ): Promise<string | null> {
-    // Try GitHub CLI first
+    repoPath: string,
+    sessionId: string,
+  ): Promise<{ url: string | null; error: string | null }> {
     try {
-      const url = execSync(
-        `gh pr create --base ${targetBranch} --head ${sourceBranch} --title "Hive: Auto PR" --body "Auto-generated PR from Hive"`,
-        { encoding: "utf-8" },
+      const output = execFileSync(
+        "gh",
+        [
+          "pr",
+          "create",
+          "--base",
+          targetBranch,
+          "--head",
+          sourceBranch,
+          "--title",
+          `Hive: ${sourceBranch}`,
+          "--body",
+          `Opened by Hive from session ${sessionId}.`,
+        ],
+        { cwd: repoPath, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
-      // Extract URL from output
-      const match = url.match(/https?:\/\/\S+/);
-      return match?.[0] || null;
-    } catch {
-      // Fallback: return a placeholder URL
-      return `https://github.com/placeholder/repo/pull/${sourceBranch}`;
+      const match = output.match(/https?:\/\/\S+/);
+      // A previous version invented a placeholder github.com URL here. A
+      // link that goes nowhere is worse than no link: it reads as success.
+      return match?.[0]
+        ? { url: match[0], error: null }
+        : { url: null, error: "gh created the PR but printed no URL." };
+    } catch (err) {
+      const e = err as { stderr?: string; message?: string };
+      return {
+        url: null,
+        error: `gh pr create failed: ${(e.stderr ?? e.message ?? "").trim().slice(0, 300)}`,
+      };
     }
   }
 
@@ -649,7 +1105,8 @@ export class Orchestrator {
       .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))[0];
 
     if (!previous) return;
-    if (task.startedAt - (previous.completedAt ?? 0) > CORRECTION_WINDOW_MS) return;
+    if (task.startedAt - (previous.completedAt ?? 0) > CORRECTION_WINDOW_MS)
+      return;
     if (!looksLikeCorrection(previous.prompt, task.prompt)) return;
 
     try {
@@ -679,6 +1136,11 @@ export class Orchestrator {
 
   getPermissionManager(): PermissionManager {
     return this.permissionManager;
+  }
+
+  /** The loop's iteration ceiling, so the Office floor can draw budget pips. */
+  getLoopBudget(): number {
+    return this.config.loop.maxIterations;
   }
 
   getTask(taskId: string): AgentTask | null {
