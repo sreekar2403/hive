@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { HashRouter, Routes, Route, Outlet } from "react-router-dom";import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
+import { SetupDialog } from "./components/SetupDialog";
 import { ThemeContext, type Theme } from "./components/ui";
 import { ProjectProvider } from "./state/ProjectContext";
 import { ChatProvider } from "./state/ChatContext";
@@ -76,6 +77,9 @@ function PageFallback() {
 function App() {
   return (
     <ThemeProvider>
+      {/* First run only: asks which model routes, then seeds soul.md.
+          Mounted above the router so it appears whichever page you land on. */}
+      <SetupDialog />
       <ProjectProvider>
         {/* Chat and Logs state is deliberately mounted above the router:
             a task keeps running — and its log tail keeps filling — while

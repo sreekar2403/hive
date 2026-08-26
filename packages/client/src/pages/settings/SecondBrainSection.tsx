@@ -11,6 +11,7 @@ import {
   Textarea,
 } from "../../components/ui";
 import { useModelCatalog } from "../../state/useModelCatalog";
+import { API } from "../../lib/api";
 import type { SettingsConfig } from "./types";
 
 type Change = (updater: (prev: SettingsConfig) => SettingsConfig) => void;
@@ -23,6 +24,7 @@ export function SecondBrainSection({
   onChange: Change;
 }) {
   const [soulContent, setSoulContent] = useState("");
+  const [soulPath, setSoulPath] = useState<string | null>(null);
   const [soulLoading, setSoulLoading] = useState(false);
   const [soulError, setSoulError] = useState<string | null>(null);
   const { catalog } = useModelCatalog();
@@ -47,14 +49,33 @@ export function SecondBrainSection({
     label: `${opt.harness}/${opt.provider}/${opt.model}`,
   }));
 
+  /**
+   * The machine-wide soul.md — the file first-run setup seeds, and the one
+   * the router reads for `Router model:` and its `category → harness` pins.
+   *
+   * Three things were wrong here, and each produced an empty editor rather
+   * than an error:
+   *
+   *   - it called the unscoped `/api/brain/soul`, which returns an *array*
+   *     of both scopes, then read `.content` off that array
+   *   - the field is `raw`, not `content`, even on a single Soul
+   *   - a bare `fetch("/api/…")` resolves against the UI's own origin, and
+   *     there is no dev proxy, so under `pnpm dev:client` it never reached
+   *     the API at all
+   *
+   * The scope is now explicit. It has to be: the old PUT wrote to *project*
+   * scope while the page displayed global, so an edit here landed silently
+   * in a different file than the one on screen.
+   */
   const fetchSoul = async () => {
     setSoulLoading(true);
     setSoulError(null);
     try {
-      const res = await fetch("/api/brain/soul");
-      if (!res.ok) throw new Error("Failed to load soul.md");
-      const data = await res.json();
-      setSoulContent(data.content ?? "");
+      const data = await API.get<{ raw?: string; path?: string }>(
+        "/api/brain/soul/global",
+      );
+      setSoulContent(data.raw ?? "");
+      setSoulPath(data.path ?? null);
     } catch (err) {
       setSoulError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -66,12 +87,7 @@ export function SecondBrainSection({
     setSoulLoading(true);
     setSoulError(null);
     try {
-      const res = await fetch("/api/brain/soul", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: soulContent }),
-      });
-      if (!res.ok) throw new Error("Failed to save soul.md");
+      await API.put("/api/brain/soul/global", { content: soulContent });
     } catch (err) {
       setSoulError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -84,10 +100,10 @@ export function SecondBrainSection({
       <p className="text-[13px] text-muted max-w-[62ch]">
         The Second Brain is a learning memory layer that observes your preferences
         and which harnesses win which tasks. It builds a local knowledge graph and
-        a <code className="font-mono text-[12px] bg-muted px-1 rounded">soul.md</code>
+        a <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">soul.md</code>
         that agents can reference. Two scopes exist: <strong>Global</strong> (shared
-        across all projects at <code className="font-mono text-[12px] bg-muted px-1 rounded">~/.hive/mem</code>)
-        and <strong>Project</strong> (per-repo at <code className="font-mono text-[12px] bg-muted px-1 rounded">mem/</code>,
+        across all projects at <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">~/.hive/mem</code>)
+        and <strong>Project</strong> (per-repo at <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">mem/</code>,
         checked into git). Project scope overrides global when both are enabled.
       </p>
 
@@ -397,13 +413,18 @@ export function SecondBrainSection({
       </Card>
 
       <Card>
-        <CardHeader eyebrow="Second Brain" title="soul.md" />
+        <CardHeader
+          eyebrow={soulPath ?? "Second Brain"}
+          title="soul.md (this machine)"
+        />
         <div className="p-4 flex flex-col gap-4">
           <p className="text-[13px] text-muted max-w-[62ch]">
-            <code className="font-mono text-[12px] bg-muted px-1 rounded">soul.md</code> is the
-            human-readable summary the learning agent builds from observed preferences and
-            lessons. It lives in the active scope's directory. Edit it here to steer agent
-            behaviour directly.
+            <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">soul.md</code> is where
+            your standing preferences live — and where routing is decided. Its{" "}
+            <strong>Harness preferences</strong> section holds the router model and any
+            {" "}<code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">category → harness</code>
+            {" "}pins; anything not pinned there is decided by the router reading the task. The
+            learning agent proposes entries here too, which you approve on the Memory screen.
           </p>
 
           <div className="flex flex-col gap-2">
@@ -428,7 +449,7 @@ export function SecondBrainSection({
             <Textarea
               value={soulContent}
               onChange={(e) => setSoulContent(e.target.value)}
-              placeholder="soul.md will appear here after reload…"
+              placeholder="Press Reload to load soul.md."
               className="font-mono text-[12px] min-h-[280px] bg-surface border-line"
             />
           </div>

@@ -7,11 +7,20 @@ import { log } from "../telemetry";
  *
  * Every source is asked in its own dialect rather than assumed:
  *
- *   opencode     `opencode models`        → one `provider/model` per line
- *   pi           `pi --list-models`       → fixed-width table with context/thinking
- *   claude-code  no list command exists   → aliases, plus the Anthropic API when keyed
- *   ollama       GET /api/tags
- *   lm studio    GET /v1/models
+ *   opencode      `opencode models`       → one `provider/model` per line
+ *   pi            `pi --list-models`      → fixed-width table with context/thinking
+ *   codex         `codex --help`          → no list command; documented ids
+ *   gemini / qwen no list command exists  → documented ids
+ *   cursor-agent  `cursor-agent models`   → one id per line
+ *   claude-code   no list command exists  → aliases, plus the Anthropic API when keyed
+ *   aider         `aider --list-models ""` → LiteLLM ids, one per line
+ *   ollama        GET /api/tags
+ *   lm studio     GET /v1/models
+ *
+ * Amp, goose and Crush are absent on purpose: they choose their own model
+ * (per plan, per profile, per step) and expose no per-run flag, so there is
+ * nothing here for a picker to offer. `HarnessProfile.modelSelectable` in
+ * harnesses/profiles.ts is the same fact, stated where routing reads it.
  *
  * A source that is missing or unreachable reports why instead of vanishing:
  * "LM Studio isn't running" is the answer to a real question, and the UI
@@ -51,6 +60,54 @@ const HARNESS_LABEL: Record<string, string> = {
   opencode: "opencode",
   "claude-code": "Claude Code",
   pi: "pi",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  qwen: "Qwen Code",
+  "cursor-agent": "Cursor Agent",
+  aider: "aider",
+  copilot: "GitHub Copilot CLI",
+};
+
+/**
+ * The CLIs with no model-list command. Same situation as Claude Code's
+ * aliases: a written-down catalogue is better than an empty picker, and the
+ * `error` field on each source says plainly that this list is documentation
+ * rather than discovery.
+ */
+const STATIC_MODELS: Record<
+  string,
+  { provider: string; entries: Array<{ model: string; note?: string }> }
+> = {
+  codex: {
+    provider: "openai",
+    entries: [
+      { model: "gpt-5-codex", note: "agentic coding" },
+      { model: "gpt-5", note: "general reasoning" },
+      { model: "o4-mini", note: "fast reasoning" },
+    ],
+  },
+  gemini: {
+    provider: "google",
+    entries: [
+      { model: "gemini-2.5-pro", note: "most capable" },
+      { model: "gemini-2.5-flash", note: "fast" },
+      { model: "gemini-2.5-flash-lite", note: "cheapest" },
+    ],
+  },
+  qwen: {
+    provider: "qwen",
+    entries: [
+      { model: "qwen3-coder-plus", note: "coding" },
+      { model: "qwen3-coder-flash", note: "fast" },
+    ],
+  },
+  copilot: {
+    provider: "github",
+    entries: [
+      { model: "claude-sonnet-4.5", note: "balanced" },
+      { model: "gpt-5", note: "general reasoning" },
+    ],
+  },
 };
 
 /**
@@ -278,6 +335,88 @@ async function fromClaudeCode(): Promise<CatalogSource> {
   };
 }
 
+/**
+ * `cursor-agent models` prints one bare model id per line. Cursor gates the
+ * list on the signed-in plan, so an unauthenticated CLI reports why rather
+ * than pretending the list is empty.
+ */
+async function fromCursorAgent(execPath: string): Promise<CatalogSource> {
+  const result = await run(execPath, ["models"]);
+  const models: ModelOption[] = [];
+
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const trimmed = line.trim().replace(/^[*-]\s+/, "");
+    // Ids only: skip headers, blank lines and anything with prose in it.
+    if (!trimmed || /\s/.test(trimmed)) continue;
+    models.push(option("cursor-agent", "cursor", trimmed, { ref: trimmed }));
+  }
+
+  return {
+    id: "cursor-agent",
+    kind: "harness",
+    label: HARNESS_LABEL["cursor-agent"],
+    ok: result.ok && models.length > 0,
+    error:
+      models.length === 0
+        ? (result.error ?? "No models reported — try `cursor-agent login`")
+        : null,
+    models,
+    checkedAt: Date.now(),
+  };
+}
+
+/**
+ * aider delegates model naming to LiteLLM, so its list is long and provider
+ * agnostic. An empty search term asks for everything.
+ */
+async function fromAider(execPath: string): Promise<CatalogSource> {
+  const result = await run(execPath, ["--list-models", ""]);
+  const models: ModelOption[] = [];
+
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const trimmed = line.trim().replace(/^[*-]\s+/, "");
+    if (!trimmed || /\s/.test(trimmed)) continue;
+    // LiteLLM ids are `provider/model`; a bare id means the default provider.
+    const slash = trimmed.indexOf("/");
+    const provider = slash === -1 ? "aider" : trimmed.slice(0, slash);
+    const model = slash === -1 ? trimmed : trimmed.slice(slash + 1);
+    models.push(option("aider", provider, model, { ref: trimmed }));
+  }
+
+  return {
+    id: "aider",
+    kind: "harness",
+    label: HARNESS_LABEL.aider,
+    ok: result.ok && models.length > 0,
+    error: models.length === 0 ? (result.error ?? "No models reported") : null,
+    models,
+    checkedAt: Date.now(),
+  };
+}
+
+/** A CLI with no list command, from the written-down catalogue above. */
+function fromStatic(harness: string): CatalogSource {
+  const spec = STATIC_MODELS[harness];
+  const models: ModelOption[] = spec.entries.map((entry) =>
+    option(harness, spec.provider, entry.model, {
+      ref: entry.model,
+      contextLabel: entry.note ?? null,
+    }),
+  );
+
+  return {
+    id: harness,
+    kind: "harness",
+    label: HARNESS_LABEL[harness] ?? harness,
+    ok: true,
+    error:
+      "Documented model ids only — this CLI has no list command, so anything " +
+      "it accepts can also be typed by hand",
+    models,
+    checkedAt: Date.now(),
+  };
+}
+
 /** Ollama's own list, which is the ground truth for what's pulled locally. */
 async function fromOllama(baseUrl: string): Promise<CatalogSource> {
   const base = baseUrl || "http://localhost:11434";
@@ -342,13 +481,33 @@ async function build(): Promise<Catalog> {
   const config = loadConfig();
 
   // Every source is asked at once; one slow CLI shouldn't hold up the rest.
-  const sources = await Promise.all([
-    fromOpenCode(config.harnesses.opencode?.path || "opencode"),
+  // A harness that isn't installed is not asked: probing an absent binary
+  // costs a spawn and a timeout to learn something `hive doctor` already
+  // reports, and it would fill the picker with sources that can never answer.
+  const enabled = (id: string) =>
+    config.harnesses[id as keyof typeof config.harnesses]?.enabled !== false;
+  const at = (id: string, fallback: string) =>
+    config.harnesses[id as keyof typeof config.harnesses]?.path || fallback;
+
+  const discovered: Array<Promise<CatalogSource> | CatalogSource> = [
     fromClaudeCode(),
-    fromPi(config.harnesses.pi?.path || "pi"),
     fromOllama(config.localModels?.ollama ?? ""),
     fromLmStudio(config.localModels?.lmstudio ?? ""),
-  ]);
+  ];
+
+  if (enabled("opencode")) {
+    discovered.push(fromOpenCode(at("opencode", "opencode")));
+  }
+  if (enabled("pi")) discovered.push(fromPi(at("pi", "pi")));
+  if (enabled("cursor-agent")) {
+    discovered.push(fromCursorAgent(at("cursor-agent", "cursor-agent")));
+  }
+  if (enabled("aider")) discovered.push(fromAider(at("aider", "aider")));
+  for (const id of Object.keys(STATIC_MODELS)) {
+    if (enabled(id)) discovered.push(fromStatic(id));
+  }
+
+  const sources = await Promise.all(discovered);
 
   const options: Catalog["options"] = [];
   for (const source of sources) {

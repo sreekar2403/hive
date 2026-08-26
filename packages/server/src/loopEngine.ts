@@ -1,7 +1,8 @@
-import { LoopState, RoutingDecision } from "@hive/shared";
+import { LoopState } from "@hive/shared";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
 import { Config } from "./config";
-import { Router } from "./router";
+import { Router, type RoutingResult } from "./router";
+import type { SoulRoutingGuidance } from "./secondBrain/starterSoul";
 import type { RoutingHint } from "./secondBrain/types";
 import { endSpan, log, recordSpan, startSpan } from "./telemetry";
 
@@ -29,6 +30,8 @@ export class LoopEngine {
   private preamble = "";
   /** Learned routing advice for this run, passed through to the Router. */
   private hints: RoutingHint[] = [];
+  /** The user's stated routing preferences from soul.md, for this run. */
+  private soul: SoulRoutingGuidance | undefined;
   /** Conversation history for context, prepended to the initial prompt. */
   private conversationHistory: Array<{ role: string; content: string }> = [];
 
@@ -86,6 +89,12 @@ export class LoopEngine {
       preamble?: string;
       /** Learned routing advice; advisory, see Router.applyHints. */
       hints?: RoutingHint[];
+      /**
+       * soul.md's routing section. Passed on every iteration because the
+       * engine re-routes on retry, and a run that ignored the user's stated
+       * preference on attempt two would be worse than one that never read it.
+       */
+      soul?: SoulRoutingGuidance;
       /** Conversation history for context. */
       conversationHistory?: Array<{ role: string; content: string }>;
     },
@@ -93,6 +102,7 @@ export class LoopEngine {
     const traced = Boolean(taskId);
     this.preamble = options?.preamble ?? "";
     this.hints = options?.hints ?? [];
+    this.soul = options?.soul;
 
     this.start(this.state.currentPrompt, options?.conversationHistory);
 
@@ -128,10 +138,14 @@ export class LoopEngine {
 
       // Execute
       const spawnStart = Date.now();
+      // A model pinned by the caller (the Chat composer's picker) wins; the
+      // router's choice is used when there is none. Without this second half
+      // the router could choose a model across providers and then never get
+      // to run it — every task would fall back to the harness default.
       const result = await harness.execute(prompt, {
         cwd: options?.cwd ?? process.cwd(),
-        model: options?.model,
-        agent: options?.agent,
+        model: options?.model || decision.model,
+        agent: options?.agent || decision.agent,
         onEvent: options?.onEvent,
       });
       if (traced && taskId) {
@@ -256,7 +270,7 @@ export class LoopEngine {
     return parts.join("\n");
   }
 
-  private async route(pinned?: string): Promise<RoutingDecision> {
+  private async route(pinned?: string): Promise<RoutingResult> {
     if (pinned && this.harnesses.has(pinned)) {
       return {
         harness: pinned,
@@ -264,7 +278,10 @@ export class LoopEngine {
         reasoning: "Harness pinned for this run",
       };
     }
-    return this.router.route(this.state.currentPrompt, { hints: this.hints });
+    return this.router.route(this.state.currentPrompt, {
+      hints: this.hints,
+      soul: this.soul,
+    });
   }
 
   private shouldRetry(result: { success: boolean; stderr: string }): boolean {

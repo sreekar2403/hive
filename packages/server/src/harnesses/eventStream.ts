@@ -353,6 +353,265 @@ export class PiParser extends NdjsonParser {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Codex — `codex exec --json`                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Codex wraps every event in an envelope keyed by submission id:
+ *   {"id":"0","msg":{"type":"task_started"}}
+ *   {"id":"0","msg":{"type":"agent_reasoning","text":"…"}}
+ *   {"id":"0","msg":{"type":"agent_message","message":"…"}}
+ *   {"id":"0","msg":{"type":"exec_command_begin","call_id":"…","command":[…]}}
+ *   {"id":"0","msg":{"type":"exec_command_end","call_id":"…","exit_code":0,"stdout":"…"}}
+ *   {"id":"0","msg":{"type":"token_count","info":{"total_token_usage":{…}}}}
+ *
+ * Newer builds emit the same payloads unwrapped, so `msg` is optional here:
+ * a format change of that shape should cost nothing.
+ */
+export class CodexParser extends NdjsonParser {
+  protected handle(entry: any): HarnessEvent[] {
+    const msg = entry?.msg ?? entry;
+
+    switch (msg?.type) {
+      case "task_started":
+      case "session_configured":
+        return [
+          event("status", {
+            text: msg.model ? `Running ${msg.model}` : "Session started",
+          }),
+        ];
+
+      // Deltas would duplicate the completed message, so only the
+      // completed one is kept.
+      case "agent_message_delta":
+        return [];
+
+      case "agent_message": {
+        const text = msg.message ?? msg.text;
+        if (!text) return [];
+        this.texts.push(text);
+        return [event("text", { text })];
+      }
+
+      case "agent_reasoning": {
+        const text = msg.text ?? msg.reasoning;
+        return text ? [event("thinking", { text })] : [];
+      }
+
+      case "exec_command_begin":
+        return [
+          event("tool", {
+            tool: "shell",
+            callId: msg.call_id,
+            detail: trim(
+              Array.isArray(msg.command) ? msg.command.join(" ") : msg.command,
+            ),
+            status: "running",
+          }),
+        ];
+
+      case "exec_command_end":
+        return [
+          event("tool-result", {
+            tool: "shell",
+            callId: msg.call_id,
+            detail: trim(msg.stdout || msg.stderr),
+            status: msg.exit_code === 0 ? "completed" : "failed",
+          }),
+        ];
+
+      case "patch_apply_begin":
+        return [
+          event("tool", {
+            tool: "apply_patch",
+            callId: msg.call_id,
+            detail: trim(Object.keys(msg.changes ?? {}).join(", ")),
+            status: "running",
+          }),
+        ];
+
+      case "patch_apply_end":
+        return [
+          event("tool-result", {
+            tool: "apply_patch",
+            callId: msg.call_id,
+            detail: trim(msg.stdout || msg.stderr),
+            status: msg.success === false ? "failed" : "completed",
+          }),
+        ];
+
+      case "mcp_tool_call_begin":
+        return [
+          event("tool", {
+            tool: msg.invocation?.tool ?? "mcp",
+            callId: msg.call_id,
+            detail: trim(msg.invocation?.arguments),
+            status: "running",
+          }),
+        ];
+
+      case "mcp_tool_call_end":
+        return [
+          event("tool-result", {
+            tool: msg.invocation?.tool ?? "mcp",
+            callId: msg.call_id,
+            detail: trim(msg.result),
+            status: msg.is_error ? "failed" : "completed",
+          }),
+        ];
+
+      case "token_count": {
+        const info = msg.info?.total_token_usage ?? msg.info ?? {};
+        this.totals = {
+          inputTokens: info.input_tokens,
+          outputTokens: info.output_tokens,
+          totalTokens: info.total_tokens,
+        };
+        return this.totals.totalTokens
+          ? [event("usage", { usage: this.totals })]
+          : [];
+      }
+
+      case "error":
+      case "stream_error": {
+        const text = trim(msg.message ?? msg.error, 400);
+        return text ? [event("error", { text })] : [];
+      }
+
+      case "task_complete": {
+        const text = msg.last_agent_message;
+        if (typeof text === "string" && text.trim()) this.finalOverride = text;
+        return [];
+      }
+
+      default:
+        return [];
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Gemini CLI / Qwen Code — `-p … --output-format json`                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Unlike the others this is not a stream: the CLI buffers the whole run and
+ * prints one object at the end.
+ *
+ *   {"response":"…","stats":{"models":{"<id>":{"tokens":{…}}}},"error":{…}}
+ *
+ * It still arrives through NdjsonParser because a single JSON object *is* a
+ * one-line NDJSON stream, and because Qwen Code (a fork of Gemini CLI)
+ * emits the same envelope. Anything unrecognised falls through to the raw
+ * text the base class already keeps, so a plain-text run is not lost.
+ */
+export class GeminiParser extends NdjsonParser {
+  protected handle(entry: any): HarnessEvent[] {
+    const events: HarnessEvent[] = [];
+
+    if (entry?.error) {
+      const text = trim(entry.error.message ?? entry.error, 400);
+      if (text) events.push(event("error", { text }));
+    }
+
+    if (typeof entry?.response === "string" && entry.response.trim()) {
+      this.finalOverride = entry.response;
+      this.texts.push(entry.response);
+      events.push(event("text", { text: entry.response }));
+    }
+
+    // stats.models is keyed by model id; sum across them so a run that
+    // switched models mid-way still reports one honest total.
+    const models = entry?.stats?.models;
+    if (models && typeof models === "object") {
+      let input = 0;
+      let output = 0;
+      let total = 0;
+      for (const record of Object.values(models) as any[]) {
+        const tokens = record?.tokens ?? {};
+        input += tokens.prompt ?? 0;
+        output += tokens.candidates ?? 0;
+        total += tokens.total ?? 0;
+      }
+      if (total > 0) {
+        this.totals = {
+          inputTokens: input || undefined,
+          outputTokens: output || undefined,
+          totalTokens: total,
+        };
+        events.push(event("usage", { usage: this.totals }));
+      }
+    }
+
+    return events;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cursor Agent — `cursor-agent -p --output-format stream-json`        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cursor's stream-json deliberately mirrors Claude Code's — the same
+ * `system` / `assistant` / `user` / `result` envelope around Anthropic
+ * content blocks — so the parsing is inherited rather than duplicated.
+ *
+ * Subclassed rather than aliased on purpose: when the two formats diverge,
+ * the override goes here and Claude Code's parser stays untouched.
+ */
+export class CursorAgentParser extends ClaudeCodeParser {}
+
+/* ------------------------------------------------------------------ */
+/* Plain-text CLIs — aider, amp, goose, crush, copilot                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Several capable CLIs have no structured output mode at all. Rather than
+ * leave their runs looking dead in the activity trail, each complete line
+ * is surfaced as a `text` event as it arrives.
+ *
+ * This is genuinely less information than a JSON stream — there are no tool
+ * boundaries or token counts to recover — but "what it printed, as it
+ * printed it" beats a spinner followed by a wall of text.
+ */
+export class LineTextParser implements StreamParser {
+  private buffer = "";
+  private lines: string[] = [];
+
+  push(chunk: string): HarnessEvent[] {
+    this.buffer += chunk;
+    const parts = this.buffer.split(/\r?\n/);
+    this.buffer = parts.pop() ?? "";
+    return this.emit(parts);
+  }
+
+  finish(): HarnessEvent[] {
+    if (!this.buffer.trim()) return [];
+    const rest = this.buffer;
+    this.buffer = "";
+    return this.emit([rest]);
+  }
+
+  private emit(lines: string[]): HarnessEvent[] {
+    const out: HarnessEvent[] = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      this.lines.push(line);
+      out.push(event("text", { text: line }));
+    }
+    return out;
+  }
+
+  finalText(): string {
+    return this.lines.join("\n").trim();
+  }
+
+  usage(): HarnessUsage | undefined {
+    return undefined;
+  }
+}
+
 /**
  * Last resort for a CLI that produced no parseable stream: show what it
  * printed rather than nothing.

@@ -1,6 +1,9 @@
 import { probeAvailable, probeHarnessHealth } from "./runner";
 import {
   ClaudeCodeParser,
+  CodexParser,
+  CursorAgentParser,
+  GeminiParser,
   OpenCodeParser,
   PiParser,
   type StreamParser,
@@ -37,7 +40,8 @@ interface HarnessSpec {
   command: string;
   /** Args before the prompt, matching what the harness itself sends. */
   args: string[];
-  parser: () => StreamParser;
+  /** Null for a CLI with no structured stream: only its exit code is checked. */
+  parser: (() => StreamParser) | null;
 }
 
 /**
@@ -67,6 +71,63 @@ export function harnessSpecs(config?: Config): HarnessSpec[] {
       command: path("pi", "pi"),
       args: ["-p", "--mode", "json"],
       parser: () => new PiParser(),
+    },
+    {
+      harness: "codex",
+      command: path("codex", "codex"),
+      args: ["exec", "--json", "--skip-git-repo-check"],
+      parser: () => new CodexParser(),
+    },
+    {
+      harness: "gemini",
+      command: path("gemini", "gemini"),
+      args: ["--output-format", "json", "-p"],
+      parser: () => new GeminiParser(),
+    },
+    {
+      harness: "qwen",
+      command: path("qwen", "qwen"),
+      args: ["--output-format", "json", "-p"],
+      parser: () => new GeminiParser(),
+    },
+    {
+      harness: "cursor-agent",
+      command: path("cursor-agent", "cursor-agent"),
+      args: ["-p", "--output-format", "stream-json"],
+      parser: () => new CursorAgentParser(),
+    },
+    // The rest have no structured output to validate, so a deep check can
+    // only assert that they run and exit cleanly — `parser: null` is what
+    // probeHarnessHealth reads as "don't expect events".
+    {
+      harness: "aider",
+      command: path("aider", "aider"),
+      args: ["--no-pretty", "--yes-always", "--no-auto-commits", "--message"],
+      parser: null,
+    },
+    {
+      harness: "amp",
+      command: path("amp", "amp"),
+      args: ["-x"],
+      parser: null,
+    },
+    {
+      harness: "goose",
+      command: path("goose", "goose"),
+      args: ["run", "-t"],
+      parser: null,
+    },
+    {
+      harness: "crush",
+      command: path("crush", "crush"),
+      args: ["run", "-q"],
+      parser: null,
+    },
+    {
+      harness: "copilot",
+      command: path("copilot", "copilot"),
+      args: ["--allow-all-tools", "-p"],
+      parser: null,
     },
   ];
 }
@@ -109,7 +170,7 @@ export async function checkStreamContracts(
     const health = await probeHarnessHealth(
       spec.command,
       spec.args,
-      spec.parser(),
+      spec.parser ? spec.parser() : null,
       "Reply with exactly: ok",
       cwd,
       // A cold model — a local one especially — can take most of a minute

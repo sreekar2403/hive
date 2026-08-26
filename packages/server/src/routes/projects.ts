@@ -5,6 +5,9 @@ import * as path from "path";
 import { getDb } from "../db/database";
 import { isGitRepo, currentBranch } from "../gitUtils";
 import { generalProject, isGeneralProject } from "../generalWorkspace";
+import { loadConfig } from "../config";
+import { seedProjectSoul } from "../setup";
+import { log } from "../telemetry";
 
 const router: Router = Router();
 
@@ -115,6 +118,30 @@ router.post("/", (req: Request, res: Response) => {
     project.created_at,
     project.updated_at,
   );
+
+  // Give the new project its own soul.md. It starts nearly empty on purpose:
+  // the machine-wide soul carries the routing table, and this file is where
+  // what's different about *this* repository gets written — by the user, or
+  // by the Second Brain once it has watched enough work here to suggest
+  // something. Seeding it now means there is a file to open rather than a
+  // concept to discover.
+  try {
+    const seeded = seedProjectSoul(loadConfig(), project.path, project.name);
+    if (seeded.written) {
+      log("info", "projects", `Seeded soul.md for ${project.name}`, {
+        projectId: project.id,
+        context: { path: seeded.path },
+      });
+    }
+  } catch (err) {
+    // A project that exists without a soul.md is fine — the Second Brain
+    // falls back to the template on read. Failing the whole creation over
+    // it would not be.
+    log("warn", "projects", `Could not seed soul.md for ${project.name}`, {
+      projectId: project.id,
+      context: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
 
   res.status(201).json(decorate(project));
 });
