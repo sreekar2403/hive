@@ -15,6 +15,7 @@ import projectRoutes from "./routes/projects";
 import gitRoutes from "./routes/git";
 import logRoutes from "./routes/logs";
 import settingsRoutes from "./routes/settings";
+import setupRoutes from "./routes/setup";
 import memoryRoutes, { setSharedMemory } from "./routes/memory";
 import agentRoutes from "./routes/agents";
 import brainRoutes from "./routes/brain";
@@ -275,6 +276,9 @@ class HiveServer {
 
     // Providers, harnesses and task-model routing
     app.use("/api/settings", settingsRoutes);
+
+    // First-run setup: the router-model question and the soul.md it seeds.
+    app.use("/api/setup", setupRoutes);
 
     // What this machine can run at once, and what it is running
     app.use("/api/capacity", capacityRoutes);

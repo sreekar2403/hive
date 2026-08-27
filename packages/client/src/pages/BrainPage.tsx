@@ -72,15 +72,26 @@ export function BrainPage() {
   const [soulDirty, setSoulDirty] = useState(false);
   const [soulBusy, setSoulBusy] = useState(false);
   const [soulError, setSoulError] = useState<string | null>(null);
+  /**
+   * Where the file actually is on disk. The endpoint has always returned it;
+   * not showing it meant a user who had just been told Hive wrote a soul.md
+   * had no way to find out where — `~/.hive/mem` is not a path anyone guesses.
+   */
+  const [soulPath, setSoulPath] = useState<string | null>(null);
 
   const loadSoul = useCallback(async () => {
     setSoulBusy(true);
     setSoulError(null);
     try {
-      const data = await API.get<{ content?: string }>(
+      // The endpoint returns a Soul: the file's text is `raw`, not `content`.
+      // Reading `content` here meant the editor rendered empty however much
+      // was in the file, and its "soul.md is empty so far" placeholder then
+      // said so — a convincing way to report a file that does exist.
+      const data = await API.get<{ raw?: string; path?: string }>(
         `/api/brain/soul/${scope}${activeProjectId ? `?projectId=${encodeURIComponent(activeProjectId)}` : ""}`,
       );
-      setSoul(data.content ?? "");
+      setSoul(data.raw ?? "");
+      setSoulPath(data.path ?? null);
       setSoulDirty(false);
     } catch (err) {
       setSoulError(err instanceof Error ? err.message : "Could not load soul.md");
@@ -243,6 +254,7 @@ export function BrainPage() {
             <Card>
               <CardHeader
                 title={`soul.md (${scope})`}
+                eyebrow={soulPath ?? undefined}
                 actions={
                   <div className="flex items-center gap-2">
                     <Button size="sm" onClick={() => void loadSoul()} disabled={soulBusy}>

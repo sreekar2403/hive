@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Wand2 } from "lucide-react";
 import { API } from "../../lib/api";
 import {
   Badge,
@@ -14,6 +14,7 @@ import {
 import {
   HARNESS_IDS,
   HARNESS_LABELS,
+  harnessConfigOr,
   type HarnessId,
   type HarnessProbe,
   type SettingsConfig,
@@ -33,6 +34,22 @@ export function HarnessesSection({
 }) {
   const [probes, setProbes] = useState<HarnessProbe[] | null>(null);
   const [probing, setProbing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  /**
+   * Puts the first-run question back. The dialog is mounted above the router
+   * and checks on load, so the page is reloaded rather than the dialog being
+   * summoned directly — one code path for "setup is needed", not two.
+   */
+  const rerunSetup = async () => {
+    setResetting(true);
+    try {
+      await API.post("/api/setup/reset", {});
+      window.location.reload();
+    } catch {
+      setResetting(false);
+    }
+  };
 
   const probe = async () => {
     setProbing(true);
@@ -56,7 +73,10 @@ export function HarnessesSection({
   const set = (id: HarnessId, patch: Partial<SettingsConfig["harnesses"][HarnessId]>) =>
     onChange((prev) => ({
       ...prev,
-      harnesses: { ...prev.harnesses, [id]: { ...prev.harnesses[id], ...patch } },
+      harnesses: {
+        ...prev.harnesses,
+        [id]: { ...harnessConfigOr(prev.harnesses, id), ...patch },
+      },
     }));
 
   return (
@@ -66,14 +86,27 @@ export function HarnessesSection({
           Hive runs work by driving these command-line agents. A harness has to be
           installed and on your PATH before it can pick up tasks.
         </p>
-        <Button size="sm" onClick={probe} disabled={probing}>
-          <RefreshCw className={probing ? "size-3.5 animate-spin" : "size-3.5"} />
-          {probing ? "Checking…" : "Re-check"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={rerunSetup}
+            disabled={resetting}
+          >
+            <Wand2 className="size-3.5" />
+            {resetting ? "Restarting…" : "Re-run setup"}
+          </Button>
+          <Button size="sm" onClick={probe} disabled={probing}>
+            <RefreshCw
+              className={probing ? "size-3.5 animate-spin" : "size-3.5"}
+            />
+            {probing ? "Checking…" : "Re-check"}
+          </Button>
+        </div>
       </div>
 
       {HARNESS_IDS.map((id) => {
-        const cfg = draft.harnesses[id];
+        const cfg = harnessConfigOr(draft.harnesses, id);
         const probeResult = probes?.find((p) => p.id === id);
         const available = probeResult?.available;
 

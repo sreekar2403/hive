@@ -25,20 +25,69 @@ export interface AgentSnapshot {
 }
 
 /**
- * A small name pool per harness so two concurrent tasks on the same
- * harness get distinct, stable characters instead of colliding on one
- * name. "hive" covers any harness the roster doesn't otherwise recognise.
- * Original names — deliberately not the sitcom's cast.
+ * A name pool per harness, so two concurrent tasks on the same harness get
+ * distinct, stable characters instead of colliding on one name.
+ *
+ * Every harness needs its own entry. When only three had one, the other
+ * nine all fell through to the shared fallback pool and each took seat 0 —
+ * so Codex, Gemini and Crush were all called "Hazel" at the same time, on
+ * the same floor. A pool keyed by harness is only distinct if every harness
+ * is actually in it.
+ *
+ * Initials are deliberately spread rather than matched to the CLI's first
+ * letter: "Cass" for Claude Code and "Cody" for Codex would be technically
+ * distinct and useless at a glance. Original names, and deliberately not
+ * the sitcom's cast.
  */
-const PERSONA_POOL: Record<string, string[]> = {
+export const PERSONA_POOL: Record<string, string[]> = {
   opencode: ["Ollie", "Odette", "Otto"],
   "claude-code": ["Cass", "Cole", "Cora"],
   pi: ["Pia", "Pax", "Poe"],
-  hive: ["Hazel", "Hugo", "Hana"],
+  codex: ["Dex", "Dara", "Dov"],
+  gemini: ["Gem", "Gus", "Greta"],
+  qwen: ["Wren", "Wynn", "Wade"],
+  "cursor-agent": ["Kit", "Kira", "Knox"],
+  aider: ["Ada", "Arlo", "Ash"],
+  amp: ["Mira", "Milo", "Moss"],
+  goose: ["Nell", "Nico", "Nova"],
+  crush: ["Remy", "Rosa", "Rex"],
+  copilot: ["Lark", "Leo", "Lena"],
+  "ollama-direct": ["Tama", "Tosh", "Tilde"],
+  "lmstudio-direct": ["Sena", "Silas", "Sable"],
 };
 
-function personaFor(harness: string, index: number): string {
-  const pool = PERSONA_POOL[harness] ?? PERSONA_POOL.hive;
+/**
+ * A name for a harness with no pool of its own.
+ *
+ * Derived from the harness id rather than drawn from a shared spare pool.
+ * A spare pool is what caused the original bug in a different form: any
+ * fixed list is finite, so two unknown harnesses eventually land on the
+ * same entry, and hashing into it only makes the collision harder to
+ * predict rather than rarer.
+ *
+ * Naming the CLI after itself is unique by construction — two distinct
+ * harness ids cannot produce one name — and for an agent Hive does not
+ * recognise, "Cursor Agent" is more use on the floor than a random first
+ * name would be anyway.
+ */
+function fallbackName(harness: string): string {
+  const words = harness
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1));
+
+  return words.length > 0 ? words.join(" ") : "Agent";
+}
+
+export function personaFor(harness: string, index: number): string {
+  const pool = PERSONA_POOL[harness];
+
+  if (!pool) {
+    // Unknown harness: one name, numbered per concurrent task.
+    const name = fallbackName(harness);
+    return index === 0 ? name : `${name} ${index + 1}`;
+  }
+
   const name = pool[index % pool.length];
   const lap = Math.floor(index / pool.length);
   return lap === 0 ? name : `${name} ${lap + 1}`;

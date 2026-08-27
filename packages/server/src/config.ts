@@ -1,7 +1,49 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export type HarnessId = "opencode" | "claude-code" | "pi";
+/**
+ * Every CLI Hive knows how to drive. Adding one here is the type-level half
+ * of the job; the other halves are an adapter in harnesses/, a profile in
+ * harnesses/profiles.ts, a probe spec in harnesses/health.ts, and a default
+ * block in `createDefaultConfig`.
+ */
+export type HarnessId =
+  | "opencode"
+  | "claude-code"
+  | "pi"
+  | "codex"
+  | "gemini"
+  | "qwen"
+  | "cursor-agent"
+  | "aider"
+  | "amp"
+  | "goose"
+  | "crush"
+  | "copilot";
+
+/**
+ * The same list at runtime, and the only one the server should use.
+ *
+ * It was previously duplicated as a literal inside routes/settings.ts, which
+ * meant a newly supported CLI was invisible to the Settings screen and
+ * rejected by `PUT /api/settings` until somebody remembered the second copy.
+ * The `satisfies` clause makes a future divergence a compile error rather
+ * than a silently half-supported harness.
+ */
+export const HARNESS_IDS = [
+  "opencode",
+  "claude-code",
+  "pi",
+  "codex",
+  "gemini",
+  "qwen",
+  "cursor-agent",
+  "aider",
+  "amp",
+  "goose",
+  "crush",
+  "copilot",
+] as const satisfies readonly HarnessId[];
 
 export interface HarnessConfig {
   enabled: boolean;
@@ -86,6 +128,47 @@ export interface SecondBrainConfig {
   };
 }
 
+/**
+ * Dynamic routing: a model decides which agent runs the work.
+ *
+ * The keyword table this replaces could only answer questions someone had
+ * already anticipated. It routed "add a test for the retry path" correctly
+ * and "the retry path is wrong, and nothing covers it" to whichever rule
+ * happened to fire first. A model reading the harness profiles answers both,
+ * and — unlike the table — can pick the *model* as well as the CLI, which is
+ * the difference between routing across harnesses and routing across
+ * providers.
+ *
+ * It is a layer, not a replacement. When it is off, unreachable, slow, or
+ * unsure, the rules/semantic/default cascade underneath still answers, so a
+ * machine with no spare model to think with routes exactly as it did before.
+ */
+export interface LlmRoutingConfig {
+  enabled: boolean;
+  /**
+   * Catalog id (`harness/provider/model`) to route *with*. Empty means
+   * "choose one" — see pickRoutingModel in router.ts, which prefers a small
+   * fast model and never spends a frontier model on a routing question.
+   */
+  model: string;
+  /** Let the router choose the model to run, not only the harness. */
+  selectModel: boolean;
+  /**
+   * Give up and fall through to the heuristics after this long. Routing is
+   * overhead on every task, so this is deliberately short: a router that
+   * takes ten seconds to save one has cost more than it saved.
+   */
+  timeoutMs: number;
+  /** Decisions below this confidence are discarded in favour of the rules. */
+  minConfidence: number;
+  /**
+   * How long an identical prompt reuses its decision. Retries and the staged
+   * loop re-route the same text repeatedly; without this, a five-stage
+   * pipeline pays for five routing calls to reach the same answer.
+   */
+  cacheTtlMs: number;
+}
+
 export interface Config {
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
@@ -93,10 +176,14 @@ export interface Config {
     fallback: string;
     rules: RoutingRule[];
     /**
-     * Catalog id (`harness/provider/model`) for LLM-based routing. Empty
-     * disables that layer — routing then stays keyword + semantic + learned.
+     * Catalog id (`harness/provider/model`) for LLM-based routing.
+     *
+     * @deprecated Superseded by `routing.llm.model`, which is read first.
+     * Still honoured so configs written before the dynamic router keep
+     * working; `saveConfig` migrates it forward.
      */
     llmModel: string;
+    llm: LlmRoutingConfig;
   };
   /**
    * Local model servers, reached directly over HTTP rather than through a
@@ -156,6 +243,17 @@ export interface Config {
     wipLimits: Record<string, number>;
   };
   secondBrain: SecondBrainConfig;
+  /**
+   * First-run state. `completed` gates the setup screen, which asks the one
+   * question Hive cannot discover — which model to route with — and seeds
+   * soul.md from what it finds. See setup.ts.
+   */
+  setup: {
+    completed: boolean;
+    completedAt: number;
+    /** Bumped when setup starts asking something new. */
+    version: number;
+  };
   general: {
     defaultProjectId: string;
     /**
@@ -213,6 +311,14 @@ export function loadConfig(configPath?: string): Config {
   delete (config as { providers?: unknown }).providers;
   for (const rule of config.routing.rules) {
     delete (rule as { provider?: unknown }).provider;
+  }
+
+  // Migration: `routing.llmModel` predates the `routing.llm` block. A config
+  // that set the old field meant "route with this model", so honour that
+  // rather than silently ignoring it — but never overwrite an explicit new
+  // setting, which is the more recent statement of intent.
+  if (config.routing.llmModel && !config.routing.llm.model) {
+    config.routing.llm.model = config.routing.llmModel;
   }
 
   cachedConfig = config;
@@ -336,27 +442,96 @@ export function createDefaultConfig(): Config {
       ollama: "http://localhost:11434",
       lmstudio: "http://localhost:1234",
     },
+    // Every harness starts *off*. A harness is only useful if its CLI is
+    // installed, and defaulting to `enabled: true` meant a fresh config
+    // claimed twelve agents were ready on a machine that had none of them —
+    // which surfaces as tasks failing at spawn time rather than as an
+    // honest "not installed" in Settings. Startup reconciliation and the
+    // setup screen (setup.ts) turn on what is actually there.
     harnesses: {
       opencode: {
-        enabled: true,
+        enabled: false,
         path: "opencode",
         defaultModel: "claude-sonnet-4",
         args: [],
         concurrency: 2,
       },
       "claude-code": {
-        enabled: true,
+        enabled: false,
         path: "claude",
         defaultModel: "claude-sonnet-4",
         args: [],
         concurrency: 2,
       },
       pi: {
-        enabled: true,
+        enabled: false,
         path: "pi",
         defaultModel: "claude-sonnet-4",
         args: [],
         concurrency: 2,
+      },
+      codex: {
+        enabled: false,
+        path: "codex",
+        defaultModel: "",
+        args: [],
+        concurrency: 2,
+      },
+      gemini: {
+        enabled: false,
+        path: "gemini",
+        defaultModel: "",
+        args: [],
+        concurrency: 2,
+      },
+      qwen: {
+        enabled: false,
+        path: "qwen",
+        defaultModel: "",
+        args: [],
+        concurrency: 2,
+      },
+      "cursor-agent": {
+        enabled: false,
+        path: "cursor-agent",
+        defaultModel: "",
+        args: [],
+        concurrency: 2,
+      },
+      aider: {
+        enabled: false,
+        path: "aider",
+        defaultModel: "",
+        args: [],
+        concurrency: 2,
+      },
+      amp: {
+        enabled: false,
+        path: "amp",
+        defaultModel: "",
+        args: [],
+        concurrency: 1,
+      },
+      goose: {
+        enabled: false,
+        path: "goose",
+        defaultModel: "",
+        args: [],
+        concurrency: 1,
+      },
+      crush: {
+        enabled: false,
+        path: "crush",
+        defaultModel: "",
+        args: [],
+        concurrency: 2,
+      },
+      copilot: {
+        enabled: false,
+        path: "copilot",
+        defaultModel: "",
+        args: [],
+        concurrency: 1,
       },
     },
     routing: {
@@ -364,6 +539,14 @@ export function createDefaultConfig(): Config {
       fallback: "claude-code",
       rules: defaultRoutingRules(),
       llmModel: "",
+      llm: {
+        enabled: true,
+        model: "",
+        selectModel: true,
+        timeoutMs: 20000,
+        minConfidence: 0.5,
+        cacheTtlMs: 5 * 60 * 1000,
+      },
     },
     permission: {
       enabled: true,
@@ -419,6 +602,11 @@ export function createDefaultConfig(): Config {
       },
     },
     secondBrain: createDefaultSecondBrainConfig(),
+    setup: {
+      completed: false,
+      completedAt: 0,
+      version: 0,
+    },
     general: {
       defaultProjectId: "",
       rootDirectory: "",

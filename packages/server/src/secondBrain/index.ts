@@ -5,6 +5,11 @@ import { LearningAgent, type Synthesizer } from "./learningAgent";
 import { resolveBrainConfig, storeRoots } from "./paths";
 import { RecordStore } from "./store";
 import { SoulStore } from "./soul";
+import {
+  emptyRoutingGuidance,
+  readRoutingGuidance,
+  type SoulRoutingGuidance,
+} from "./starterSoul";
 import type {
   BrainRecord,
   BrainScope,
@@ -21,6 +26,14 @@ export * from "./types";
 export { categorize, keywords } from "./categorize";
 export { errorSignature } from "./learningAgent";
 export { parseSoul, soulTemplate } from "./soul";
+export {
+  buildStarterSoul,
+  readRoutingGuidance,
+  suggestedRoutes,
+  ROUTING_SECTION,
+  ROUTER_MODEL_LABEL,
+  type SoulRoutingGuidance,
+} from "./starterSoul";
 export { nodeId } from "./graph";
 export { resolveBrainConfig, globalStoreRoot, projectStoreRoot } from "./paths";
 
@@ -249,6 +262,30 @@ export class SecondBrain {
   }
 
   /** Learned routing advice for a category — advisory input to the Router. */
+  /**
+   * What soul.md says about routing: the model to decide with, explicit
+   * `category → harness` pins, and any free-text preferences.
+   *
+   * This is the user's *stated* intent, which is why it is read straight
+   * from the file rather than inferred from observations like
+   * `getRoutingHints` is. The two answer different questions — "what did
+   * you ask for" versus "what has actually been working" — and the router
+   * treats the stated one as the stronger signal.
+   *
+   * Returned empty when the layer is off, so routing degrades to the
+   * router's own judgement rather than failing.
+   */
+  getRoutingGuidance(): SoulRoutingGuidance {
+    if (!this.enabled) return emptyRoutingGuidance();
+    try {
+      return readRoutingGuidance(this.soul.readAll());
+    } catch {
+      // A soul.md that cannot be read should cost routing preferences, not
+      // the task.
+      return emptyRoutingGuidance();
+    }
+  }
+
   getRoutingHints(promptOrCategory: string): RoutingHint[] {
     if (!this.enabled || !this.brainConfig.routing.augment) return [];
     const category = this.categorize(promptOrCategory);

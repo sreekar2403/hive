@@ -4,7 +4,19 @@
  * authentication, and local model servers need no key.
  */
 
-export type HarnessId = "opencode" | "claude-code" | "pi";
+export type HarnessId =
+  | "opencode"
+  | "claude-code"
+  | "pi"
+  | "codex"
+  | "gemini"
+  | "qwen"
+  | "cursor-agent"
+  | "aider"
+  | "amp"
+  | "goose"
+  | "crush"
+  | "copilot";
 
 export interface HarnessConfig {
   enabled: boolean;
@@ -12,6 +24,21 @@ export interface HarnessConfig {
   defaultModel: string;
   args: string[];
   concurrency: number;
+}
+
+/**
+ * Dynamic routing settings. Mirrors LlmRoutingConfig in the server's
+ * config.ts — when the rules table and this disagree, this wins, because
+ * the rules are what runs only after the model declines to decide.
+ */
+export interface LlmRoutingConfig {
+  enabled: boolean;
+  /** Catalog id to route with. Empty = pick a small model automatically. */
+  model: string;
+  selectModel: boolean;
+  timeoutMs: number;
+  minConfidence: number;
+  cacheTtlMs: number;
 }
 
 export interface RoutingRule {
@@ -34,6 +61,9 @@ export interface SettingsConfig {
     default: string;
     fallback: string;
     rules: RoutingRule[];
+    /** @deprecated Superseded by `routing.llm.model`. */
+    llmModel?: string;
+    llm?: LlmRoutingConfig;
   };
   permission: {
     enabled: boolean;
@@ -94,12 +124,74 @@ export interface HarnessProbe {
   version: string | null;
 }
 
-export const HARNESS_IDS: HarnessId[] = ["opencode", "claude-code", "pi"];
+export const HARNESS_IDS: HarnessId[] = [
+  "opencode",
+  "claude-code",
+  "pi",
+  "codex",
+  "gemini",
+  "qwen",
+  "cursor-agent",
+  "aider",
+  "amp",
+  "goose",
+  "crush",
+  "copilot",
+];
+
+/**
+ * What to render for a harness the server sent no config block for.
+ *
+ * The client's list of supported harnesses and the server's can differ — an
+ * older server, or a hand-edited hive.config.json. Reading straight through
+ * to `config.harnesses[id].enabled` in that case throws during render and
+ * takes the whole Settings screen down, which is a bad trade for a missing
+ * row. Defaults stand in, and saving writes a real block.
+ */
+export function harnessConfigOr(
+  harnesses: Partial<Record<HarnessId, HarnessConfig>>,
+  id: HarnessId,
+): HarnessConfig {
+  return (
+    harnesses[id] ?? {
+      enabled: false,
+      path: HARNESS_COMMANDS[id],
+      defaultModel: "",
+      args: [],
+      concurrency: 2,
+    }
+  );
+}
+
+/** Default binary name per harness, used when no config block exists. */
+export const HARNESS_COMMANDS: Record<HarnessId, string> = {
+  opencode: "opencode",
+  "claude-code": "claude",
+  pi: "pi",
+  codex: "codex",
+  gemini: "gemini",
+  qwen: "qwen",
+  "cursor-agent": "cursor-agent",
+  aider: "aider",
+  amp: "amp",
+  goose: "goose",
+  crush: "crush",
+  copilot: "copilot",
+};
 
 export const HARNESS_LABELS: Record<HarnessId, string> = {
   opencode: "opencode",
   "claude-code": "Claude Code",
   pi: "pi",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  qwen: "Qwen Code",
+  "cursor-agent": "Cursor Agent",
+  aider: "aider",
+  amp: "Amp",
+  goose: "goose",
+  crush: "Crush",
+  copilot: "GitHub Copilot CLI",
 };
 
 export interface SecondBrainConfig {

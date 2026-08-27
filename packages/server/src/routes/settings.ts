@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import spawn from "cross-spawn";
 import {
   Config,
+  HARNESS_IDS,
+  createDefaultConfig,
   HarnessId,
   deepMerge,
   loadConfig,
@@ -16,8 +18,6 @@ import {
  * endpoints.
  */
 const router: Router = Router();
-
-const HARNESS_IDS: HarnessId[] = ["opencode", "claude-code", "pi"];
 
 /** Config as sent to the client. No secrets exist in this shape any more. */
 function toView(config: Config) {
@@ -292,7 +292,10 @@ router.get("/harnesses", async (_req: Request, res: Response) => {
 
   const harnesses = await Promise.all(
     HARNESS_IDS.map(async (id) => {
-      const hc = config.harnesses[id];
+      // A hand-edited hive.config.json can be missing a block for a harness
+      // Hive supports. That is not an error worth a 500 — the CLI's default
+      // command name is still probeable, and the row still renders.
+      const hc = config.harnesses[id] ?? defaultHarnessBlock(id);
       const probe = await probeHarness(hc.path);
       return {
         id,
@@ -309,6 +312,11 @@ router.get("/harnesses", async (_req: Request, res: Response) => {
 
   res.json({ harnesses });
 });
+
+/** Stand-in for a harness the config file has no block for. */
+function defaultHarnessBlock(id: HarnessId) {
+  return createDefaultConfig().harnesses[id];
+}
 
 interface HarnessProbeResult {
   available: boolean;

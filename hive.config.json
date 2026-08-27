@@ -24,6 +24,69 @@
       "defaultModel": "ornith-1.5:35b",
       "args": [],
       "concurrency": 2
+    },
+    "codex": {
+      "enabled": true,
+      "path": "codex",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 2
+    },
+    "gemini": {
+      "enabled": false,
+      "path": "gemini",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 2
+    },
+    "qwen": {
+      "enabled": false,
+      "path": "qwen",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 2
+    },
+    "cursor-agent": {
+      "enabled": false,
+      "path": "cursor-agent",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 2
+    },
+    "aider": {
+      "enabled": false,
+      "path": "aider",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 2
+    },
+    "amp": {
+      "enabled": false,
+      "path": "amp",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 1
+    },
+    "goose": {
+      "enabled": false,
+      "path": "goose",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 1
+    },
+    "crush": {
+      "enabled": false,
+      "path": "crush",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 2
+    },
+    "copilot": {
+      "enabled": false,
+      "path": "copilot",
+      "defaultModel": "",
+      "args": [],
+      "concurrency": 1
     }
   },
   "routing": {
@@ -94,7 +157,15 @@
         "enabled": true
       }
     ],
-    "llmModel": ""
+    "llmModel": "claude-code/anthropic/haiku",
+    "llm": {
+      "enabled": true,
+      "model": "claude-code/anthropic/haiku",
+      "selectModel": true,
+      "timeoutMs": 20000,
+      "minConfidence": 0.5,
+      "cacheTtlMs": 300000
+    }
   },
   "permission": {
     "enabled": true,
@@ -115,6 +186,12 @@
     "maxIterations": 8,
     "timeoutMs": 300000,
     "maxConcurrentAgents": 3,
+    "pipeline": {
+      "enabled": false,
+      "plan": true,
+      "maxRepairs": 2,
+      "testCommand": ""
+    },
     "retry": {
       "enabled": true,
       "maxRetries": 3
@@ -170,6 +247,11 @@
       "maxLessons": 5,
       "maxBriefingChars": 2000
     }
+  },
+  "setup": {
+    "completed": true,
+    "completedAt": 1787755329377,
+    "version": 1
   },
   "general": {
     "defaultProjectId": "",

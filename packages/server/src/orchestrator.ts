@@ -418,6 +418,9 @@ export class Orchestrator {
       ? { harness: pinned, model: "", reasoning: "Pinned by the caller" }
       : await this.router.route(task.prompt, {
           hints: brain.getRoutingHints(task.prompt),
+          // What the user wrote down in soul.md. This outranks both the
+          // keyword rules and the router's own judgement — see Router.route.
+          soul: brain.getRoutingGuidance(),
         });
     task.harness = decision.harness;
     recordSpan(
@@ -578,6 +581,7 @@ ${mail}` : mail;
         agent: task.agent ?? undefined,
         preamble: briefing.text,
         hints: brain.getRoutingHints(task.prompt),
+        soul: brain.getRoutingGuidance(),
         conversationHistory: task.conversationHistory,
         // Tool calls and thinking reach the chat window through here.
         onEvent: (harnessEvent) => {
@@ -774,6 +778,7 @@ ${mail}` : mail;
           agent: task.agent ?? undefined,
           preamble: briefing.text,
           hints: brain.getRoutingHints(task.prompt),
+          soul: brain.getRoutingGuidance(),
           conversationHistory: task.conversationHistory,
           onEvent: (harnessEvent) => {
             task.events.push(harnessEvent);
