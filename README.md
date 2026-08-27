@@ -480,7 +480,7 @@ them change properties people reasonably assume a tool like this already has.
 pnpm dev:server     # API server via tsx, no build step
 pnpm dev:client     # Vite dev server for the UI
 pnpm dev:electron   # UI + Electron window
-pnpm test           # vitest (325 tests)
+pnpm test           # vitest (327 tests)
 pnpm lint           # eslint
 pnpm format         # prettier --write .
 ```

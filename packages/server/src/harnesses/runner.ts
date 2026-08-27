@@ -27,7 +27,7 @@ export interface RunSpec {
 export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
   const { command, args, options, parser } = spec;
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const startTime = Date.now();
     const cwd = options?.cwd || process.cwd();
     const collected: HarnessEvent[] = [];
@@ -91,8 +91,17 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
       stderr += data.toString();
     });
 
-    proc.on("close", (code) => {
+    // 'error' and 'close' can both fire for the same failure (a missing
+    // binary emits ENOENT and then closes), so settle exactly once.
+    let settled = false;
+    const settle = (result: HarnessExecutionResult) => {
+      if (settled) return;
+      settled = true;
       signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    proc.on("close", (code) => {
       emit(parser.finish());
 
       const cleanStdout = stripAnsi(stdout);
@@ -112,7 +121,7 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
         console.warn(hint);
       }
 
-      resolve({
+      settle({
         success: code === 0 && !aborted,
         exitCode: code ?? 1,
         stdout: cleanStdout,
@@ -128,9 +137,31 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
       });
     });
 
+    // A CLI that isn't installed is a normal condition here, not an
+    // exception: startup probes twelve of them and a user can uninstall one
+    // mid-session. Rejecting made that a thrown error every caller had to
+    // guard — and LoopEngine calls execute() unguarded, so an uninstalled
+    // CLI took down the whole run instead of failing one iteration. Report
+    // it the same way any other failed run is reported.
     proc.on("error", (err) => {
-      signal?.removeEventListener("abort", onAbort);
-      reject(err);
+      const message =
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+          ? `${command} is not installed or not on PATH`
+          : `${command} could not be started: ${err.message}`;
+
+      settle({
+        success: false,
+        // 127 is the shell's own "command not found".
+        exitCode: 127,
+        stdout: "",
+        stderr: message,
+        output: message,
+        filesChanged: [],
+        duration: Date.now() - startTime,
+        events: collected,
+        usage: parser.usage(),
+        aborted,
+      });
     });
   });
 }
