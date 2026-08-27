@@ -51,6 +51,33 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
+    // Cancellation. The child is killed and the close handler below reports
+    // `aborted` so callers can tell "we stopped this" apart from "the CLI
+    // failed". SIGTERM first; some of these CLIs spawn their own children
+    // and ignore a polite signal, so escalate if it is still alive.
+    let aborted = false;
+    const onAbort = () => {
+      if (aborted) return;
+      aborted = true;
+      try {
+        proc.kill("SIGTERM");
+        const escalate = setTimeout(() => {
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+            // Already gone.
+          }
+        }, 2000);
+        escalate.unref?.();
+      } catch {
+        // Already exited — nothing to stop.
+      }
+    };
+
+    const signal = options?.signal;
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+
     // These CLIs wait on stdin when they think a session is interactive.
     proc.stdin?.end();
 
@@ -65,6 +92,7 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
     });
 
     proc.on("close", (code) => {
+      signal?.removeEventListener("abort", onAbort);
       emit(parser.finish());
 
       const cleanStdout = stripAnsi(stdout);
@@ -85,7 +113,7 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
       }
 
       resolve({
-        success: code === 0,
+        success: code === 0 && !aborted,
         exitCode: code ?? 1,
         stdout: cleanStdout,
         stderr: cleanStderr,
@@ -96,10 +124,14 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
         duration: Date.now() - startTime,
         events: collected,
         usage: parser.usage(),
+        aborted,
       });
     });
 
-    proc.on("error", (err) => reject(err));
+    proc.on("error", (err) => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(err);
+    });
   });
 }
 

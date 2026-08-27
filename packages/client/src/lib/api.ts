@@ -7,6 +7,41 @@ export const API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined) ??
   "http://localhost:3001";
 
+/**
+ * Bearer token for a server that was started with one (`HIVE_AUTH_TOKEN`).
+ * The default single-machine setup binds loopback and needs no token, so
+ * this is normally empty. Set it at build time with VITE_HIVE_TOKEN, or at
+ * runtime by storing `hive.token` in localStorage.
+ */
+const TOKEN_KEY = "hive.token";
+
+export function getAuthToken(): string {
+  const fromEnv = import.meta.env?.VITE_HIVE_TOKEN as string | undefined;
+  if (fromEnv) return fromEnv;
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    // Storage can throw in a locked-down context; treat as no token.
+    return "";
+  }
+}
+
+export function setAuthToken(token: string): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Non-fatal: the caller can still pass one via VITE_HIVE_TOKEN.
+  }
+}
+
+/** Appends the token as a query param, for callers that cannot set headers. */
+function withToken(url: string): string {
+  const token = getAuthToken();
+  if (!token) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -23,11 +58,18 @@ async function request<T>(
   body?: unknown,
   init?: RequestInit,
 ): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const token = getAuthToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    // `init` is spread first so the auth header can never be dropped by a
+    // caller that passes its own `headers` alongside a signal.
     ...init,
+    method,
+    headers: { ...headers, ...((init?.headers as Record<string, string>) ?? {}) },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   if (!res.ok) {
@@ -128,7 +170,9 @@ function openStream() {
   if (source || typeof EventSource === "undefined") return;
   setStatus("connecting");
 
-  const es = new EventSource(`${API_BASE}/api/events`);
+  // EventSource cannot send an Authorization header, so the token rides
+  // in the query string on this one endpoint.
+  const es = new EventSource(withToken(`${API_BASE}/api/events`));
   source = es;
 
   es.onopen = () => {

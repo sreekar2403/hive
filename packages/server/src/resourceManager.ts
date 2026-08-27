@@ -1,12 +1,17 @@
 import { Config } from "./config";
 
-export interface FileLock {
-  sessionId: string;
-  filePath: string;
-  acquiredAt: number;
-  expiresAt: number;
-  mode: "read" | "write";
-}
+/**
+ * Per-task bookkeeping: which branch a task owns and where it is in its
+ * lifecycle.
+ *
+ * There used to be a file-lock API here (acquireLock/releaseLock/
+ * getFileLocks) that nothing ever called. Concurrency safety comes from
+ * git worktree isolation instead — see branches.ts — and the lock key was
+ * `${sessionId}:${filePath}`, so two different sessions locking the same
+ * file got different keys and both succeeded. A lock that cannot catch
+ * cross-actor conflicts is worse than no lock, because the next person to
+ * find it assumes it works; it has been removed rather than repaired.
+ */
 
 export interface TaskContext {
   taskId: string;
@@ -19,47 +24,11 @@ export interface TaskContext {
 
 export class ResourceManager {
   private config: Config;
-  private locks: Map<string, FileLock>;
   private tasks: Map<string, TaskContext>;
 
   constructor(config: Config) {
     this.config = config;
-    this.locks = new Map();
     this.tasks = new Map();
-  }
-
-  async acquireLock(
-    sessionId: string,
-    filePath: string,
-    mode: "read" | "write" = "read",
-  ): Promise<boolean> {
-    const lockKey = `${sessionId}:${filePath}`;
-
-    // Check if lock exists and is valid
-    const existing = this.locks.get(lockKey);
-    if (existing) {
-      // Write locks are exclusive
-      if (existing.mode === "write" || existing.sessionId === sessionId) {
-        return true;
-      }
-      return false;
-    }
-
-    // Acquire lock
-    this.locks.set(lockKey, {
-      sessionId,
-      filePath,
-      acquiredAt: Date.now(),
-      expiresAt: Date.now() + 60000, // 1 minute timeout
-      mode,
-    });
-
-    return true;
-  }
-
-  async releaseLock(sessionId: string, filePath: string): Promise<void> {
-    const lockKey = `${sessionId}:${filePath}`;
-    this.locks.delete(lockKey);
   }
 
   async createTask(
@@ -108,13 +77,6 @@ export class ResourceManager {
   async cleanup(): Promise<void> {
     const now = Date.now();
 
-    // Clean expired locks
-    for (const [key, lock] of this.locks) {
-      if (now > lock.expiresAt) {
-        this.locks.delete(key);
-      }
-    }
-
     // Clean completed tasks older than 1 hour
     for (const [key, task] of this.tasks) {
       if (
@@ -144,14 +106,4 @@ export class ResourceManager {
     return false;
   }
 
-  // Get all active locks for a file
-  getFileLocks(filePath: string): FileLock[] {
-    const locks: FileLock[] = [];
-    for (const lock of this.locks.values()) {
-      if (lock.filePath === filePath) {
-        locks.push(lock);
-      }
-    }
-    return locks;
-  }
 }

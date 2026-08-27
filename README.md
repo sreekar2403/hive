@@ -316,8 +316,11 @@ start is told once, in its prompt.
 - **Logs** — a live tail plus per-task trace spans, so a run can be opened from the message that
   produced it — including the routing decision and why it was made.
 - **Memory** — the per-session key/value store agents share, browsable and editable.
-- **Permissions** — approve or deny work Hive classified as destructive. This is a real gate: a
-  task waiting here is genuinely blocked until someone answers or it times out.
+- **Permissions** — approve or deny destructive work. This is a real gate, and it watches what the
+  agent *does*, not what you asked for: when a run reaches for `git reset --hard` or `rm -rf`, the
+  harness process is killed mid-run and the task waits here until someone answers or it times out.
+  Approving re-runs the task with that one command allowed, so the agent can finish. A prompt that
+  merely mentions "reset" is not blocked — see `permission.gateOn` under Configuration.
 
 ### Credentials: the CLIs bring their own
 
@@ -333,9 +336,9 @@ Studio — whose base URLs live under `localModels`.
 
 ## Configuration
 
-`hive.config.json` at the repo root is merged over the built-in defaults, and the `PORT`
-environment variable wins over both. Everything in it is editable from the Settings screen, which
-writes the same file — so the UI and the file never drift.
+`hive.config.json` at the repo root is merged over the built-in defaults, and the `PORT`, `HIVE_HOST`
+and `HIVE_AUTH_TOKEN` environment variables win over both. Everything in it is editable from the
+Settings screen, which writes the same file — so the UI and the file never drift.
 
 ```jsonc
 {
@@ -381,11 +384,25 @@ writes the same file — so the UI and the file never drift.
     "enabled": true,
     "timeout": 60000,
     "destructiveActions": ["rm", "push --force"],
+    // What the gate inspects. "commands" (default) watches the agent's
+    // actual shell tool calls and halts the run on a match. "prompt"
+    // scans your prompt once, before anything runs. "both" does each.
+    "gateOn": "commands",
   },
   "loop": {
     "maxIterations": 10,
     "timeoutMs": 300000,
     "maxConcurrentAgents": 3,
+  },
+  "server": {
+    "port": 3001,
+    // Loopback by default: every endpoint here can spawn a CLI agent with
+    // shell access to your repo. Binding anything else without an
+    // authToken is refused at startup rather than warned about.
+    "host": "127.0.0.1",
+    "authToken": "",
+    // Empty = any localhost origin, which is what Vite and Electron need.
+    "allowedOrigins": [],
   },
   "storage": { "cacheDir": "./.hive-cache" },
   "general": { "defaultProjectId": "", "rootDirectory": "" },
@@ -407,6 +424,18 @@ restarts; uninstalling its CLI turns it off for you.
 `routing.llmModel` from earlier versions is still read and migrated into `routing.llm.model` on
 load, so an existing config keeps working.
 
+**The server is local-only until you say otherwise.** Hive's API spawns agents with shell and git
+access to your project, so reaching the port is close enough to a shell on the machine. It binds
+`127.0.0.1`, and starting it on any other interface without `server.authToken` fails with an error
+instead of quietly listening. To run it somewhere other people can reach:
+
+```bash
+HIVE_AUTH_TOKEN=$(openssl rand -hex 32) HIVE_HOST=0.0.0.0 hive server
+```
+
+The client sends that token from `VITE_HIVE_TOKEN` at build time, or `localStorage["hive.token"]` at
+runtime.
+
 **Where state lives**
 
 | What                                               | Where                                 |
@@ -419,13 +448,39 @@ load, so an existing config keeps working.
 
 ---
 
+## Upcoming
+
+Not built yet. Listed here because each is a new subsystem rather than a tweak, and because two of
+them change properties people reasonably assume a tool like this already has.
+
+- **MCP in both directions.** Hive treats every harness as an opaque subprocess, while MCP has
+  become the substrate all of them speak. Outbound: let the orchestrator call MCP servers directly
+  for work too small to justify spawning a whole agent CLI. Inbound: expose Hive itself — tasks,
+  board, routing decisions — as an MCP server, so it can be driven from Claude Desktop, Cowork or an
+  IDE instead of only its own UI.
+- **Sandboxed agent runs.** The permission gate *detects* a destructive command and stops the run;
+  it does not contain anything, and a command matching no pattern can still do real damage. An
+  opt-in container/gVisor sandbox per worktree would bound the blast radius, which is currently
+  "arbitrary shell access to your repo."
+- **Budget and spend caps.** Token and cost per run are already recorded and then never read back. A
+  per-project and per-day ceiling that *refuses* to admit a run — rather than reporting the damage
+  afterwards — is what stops a retry storm turning into a surprise bill.
+- **A router scorecard.** The Second Brain already tracks success rate per harness per category and
+  only ever feeds it back into routing. Surfacing it — which agent wins which category, over how
+  many samples — would make the learning half of the system visible instead of implicit.
+- **OpenTelemetry GenAI semantic conventions.** The trace system speaks its own shape; emitting the
+  GenAI conventions over OTLP would let runs go to Grafana or Honeycomb instead of only the built-in
+  Logs page.
+
+---
+
 ## Development
 
 ```bash
 pnpm dev:server     # API server via tsx, no build step
 pnpm dev:client     # Vite dev server for the UI
 pnpm dev:electron   # UI + Electron window
-pnpm test           # vitest (238 tests)
+pnpm test           # vitest (325 tests)
 pnpm lint           # eslint
 pnpm format         # prettier --write .
 ```

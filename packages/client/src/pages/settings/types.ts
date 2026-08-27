@@ -91,6 +91,11 @@ export interface SettingsConfig {
   };
   server: {
     port: number;
+    /** Bind address; loopback by default. Absent in older configs. */
+    host?: string;
+    /** Bearer token for /api/*. Absent or empty means no auth. */
+    authToken?: string;
+    allowedOrigins?: string[];
   };
   storage: {
     cacheDir: string;

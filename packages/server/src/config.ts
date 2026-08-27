@@ -198,6 +198,17 @@ export interface Config {
     enabled: boolean;
     timeout: number;
     destructiveActions: string[];
+    /**
+     * What the approval gate inspects.
+     *
+     *   "commands" — the agent's actual shell tool calls, watched live
+     *                (runtimeGuard.ts). The default: it catches a
+     *                destructive command whatever the prompt said, and
+     *                never blocks a prompt that only *mentions* one.
+     *   "prompt"   — the old behaviour: scan the user's prompt up front.
+     *   "both"     — scan the prompt, then keep watching the tool stream.
+     */
+    gateOn: "prompt" | "commands" | "both";
   };
   loop: {
     maxIterations: number;
@@ -230,6 +241,20 @@ export interface Config {
   };
   server: {
     port: number;
+    /**
+     * Interface to bind. Defaults to loopback: the API spawns CLI agents
+     * with shell and git access to the project, so listening on every
+     * interface by default handed that to anyone who could reach the box.
+     * Binding anywhere else requires `authToken` — see server.ts.
+     */
+    host: string;
+    /** Shared secret required on /api/* when set. Empty disables auth. */
+    authToken: string;
+    /**
+     * Browser origins allowed to call the API. Empty means "any localhost
+     * origin", which covers Vite's dev server and the Electron shell.
+     */
+    allowedOrigins: string[];
   };
   storage: {
     cacheDir: string;
@@ -302,6 +327,10 @@ export function loadConfig(configPath?: string): Config {
   if (process.env.PORT) {
     const port = parseInt(process.env.PORT, 10);
     if (!Number.isNaN(port)) config.server.port = port;
+  }
+  if (process.env.HIVE_HOST) config.server.host = process.env.HIVE_HOST;
+  if (process.env.HIVE_AUTH_TOKEN) {
+    config.server.authToken = process.env.HIVE_AUTH_TOKEN;
   }
 
   // Migration: configs written before providers moved into the harness CLIs
@@ -562,6 +591,7 @@ export function createDefaultConfig(): Config {
         "prune",
         "push -f",
       ],
+      gateOn: "commands",
     },
     loop: {
       maxIterations: 10,
@@ -580,6 +610,9 @@ export function createDefaultConfig(): Config {
     },
     server: {
       port: 3001,
+      host: "127.0.0.1",
+      authToken: "",
+      allowedOrigins: [],
     },
     storage: {
       cacheDir: "./.hive-cache",

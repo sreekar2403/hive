@@ -2,6 +2,7 @@ import { LoopEngine, LoopCallback } from "./loopEngine";
 import { Router, type RoutingResult } from "./router";
 import { PermissionManager } from "./permissions";
 import { ResourceManager } from "./resourceManager";
+import { RuntimeGuard } from "./runtimeGuard";
 import { SharedMemory } from "./sharedMemory";
 import { Config } from "./config";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
@@ -73,6 +74,9 @@ export interface AgentTask {
 
 /** A long run can emit thousands of events; the trail keeps the newest. */
 const MAX_TASK_EVENTS = 300;
+
+/** How many times one task may be halted, approved and resumed. */
+const MAX_GUARD_ATTEMPTS = 3;
 
 /**
  * How long an agent lingers in Intake before moving to the zone its work
@@ -355,45 +359,49 @@ export class Orchestrator {
       projectId: task.projectId,
     });
 
-    // Check permissions for destructive actions. The prompt itself is what's
-    // scanned for destructive keywords, not a fixed action label. When it's
-    // genuinely going to wait on a human, surface that as the Conference
-    // Room rather than leaving the agent parked in Intake.
-    const awaitingApproval =
-      this.config.permission.enabled &&
-      this.permissionManager.isDestructive(task.prompt);
-    if (awaitingApproval) {
-      this.setPhase(task, "conference");
-    }
+    // The up-front gate, which only reads the user's prompt.
+    //
+    // It is off by default now (`permission.gateOn` defaults to
+    // "commands"): a prompt is a statement of intent, and scanning it for
+    // destructive verbs blocked "reset the onboarding copy" while missing
+    // an agent that decided on `git reset --hard` by itself. The live gate
+    // on the agent's actual shell calls is below, in runTaskGuarded.
+    const gateOn = this.config.permission.gateOn ?? "prompt";
+    if (this.config.permission.enabled && gateOn !== "commands") {
+      const awaitingApproval = this.permissionManager.isDestructive(task.prompt);
+      if (awaitingApproval) {
+        this.setPhase(task, "conference");
+      }
 
-    const permStart = Date.now();
-    const needsPermission = await this.permissionManager.checkPermission(
-      task.sessionId,
-      task.prompt,
-      task.prompt,
-    );
-    recordSpan(
-      task.id,
-      awaitingApproval ? "Waited for approval" : "Permission check",
-      "permission",
-      rootSpan,
-      permStart,
-      needsPermission ? "ok" : "failed",
-      { gated: awaitingApproval, approved: needsPermission },
-    );
+      const permStart = Date.now();
+      const needsPermission = await this.permissionManager.checkPermission(
+        task.sessionId,
+        task.prompt,
+        task.prompt,
+      );
+      recordSpan(
+        task.id,
+        awaitingApproval ? "Waited for approval" : "Permission check",
+        "permission",
+        rootSpan,
+        permStart,
+        needsPermission ? "ok" : "failed",
+        { gated: awaitingApproval, approved: needsPermission },
+      );
 
-    if (!needsPermission) {
-      task.status = "failed";
-      task.output = "Permission denied for destructive action";
-      log("warn", "permissions", "Task denied at the approval gate", {
-        taskId: task.id,
-        projectId: task.projectId,
-      });
-      endSpan(rootSpan, "failed", { reason: "permission denied" });
-      // The request was resolved — denied, or timed out with nobody there
-      // to approve it — so the agent isn't waiting on anything anymore.
-      this.setPhase(task, "break-room");
-      return task;
+      if (!needsPermission) {
+        task.status = "failed";
+        task.output = "Permission denied for destructive action";
+        log("warn", "permissions", "Task denied at the approval gate", {
+          taskId: task.id,
+          projectId: task.projectId,
+        });
+        endSpan(rootSpan, "failed", { reason: "permission denied" });
+        // The request was resolved — denied, or timed out with nobody there
+        // to approve it — so the agent isn't waiting on anything anymore.
+        this.setPhase(task, "break-room");
+        return task;
+      }
     }
 
     // The working tree this task runs against — resolved once, because the
@@ -569,36 +577,133 @@ ${mail}` : mail;
       }
     };
 
-    const result = await this.loopEngine.run(
-      callback,
-      task.id,
-      rootSpan,
-      task.projectId,
-      {
-        cwd,
-        harness: pinned ?? undefined,
-        model: task.model ?? undefined,
-        agent: task.agent ?? undefined,
-        preamble: briefing.text,
-        hints: brain.getRoutingHints(task.prompt),
-        soul: brain.getRoutingGuidance(),
-        conversationHistory: task.conversationHistory,
-        // Tool calls and thinking reach the chat window through here.
-        onEvent: (harnessEvent) => {
-          task.events.push(harnessEvent);
-          if (task.events.length > MAX_TASK_EVENTS) {
-            task.events.splice(0, task.events.length - MAX_TASK_EVENTS);
-          }
-          broadcast("agent:activity", {
-            taskId: task.id,
-            sessionId: task.sessionId,
-            projectId: task.projectId,
-            harness: task.harness,
-            event: harnessEvent,
-          });
+    // ---- The live permission gate -------------------------------------
+    //
+    // The prompt-scanning gate above cannot see what the agent actually
+    // does. This one watches the harness's tool-call stream and kills the
+    // run the moment a destructive shell command appears, then asks a
+    // human. Approving re-runs the task with that exact command allowed,
+    // so the agent can finish the job it was stopped in the middle of.
+    const guardEnabled = this.config.permission.enabled && gateOn !== "prompt";
+    const approvedCommands = new Set<string>();
+    const runOptions = {
+      cwd,
+      harness: pinned ?? undefined,
+      model: task.model ?? undefined,
+      agent: task.agent ?? undefined,
+      preamble: briefing.text,
+      hints: brain.getRoutingHints(task.prompt),
+      soul: brain.getRoutingGuidance(),
+      conversationHistory: task.conversationHistory,
+    };
+
+    let result!: Awaited<ReturnType<typeof this.loopEngine.run>>;
+    let guardAttempt = 0;
+
+    for (;;) {
+      guardAttempt++;
+      const controller = new AbortController();
+      const guard = guardEnabled
+        ? new RuntimeGuard(this.permissionManager, approvedCommands)
+        : null;
+
+      result = await this.loopEngine.run(
+        callback,
+        task.id,
+        rootSpan,
+        task.projectId,
+        {
+          ...runOptions,
+          signal: controller.signal,
+          // Tool calls and thinking reach the chat window through here —
+          // and the guard reads the same stream on its way past.
+          onEvent: (harnessEvent) => {
+            task.events.push(harnessEvent);
+            if (task.events.length > MAX_TASK_EVENTS) {
+              task.events.splice(0, task.events.length - MAX_TASK_EVENTS);
+            }
+            broadcast("agent:activity", {
+              taskId: task.id,
+              sessionId: task.sessionId,
+              projectId: task.projectId,
+              harness: task.harness,
+              event: harnessEvent,
+            });
+
+            const trip = guard?.inspect(harnessEvent);
+            if (trip) {
+              log(
+                "warn",
+                "permissions",
+                `Halting the run: the agent tried to run \`${trip.command}\``,
+                {
+                  taskId: task.id,
+                  projectId: task.projectId,
+                  context: { patterns: trip.patterns },
+                },
+              );
+              controller.abort();
+            }
+          },
         },
-      },
-    );
+      );
+
+      const trip = guard?.tripped();
+      if (!trip) break;
+
+      // Somebody has to decide. Until they do, the agent sits in the
+      // Conference Room rather than looking like it is still working.
+      this.setPhase(task, "conference");
+      const permStart = Date.now();
+      const approved = await this.permissionManager.checkPermission(
+        task.sessionId,
+        trip.command,
+        `The agent stopped mid-task trying to run \`${trip.command}\` ` +
+          `(matched ${trip.patterns.join(", ")}). Approving re-runs the ` +
+          `task with that command allowed.`,
+        trip.command,
+        task.filesChanged,
+      );
+      recordSpan(
+        task.id,
+        `Halted on \`${trip.command}\``,
+        "permission",
+        rootSpan,
+        permStart,
+        approved ? "ok" : "failed",
+        { command: trip.command, patterns: trip.patterns, approved },
+      );
+
+      if (!approved) {
+        task.status = "failed";
+        task.output =
+          `Stopped: the agent tried to run \`${trip.command}\`, which needs ` +
+          `approval, and it was denied (or nobody answered in time).`;
+        task.error = "Destructive command denied";
+        task.completedAt = Date.now();
+        log("warn", "permissions", "Destructive command denied mid-run", {
+          taskId: task.id,
+          projectId: task.projectId,
+          context: { command: trip.command },
+        });
+        endSpan(rootSpan, "failed", { reason: "destructive command denied" });
+        this.setPhase(task, "break-room");
+        return task;
+      }
+
+      approvedCommands.add(trip.command);
+
+      // Bounded: an agent that keeps finding new destructive commands would
+      // otherwise ping-pong through the approval dialog forever.
+      if (guardAttempt >= MAX_GUARD_ATTEMPTS) {
+        log("warn", "permissions", "Giving up after repeated halts", {
+          taskId: task.id,
+          projectId: task.projectId,
+        });
+        break;
+      }
+      this.setPhase(task, classifyWorkPhase(task.prompt));
+    }
 
     task.status = result.success ? "completed" : "failed";
     task.completedAt = Date.now();
