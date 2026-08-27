@@ -59,6 +59,30 @@ const MAX_LOGS = 5000;
 
 let ready = false;
 
+/**
+ * Telemetry is observation. It must never be the reason a task fails.
+ *
+ * Every write here goes through this: if the database can't be opened or a
+ * statement blows up, the run keeps going and the problem is reported once
+ * on stderr rather than propagating into the orchestrator (which calls
+ * `log()` from inside the routing path, where a throw would lose the work).
+ */
+let warnedAboutDb = false;
+
+function safely(what: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    if (!warnedAboutDb) {
+      warnedAboutDb = true;
+      console.warn(
+        `[telemetry] ${what} failed; continuing without persistence:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+}
+
 function ensureTables(): void {
   if (ready) return;
   const db = getDb();
@@ -147,7 +171,6 @@ export function log(
     context?: unknown;
   },
 ): void {
-  ensureTables();
   const row: LogRow = {
     id: randomUUID(),
     ts: Date.now(),
@@ -159,24 +182,27 @@ export function log(
     context: serialise(ctx?.context),
   };
 
-  getDb()
-    .prepare(
-      `INSERT INTO logs (id, ts, level, source, message, task_id, project_id, context)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      row.id,
-      row.ts,
-      row.level,
-      row.source,
-      row.message,
-      row.taskId,
-      row.projectId,
-      row.context,
-    );
+  safely("log write", () => {
+    ensureTables();
+    getDb()
+      .prepare(
+        `INSERT INTO logs (id, ts, level, source, message, task_id, project_id, context)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.id,
+        row.ts,
+        row.level,
+        row.source,
+        row.message,
+        row.taskId,
+        row.projectId,
+        row.context,
+      );
+    prune();
+  });
 
   broadcast("log", row);
-  prune();
 }
 
 /** Opens a span. Returns its id so it can be closed and nested under. */
@@ -187,23 +213,25 @@ export function startSpan(
   parentId: string | null = null,
   detail?: unknown,
 ): string {
-  ensureTables();
   const id = randomUUID();
-  getDb()
-    .prepare(
-      `INSERT INTO spans (id, task_id, session_id, parent_id, name, type, started_at, detail)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      id,
-      taskId,
-      sessionForTask(taskId),
-      parentId,
-      name,
-      type,
-      Date.now(),
-      serialise(detail),
-    );
+  safely("span write", () => {
+    ensureTables();
+    getDb()
+      .prepare(
+        `INSERT INTO spans (id, task_id, session_id, parent_id, name, type, started_at, detail)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        taskId,
+        sessionForTask(taskId),
+        parentId,
+        name,
+        type,
+        Date.now(),
+        serialise(detail),
+      );
+  });
   return id;
 }
 
@@ -212,15 +240,17 @@ export function endSpan(
   outcome: SpanOutcome = "ok",
   detail?: unknown,
 ): void {
-  ensureTables();
   const extra = serialise(detail);
-  getDb()
-    .prepare(
-      `UPDATE spans
-         SET ended_at = ?, outcome = ?, detail = COALESCE(?, detail)
-       WHERE id = ?`,
-    )
-    .run(Date.now(), outcome, extra, id);
+  safely("span update", () => {
+    ensureTables();
+    getDb()
+      .prepare(
+        `UPDATE spans
+           SET ended_at = ?, outcome = ?, detail = COALESCE(?, detail)
+         WHERE id = ?`,
+      )
+      .run(Date.now(), outcome, extra, id);
+  });
 }
 
 /** Records an already-finished span in one call. */
@@ -233,24 +263,26 @@ export function recordSpan(
   outcome: SpanOutcome,
   detail?: unknown,
 ): void {
-  ensureTables();
-  getDb()
-    .prepare(
-      `INSERT INTO spans (id, task_id, session_id, parent_id, name, type, started_at, ended_at, outcome, detail)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      randomUUID(),
-      taskId,
-      sessionForTask(taskId),
-      parentId,
-      name,
-      type,
-      startedAt,
-      Date.now(),
-      outcome,
-      serialise(detail),
-    );
+  safely("span write", () => {
+    ensureTables();
+    getDb()
+      .prepare(
+        `INSERT INTO spans (id, task_id, session_id, parent_id, name, type, started_at, ended_at, outcome, detail)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        taskId,
+        sessionForTask(taskId),
+        parentId,
+        name,
+        type,
+        startedAt,
+        Date.now(),
+        outcome,
+        serialise(detail),
+      );
+  });
 }
 
 /** Drops the oldest logs and the spans of long-finished tasks. */
