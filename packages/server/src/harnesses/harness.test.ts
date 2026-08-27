@@ -38,19 +38,39 @@ describe("Harness interface contract", () => {
   });
 
   describe("execute", () => {
-    it("execute method exists and returns a Promise", () => {
-      const harnesses: Harness[] = [
-        new ClaudeCodeHarness(),
-        new OpenCodeHarness(),
-        new PiHarness(),
-      ];
+    it(
+      "execute method exists and returns a Promise",
+      async () => {
+        // Deliberately pointed at binaries that do not exist. This test only
+        // checks the shape of the interface, and it used to spawn the three
+        // real CLIs to do it — which meant a live model call per harness on
+        // a developer machine (slow, billed, non-deterministic) and three
+        // ENOENT spawn errors on CI. Both were the same mistake.
+        const harnesses: Harness[] = [
+          new ClaudeCodeHarness("/nonexistent/claude"),
+          new OpenCodeHarness("/nonexistent/opencode"),
+          new PiHarness("/nonexistent/pi"),
+        ];
 
-      harnesses.forEach((harness) => {
-        expect(typeof harness.execute).toBe("function");
-        const result = harness.execute("test", { cwd: process.cwd() });
-        expect(result).toBeInstanceOf(Promise);
-      });
-    });
+        // The promises are awaited rather than left floating: an unawaited
+        // rejection here killed the vitest worker *after* the test passed.
+        const results = await Promise.all(
+          harnesses.map((harness) => {
+            expect(typeof harness.execute).toBe("function");
+            const result = harness.execute("test", { cwd: process.cwd() });
+            expect(result).toBeInstanceOf(Promise);
+            return result;
+          }),
+        );
+
+        // A missing binary is reported as a failed run, never thrown.
+        for (const result of results) {
+          expect(result.success).toBe(false);
+          expect(result.exitCode).toBe(127);
+        }
+      },
+      20000,
+    );
   });
 
   describe("isCompatible", () => {

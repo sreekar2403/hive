@@ -97,6 +97,13 @@ export class LoopEngine {
       soul?: SoulRoutingGuidance;
       /** Conversation history for context. */
       conversationHistory?: Array<{ role: string; content: string }>;
+      /**
+       * Cancels the run. Forwarded to the harness so the child process is
+       * killed, and checked between iterations so a cancelled run never
+       * starts another one. The runtime permission guard uses this to stop
+       * an agent that reached for a destructive command.
+       */
+      signal?: AbortSignal;
     },
   ): Promise<LoopState> {
     const traced = Boolean(taskId);
@@ -107,6 +114,7 @@ export class LoopEngine {
     this.start(this.state.currentPrompt, options?.conversationHistory);
 
     while (this.state.iteration < this.state.maxIterations) {
+      if (options?.signal?.aborted) break;
       this.state.iteration++;
 
       // Build prompt with context
@@ -147,6 +155,7 @@ export class LoopEngine {
         model: options?.model || decision.model,
         agent: options?.agent || decision.agent,
         onEvent: options?.onEvent,
+        signal: options?.signal,
       });
       if (traced && taskId) {
         recordSpan(
@@ -204,6 +213,15 @@ export class LoopEngine {
         result.success,
         result.filesChanged,
       );
+
+      // A cancelled run is not a failure to retry — somebody stopped it on
+      // purpose. Report why and leave the loop.
+      if (result.aborted) {
+        this.state.previousOutput = result.output;
+        this.state.error = "Run cancelled";
+        if (iterationSpan) endSpan(iterationSpan, "failed", { aborted: true });
+        break;
+      }
 
       // Check if we're done
       if (result.success) {
@@ -284,9 +302,14 @@ export class LoopEngine {
     });
   }
 
+  /** Retry only on errors that look transient.
+   *
+   *  This used to bail out when `permission.enabled` was false, which tied
+   *  retry-on-transient-error to an unrelated feature: turning off the
+   *  approval gate silently disabled retries for timeouts and refused
+   *  connections too. The two have nothing to do with each other. */
   private shouldRetry(result: { success: boolean; stderr: string }): boolean {
     if (result.success) return true;
-    if (!this.config.permission.enabled) return false;
 
     const retryableErrors = [
       "syntax error",

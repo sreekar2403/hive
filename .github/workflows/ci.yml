@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push to the same branch supersedes the run already in flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      # No `prettier --check` step: the tree is not currently Prettier-clean
+      # (200 files differ), so the check would fail on day one. Run
+      # `pnpm format` across the repo in its own commit, then add it here.
+
+      # `pnpm test` is bare `vitest`, which watches — vitest reads CI=true
+      # (set by Actions) and runs once instead. Pinned explicitly so a local
+      # `act` run or a self-hosted runner without CI set can't hang the job.
+      - name: Test
+        run: pnpm exec vitest run
+        env:
+          CI: "true"

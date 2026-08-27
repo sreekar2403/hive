@@ -4,8 +4,19 @@ import * as fs from "fs";
 
 let db: Database.Database | null = null;
 
-export function initDb(): Database.Database {
-  if (db) return db;
+/**
+ * Where the database lives.
+ *
+ * Under vitest this is an in-memory database, per worker process. Tests used
+ * to write into the project's real `storage/cache/hive.db`: anything that
+ * called `telemetry.log()` — routing, most of all — left rows behind in the
+ * running app's data, and several worker processes opened the same WAL file
+ * at once. `HIVE_DB_PATH` overrides it explicitly for anything else that
+ * needs its own database.
+ */
+function databaseFile(): string {
+  if (process.env.HIVE_DB_PATH) return process.env.HIVE_DB_PATH;
+  if (process.env.VITEST) return ":memory:";
 
   const dataDir = path.join(
     __dirname,
@@ -17,11 +28,20 @@ export function initDb(): Database.Database {
     "cache",
   );
   fs.mkdirSync(dataDir, { recursive: true });
+  return path.join(dataDir, "hive.db");
+}
 
-  db = new Database(path.join(dataDir, "hive.db"), { readonly: false });
+export function initDb(): Database.Database {
+  if (db) return db;
 
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
+  const file = databaseFile();
+  db = new Database(file, { readonly: false });
+
+  // WAL is a file-level mode; an in-memory database has no file to journal.
+  if (file !== ":memory:") {
+    db.pragma("journal_mode = WAL");
+    db.pragma("synchronous = NORMAL");
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS workflows (

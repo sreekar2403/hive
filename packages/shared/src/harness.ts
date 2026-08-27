@@ -37,6 +37,23 @@ export interface HarnessEvent {
   at: number;
 }
 
+/**
+ * The part of `AbortSignal` a harness needs, declared structurally.
+ *
+ * This package compiles with `lib: ES2022` and no DOM or Node globals, so
+ * the real `AbortSignal` type isn't in scope here. A genuine AbortSignal
+ * satisfies this shape, which is all callers ever pass.
+ */
+export interface HarnessAbortSignal {
+  readonly aborted: boolean;
+  addEventListener(
+    type: "abort",
+    listener: () => void,
+    options?: { once?: boolean },
+  ): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
+
 export interface HarnessOptions {
   cwd?: string;
   env?: Record<string, string>;
@@ -51,6 +68,13 @@ export interface HarnessOptions {
   agent?: string;
   /** Called as the run happens, so the UI can show work in progress. */
   onEvent?: (event: HarnessEvent) => void;
+  /**
+   * Cancels the run. The child process is killed and the result comes back
+   * with `aborted: true`. This is what lets a watcher stop a harness the
+   * moment it does something it shouldn't — see the runtime permission
+   * guard in packages/server/src/runtimeGuard.ts.
+   */
+  signal?: HarnessAbortSignal;
 }
 
 export interface HarnessExecutionResult {
@@ -65,6 +89,8 @@ export interface HarnessExecutionResult {
   /** Everything that happened, in order. */
   events?: HarnessEvent[];
   usage?: HarnessUsage;
+  /** The run was cancelled through `options.signal`, not by the CLI itself. */
+  aborted?: boolean;
 }
 
 export interface Harness {

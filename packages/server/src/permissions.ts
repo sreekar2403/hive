@@ -11,6 +11,22 @@ function broadcastSafe(event: string, data: unknown): void {
   }
 }
 
+/** Cache of compiled pattern matchers — the config list is stable and
+ *  isDestructive() runs on every task. */
+const patternCache = new Map<string, RegExp>();
+
+function destructivePattern(pattern: string): RegExp {
+  const cached = patternCache.get(pattern);
+  if (cached) return cached;
+
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const leading = /^\w/.test(pattern) ? "\\b" : "";
+  const trailing = /\w$/.test(pattern) ? "\\b" : "";
+  const re = new RegExp(`${leading}${escaped}${trailing}`, "i");
+  patternCache.set(pattern, re);
+  return re;
+}
+
 export interface PermissionRequest {
   id: string;
   sessionId: string;
@@ -112,9 +128,21 @@ export class PermissionManager {
   }
 
   isDestructive(action: string): boolean {
-    const lowerAction = action.toLowerCase();
-    return this.config.permission.destructiveActions.some((pattern) =>
-      lowerAction.includes(pattern.toLowerCase()),
+    return this.matchDestructive(action).length > 0;
+  }
+
+  /** Which configured patterns this text trips, as whole words.
+   *
+   *  Plain substring matching made short patterns catastrophically
+   *  greedy: "rm" fired on "confirm", "platform" and "perform", so
+   *  everyday prompts stalled on the approval gate. Each pattern is
+   *  compiled to a regex whose edges only assert a word boundary where
+   *  the pattern itself ends in a word character, so flag-shaped
+   *  patterns ("push --force", "push -f") still match the way an
+   *  operator wrote them. */
+  matchDestructive(action: string): string[] {
+    return this.config.permission.destructiveActions.filter((pattern) =>
+      destructivePattern(pattern).test(action),
     );
   }
 

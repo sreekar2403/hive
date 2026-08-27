@@ -180,7 +180,8 @@
       "clean",
       "prune",
       "push -f"
-    ]
+    ],
+    "gateOn": "commands"
   },
   "loop": {
     "maxIterations": 8,
@@ -198,14 +199,18 @@
     }
   },
   "server": {
-    "port": 3001
+    "port": 3001,
+    "host": "127.0.0.1",
+    "authToken": "",
+    "allowedOrigins": [],
+    "authTokenSet": false
   },
   "storage": {
     "cacheDir": "./.hive-cache"
   },
   "office": {
-    "gridCols": 16,
-    "gridRows": 9,
+    "gridCols": 20,
+    "gridRows": 10,
     "tileSize": 64
   },
   "kanban": {

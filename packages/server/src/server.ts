@@ -34,6 +34,7 @@ import {
   recentMessages,
 } from "./chatSessions";
 import { registerTaskSession } from "./telemetry";
+import { assertBindingIsSafe, authMiddleware, corsOptions } from "./auth";
 
 // Serve static files from public directory (works in both dev and compiled modes)
 const publicDir = (() => {
@@ -59,8 +60,10 @@ class HiveServer {
   async start(): Promise<void> {
     const app = this.app;
 
-    app.use(cors());
+    app.use(cors(corsOptions(this.config)));
     app.use(express.json());
+    // Gates /api/* whenever a token is configured; /health stays open.
+    app.use(authMiddleware(this.config));
     app.use(express.static(publicDir));
 
     // Chat endpoint
@@ -340,6 +343,9 @@ class HiveServer {
     });
 
     const port = this.config.server.port;
+    const host = this.config.server.host;
+    // Fails fast rather than quietly exposing shell access to the network.
+    assertBindingIsSafe(this.config);
     this.server = http.createServer(app);
 
     // Without a listener here, a busy port surfaces as an unhandled 'error'
@@ -358,8 +364,11 @@ class HiveServer {
       process.exit(1);
     });
 
-    this.server.listen(port, () => {
-      console.log(`Hive server running on port ${port}`);
+    this.server.listen(port, host, () => {
+      const scope = this.config.server.authToken
+        ? "token required"
+        : "no token — loopback only";
+      console.log(`Hive server running on http://${host}:${port} (${scope})`);
       startCronRunner();
     });
   }

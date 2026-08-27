@@ -47,6 +47,38 @@ describe("PermissionManager", () => {
       });
     });
 
+    it("does not fire on words that merely contain a pattern", () => {
+      // "rm" used to match "confirm"/"platform"/"perform", so ordinary
+      // prompts stalled on the approval gate.
+      const ordinaryPrompts = [
+        "add a settings toggle for dark mode on the platform",
+        "please confirm the button styling looks right",
+        "improve performance of the dashboard",
+        "render the uniform grid",
+        "document the cleanup story",
+        "prunes are not a git command",
+      ];
+
+      ordinaryPrompts.forEach((prompt) => {
+        expect(permissionManager.isDestructive(prompt)).toBe(false);
+      });
+    });
+
+    it("still matches flag-shaped patterns", () => {
+      expect(permissionManager.isDestructive("git push -f origin main")).toBe(
+        true,
+      );
+      expect(permissionManager.isDestructive("git push --force")).toBe(true);
+      expect(permissionManager.isDestructive("rm -rf node_modules")).toBe(true);
+    });
+
+    it("reports which patterns matched", () => {
+      expect(permissionManager.matchDestructive("git reset --hard")).toEqual([
+        "reset",
+      ]);
+      expect(permissionManager.matchDestructive("npm install")).toEqual([]);
+    });
+
     it("is case insensitive", () => {
       expect(permissionManager.isDestructive("RM -RF file")).toBe(true);
       expect(permissionManager.isDestructive("DELETE file")).toBe(true);

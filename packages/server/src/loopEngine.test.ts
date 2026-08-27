@@ -55,15 +55,27 @@ describe("LoopEngine", () => {
       });
     });
 
-    it("does not retry on non-retryable errors when permissions disabled", () => {
+    it("retries transient errors regardless of the permission setting", () => {
+      // Retry behaviour and the approval gate are unrelated features; the
+      // engine used to disable retries entirely when permissions were off.
       const configNoPermissions = {
         ...config,
         permission: { ...config.permission, enabled: false },
       };
       const engineNoPerms = new LoopEngine(configNoPermissions, harnesses);
-      const result = { success: false, stderr: "some other error" };
-      const shouldRetry = (engineNoPerms as any).shouldRetry(result);
-      expect(shouldRetry).toBe(false);
+
+      expect(
+        (engineNoPerms as any).shouldRetry({
+          success: false,
+          stderr: "connection timeout occurred",
+        }),
+      ).toBe(true);
+      expect(
+        (engineNoPerms as any).shouldRetry({
+          success: false,
+          stderr: "some other error",
+        }),
+      ).toBe(false);
     });
 
     it("does not retry on non-retryable errors", () => {

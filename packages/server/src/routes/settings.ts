@@ -19,15 +19,18 @@ import {
  */
 const router: Router = Router();
 
-/** Config as sent to the client. No secrets exist in this shape any more. */
+/** Config as sent to the client, with the one remaining secret masked. */
 function toView(config: Config) {
+  const { authToken, ...server } = config.server;
   return {
     localModels: config.localModels,
     harnesses: config.harnesses,
     routing: config.routing,
     permission: config.permission,
     loop: config.loop,
-    server: config.server,
+    // The token itself never leaves the server; the client only learns
+    // whether one is set, which is what the Settings screen needs to say.
+    server: { ...server, authTokenSet: Boolean(authToken) },
     storage: config.storage,
     secondBrain: config.secondBrain,
     general: config.general,
