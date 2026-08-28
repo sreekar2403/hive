@@ -84,6 +84,28 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
     if (signal?.aborted) onAbort();
     else signal?.addEventListener("abort", onAbort, { once: true });
 
+    // The run's own deadline.
+    //
+    // `HarnessOptions.timeout` was declared and never honoured, which made
+    // `loop.timeoutMs` decorative: a CLI that stopped making progress ran
+    // until somebody noticed. That is not hypothetical — an opencode run
+    // waiting on a permission prompt it could never be answered sat for
+    // forty minutes against a configured five-minute budget.
+    //
+    // Reported distinctly from a cancellation. "We stopped this on purpose"
+    // and "this never finished" need different answers from the loop, and
+    // conflating them would have a timeout look like a user pressing stop.
+    let timedOut = false;
+    const budget = options?.timeout ?? 0;
+    const deadline =
+      budget > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            onAbort();
+          }, budget)
+        : null;
+    deadline?.unref?.();
+
     // These CLIs wait on stdin when they think a session is interactive.
     proc.stdin?.end();
 
@@ -103,6 +125,7 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
     const settle = (result: HarnessExecutionResult) => {
       if (settled) return;
       settled = true;
+      if (deadline) clearTimeout(deadline);
       signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
@@ -127,19 +150,30 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
         console.warn(hint);
       }
 
+      // A timeout has to say so. Left to speak for itself a killed child
+      // reports an empty stream and a non-zero exit, which reads as "the
+      // CLI failed for no reason" — the one diagnosis that sends whoever
+      // is reading it looking in the wrong place.
+      const timeoutNote = timedOut
+        ? `${command} did not finish within ${Math.round(budget / 1000)}s and was stopped.`
+        : "";
+
       settle({
         success: code === 0 && !aborted,
         exitCode: code ?? 1,
         stdout: cleanStdout,
-        stderr: cleanStderr,
+        stderr: timeoutNote
+          ? [timeoutNote, cleanStderr].filter(Boolean).join("\n")
+          : cleanStderr,
         // Parsed text first: the raw stream is a JSON envelope, and that
         // envelope reaching the chat window was a long-standing bug.
-        output: parsed || cleanStderr || cleanStdout,
+        output: parsed || timeoutNote || cleanStderr || cleanStdout,
         filesChanged: detectFilesChanged(cwd),
         duration: Date.now() - startTime,
         events: collected,
         usage: parser.usage(),
-        aborted,
+        aborted: aborted && !timedOut,
+        timedOut,
       });
     });
 

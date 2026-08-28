@@ -1237,6 +1237,11 @@ ${mail}`
   ): Promise<AgentTask[]> {
     const repoPath = this.workingTreeFor(projectId) ?? process.cwd();
     const createdTasks: AgentTask[] = [];
+    // Branch names are derived from the prompt, and sub-agents from one
+    // fan-out have prompts that open identically. `branchNameFor` keeps
+    // them apart by task id, but a tie here would cost an agent its
+    // isolation, so the batch also refuses to hand out a name twice.
+    const taken = new Set<string>();
 
     for (const taskDef of tasks) {
       const task = await this.createTask(
@@ -1247,7 +1252,12 @@ ${mail}`
         { model: taskDef.model ?? null, agent: taskDef.agent ?? null },
       );
 
-      const branch = branchNameFor(task.id, taskDef.prompt);
+      let branch = branchNameFor(task.id, taskDef.prompt);
+      for (let suffix = 2; taken.has(branch); suffix++) {
+        branch = `${branchNameFor(task.id, taskDef.prompt)}-${suffix}`;
+      }
+      taken.add(branch);
+
       const created = createWorktree(repoPath, branch);
       if (created.ok && created.worktree) {
         task.branchName = branch;

@@ -35,7 +35,11 @@ export class LoopEngine {
   /** Conversation history for context, prepended to the initial prompt. */
   private conversationHistory: Array<{ role: string; content: string }> = [];
 
-  constructor(config: Config, harnesses: Map<string, Harness>, router?: Router) {
+  constructor(
+    config: Config,
+    harnesses: Map<string, Harness>,
+    router?: Router,
+  ) {
     this.config = config;
     this.harnesses = harnesses;
     this.router = router || new Router(config, harnesses);
@@ -49,7 +53,10 @@ export class LoopEngine {
     };
   }
 
-  start(initialPrompt: string, conversationHistory?: Array<{ role: string; content: string }>): LoopState {
+  start(
+    initialPrompt: string,
+    conversationHistory?: Array<{ role: string; content: string }>,
+  ): LoopState {
     this.conversationHistory = conversationHistory ?? [];
     this.state = {
       ...this.state,
@@ -156,6 +163,11 @@ export class LoopEngine {
         agent: options?.agent || decision.agent,
         onEvent: options?.onEvent,
         signal: options?.signal,
+        // `loop.timeoutMs` was config nobody passed on, so a CLI that
+        // stopped making progress ran until a person noticed. Per
+        // iteration, not per task: each attempt gets the full budget,
+        // which is what "how long may one harness run take" means.
+        timeout: this.config.loop.timeoutMs,
       });
       if (traced && taskId) {
         recordSpan(
@@ -202,7 +214,11 @@ export class LoopEngine {
           result.success
             ? `Finished in ${result.duration}ms`
             : `Exited with code ${result.exitCode}`,
-          { taskId, projectId, context: { stderr: result.stderr?.slice(0, 400) } },
+          {
+            taskId,
+            projectId,
+            context: { stderr: result.stderr?.slice(0, 400) },
+          },
         );
       }
 
@@ -213,6 +229,18 @@ export class LoopEngine {
         result.success,
         result.filesChanged,
       );
+
+      // A run that ran out of time is a failure, and a retryable one: the
+      // next attempt may be the one that finishes. It must not fall into
+      // the cancellation branch below, which stops the loop outright.
+      if (result.timedOut) {
+        this.state.previousOutput = result.output;
+        this.state.error = result.stderr || "The harness ran out of time";
+        if (iterationSpan) endSpan(iterationSpan, "failed", { timedOut: true });
+        if (this.state.iteration >= this.state.maxIterations) break;
+        this.state.currentPrompt = this.buildRetryPrompt(result);
+        continue;
+      }
 
       // A cancelled run is not a failure to retry — somebody stopped it on
       // purpose. Report why and leave the loop.

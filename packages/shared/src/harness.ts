@@ -7,13 +7,7 @@
  * UI has one shape to render regardless of who is running.
  */
 export type HarnessEventType =
-  | "status"
-  | "text"
-  | "thinking"
-  | "tool"
-  | "tool-result"
-  | "usage"
-  | "error";
+  "status" | "text" | "thinking" | "tool" | "tool-result" | "usage" | "error";
 
 export interface HarnessUsage {
   inputTokens?: number;
@@ -91,6 +85,15 @@ export interface HarnessExecutionResult {
   usage?: HarnessUsage;
   /** The run was cancelled through `options.signal`, not by the CLI itself. */
   aborted?: boolean;
+  /**
+   * The run hit `options.timeout` and was killed.
+   *
+   * Kept separate from `aborted`, which means a person or a guard stopped
+   * this deliberately. A deadline is not that, and the loop needs to tell
+   * them apart: one is a decision to respect, the other is a failure to
+   * report and possibly retry.
+   */
+  timedOut?: boolean;
 }
 
 export interface Harness {

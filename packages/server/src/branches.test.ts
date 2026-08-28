@@ -23,24 +23,49 @@ function fakeGit(
 describe("branchNameFor", () => {
   it("slugs a prompt into a legal branch name", () => {
     expect(branchNameFor("abcdef1234", "Add the login form")).toBe(
-      "hive/add-the-login-form-abcdef12",
+      "hive/add-the-login-form-cdef1234",
     );
   });
 
   it("drops characters git will not accept", () => {
     const name = branchNameFor("abcdef1234", "fix: the ~thing~ (again)!");
-    expect(name).toBe("hive/fix-the-thing-again-abcdef12");
-    expect(name).not.toMatch(/[~^:?*[\]\\ ]/);
+    expect(name).toBe("hive/fix-the-thing-again-cdef1234");
+    expect(name).not.toMatch(/[~^:?*[\]\ ]/);
   });
 
   it("falls back to the task id when there is nothing to slug", () => {
-    expect(branchNameFor("abcdef1234", "!!!")).toBe("hive/task-abcdef12");
-    expect(branchNameFor("abcdef1234")).toBe("hive/task-abcdef12");
+    expect(branchNameFor("abcdef1234", "!!!")).toBe("hive/task-cdef1234");
+    expect(branchNameFor("abcdef1234")).toBe("hive/task-cdef1234");
   });
 
   it("keeps long prompts short enough to be usable", () => {
     const name = branchNameFor("abcdef1234", "a".repeat(200));
     expect(name.length).toBeLessThanOrEqual(50);
+  });
+
+  /*
+   * The regression: ids are minted as `task_<epoch-ms>_<random>`, whose
+   * first eight characters are the constant "task_178" for years. Taking
+   * the head gave two sub-agents of one fan-out the same branch, and the
+   * second lost its worktree to "a worktree already exists".
+   */
+  it("distinguishes tasks whose prompts open identically", () => {
+    const prompt =
+      "Read the PRD file in the current working directory, then create a comprehensive PRD";
+    const first = branchNameFor("task_1787899181000_a1b2c3", prompt);
+    const second = branchNameFor("task_1787899181004_z9y8x7", prompt);
+
+    expect(first).not.toBe(second);
+  });
+
+  it("uses the distinctive tail of a timestamped id", () => {
+    expect(branchNameFor("task_1787899181000_a1b2c3", "ship it")).toBe(
+      "hive/ship-it-a1b2c3",
+    );
+  });
+
+  it("still produces something usable for a short id", () => {
+    expect(branchNameFor("x", "ship it")).toBe("hive/ship-it-x");
   });
 });
 

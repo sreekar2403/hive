@@ -85,3 +85,74 @@ describe("runHarness with a missing binary", () => {
     expect(result.output).toContain("definitely-not-a-real-binary-xyz");
   }, 15000);
 });
+
+/**
+ * `HarnessOptions.timeout` was declared and never honoured, so
+ * `loop.timeoutMs` was decorative and a stuck CLI ran until somebody
+ * noticed. These pin that it is enforced, and that a deadline is reported
+ * as its own thing rather than as a cancellation.
+ */
+describe("runHarness deadline", () => {
+  it("kills a child that outstays its budget", async () => {
+    const result = await runHarness({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => console.log('finished'), 60000)"],
+      parser: new LineTextParser(),
+      options: { timeout: 300 },
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.stdout).not.toContain("finished");
+  }, 15000);
+
+  it("says a timeout happened rather than failing silently", async () => {
+    const result = await runHarness({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => {}, 60000)"],
+      parser: new LineTextParser(),
+      options: { timeout: 300 },
+    });
+
+    expect(result.stderr).toContain("did not finish within");
+    expect(result.output).toContain("did not finish within");
+  }, 15000);
+
+  it("does not report a deadline as a cancellation", async () => {
+    // The loop stops outright on `aborted` — somebody chose to stop this.
+    // A timeout is a failure to retry, so it must not land in that branch.
+    const result = await runHarness({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => {}, 60000)"],
+      parser: new LineTextParser(),
+      options: { timeout: 300 },
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(result.aborted).toBe(false);
+  }, 15000);
+
+  it("leaves a run that finishes in time alone", async () => {
+    const result = await runHarness({
+      command: process.execPath,
+      args: ["-e", "console.log('quick')"],
+      parser: new LineTextParser(),
+      options: { timeout: 10000 },
+    });
+
+    expect(result.timedOut).toBe(false);
+    expect(result.success).toBe(true);
+    expect(result.stdout).toContain("quick");
+  }, 15000);
+
+  it("runs without a deadline when none is given", async () => {
+    const result = await runHarness({
+      command: process.execPath,
+      args: ["-e", "console.log('unbounded')"],
+      parser: new LineTextParser(),
+    });
+
+    expect(result.timedOut).toBe(false);
+    expect(result.success).toBe(true);
+  }, 15000);
+});
