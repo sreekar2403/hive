@@ -7,6 +7,7 @@ import type {
 import { detectFilesChanged } from "../gitUtils";
 import { stripAnsi } from "../textUtils";
 import type { StreamParser } from "./eventStream";
+import { resolveWindowsShim } from "./winShim";
 
 /**
  * The part of running a CLI harness that is the same for all of them:
@@ -45,7 +46,12 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
       }
     };
 
-    const proc = spawn(command, args, {
+    // On Windows the CLI is usually an npm `.cmd` shim, and running one
+    // routes the arguments through cmd.exe, which cuts every argument at
+    // its first newline. Prompts here are always multi-line. See winShim.ts.
+    const exe = resolveWindowsShim(command);
+
+    const proc = spawn(exe.command, [...exe.prefixArgs, ...args], {
       cwd,
       env: { ...process.env, ...options?.env },
       stdio: ["pipe", "pipe", "pipe"],
@@ -170,7 +176,10 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
 export function probeAvailable(command: string): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const proc = spawn(command, ["--version"], { timeout: 3000 });
+      const exe = resolveWindowsShim(command);
+      const proc = spawn(exe.command, [...exe.prefixArgs, "--version"], {
+        timeout: 3000,
+      });
       proc.on("error", () => resolve(false));
       proc.on("close", (code) => resolve(code === 0));
     } catch {
@@ -213,7 +222,8 @@ export async function probeHarnessHealth(
 
     let proc: ReturnType<typeof spawn>;
     try {
-      proc = spawn(command, [...args, testPrompt], {
+      const exe = resolveWindowsShim(command);
+      proc = spawn(exe.command, [...exe.prefixArgs, ...args, testPrompt], {
         cwd,
         env: { ...process.env, NO_COLOR: "1" },
         stdio: ["pipe", "pipe", "pipe"],
@@ -249,7 +259,8 @@ export async function probeHarnessHealth(
           clearTimeout(timer);
           finish({
             healthy: false,
-            error: "Parser produced a malformed event (missing type or timestamp)",
+            error:
+              "Parser produced a malformed event (missing type or timestamp)",
             eventsParsed,
           });
           return;
