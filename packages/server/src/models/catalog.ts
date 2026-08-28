@@ -481,13 +481,33 @@ async function fromOllama(baseUrl: string): Promise<CatalogSource> {
 /** LM Studio speaks the OpenAI models endpoint. */
 async function fromLmStudio(baseUrl: string): Promise<CatalogSource> {
   const base = baseUrl || "http://localhost:1234";
-  const res = await getJson(`${base}/v1/models`);
+
+  // LM Studio's own API rather than its OpenAI-compatible one, because
+  // `/v1/models` returns nothing but ids while `/api/v0/models` states each
+  // model's `type`: "vlm" for a vision model, "llm" for text-only,
+  // "embeddings" for something that cannot hold a conversation at all.
+  // That is the difference between a picker that knows what it is offering
+  // and one that offers an embedding model as an agent.
+  const native = await getJson(`${base}/api/v0/models`);
+  const res = native.ok ? native : await getJson(`${base}/v1/models`);
   const models: ModelOption[] = [];
 
   if (res.ok && Array.isArray(res.data?.data)) {
     for (const entry of res.data.data) {
       if (!entry?.id) continue;
-      models.push(option("*", "lmstudio", entry.id));
+      const type = typeof entry.type === "string" ? entry.type : null;
+
+      // An embedding model is not a chat model. Listing it is offering a
+      // way to fail, so it is left out rather than shown and explained.
+      if (type === "embeddings") continue;
+
+      models.push(
+        option("*", "lmstudio", entry.id, {
+          // Only the native endpoint can answer this; through the fallback
+          // every model is an honest `null` rather than a guess.
+          vision: type ? type === "vlm" : null,
+        }),
+      );
     }
   }
 

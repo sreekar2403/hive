@@ -105,7 +105,10 @@ describe("inlineForDirectApi", () => {
   it("hands images over as base64 rather than as a path", () => {
     const result = inlineForDirectApi([png], read);
     expect(result.images).toEqual([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64"),
+      {
+        data: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64"),
+        mimeType: "image/png",
+      },
     ]);
     expect(result.text).toBe("");
   });

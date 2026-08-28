@@ -67,7 +67,10 @@ export class OllamaDirectHarness implements Harness {
     const request: OllamaGenerateRequest = {
       model,
       prompt: `${attached.text}${prompt}`,
-      ...(attached.images.length ? { images: attached.images } : {}),
+      // Ollama wants bare base64, no data: prefix and no type.
+      ...(attached.images.length
+        ? { images: attached.images.map((image) => image.data) }
+        : {}),
       stream: false,
       options: {
         temperature: 0.7,

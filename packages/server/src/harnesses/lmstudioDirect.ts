@@ -7,9 +7,21 @@ import {
 } from "@hive/shared/harness";
 import { inlineForDirectApi } from "./attachments";
 
+/**
+ * OpenAI's content-part shape, which LM Studio implements. A plain string
+ * is still valid and is what a text-only turn sends; the array form is how
+ * an image reaches a vision model.
+ */
+type LMStudioContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >;
+
 interface LMStudioChatRequest {
   model: string;
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{ role: string; content: LMStudioContent }>;
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
@@ -60,23 +72,35 @@ export class LMStudioDirectHarness implements Harness {
     const startTime = Date.now();
 
     // Same situation as ollamaDirect: an HTTP model with no filesystem, so
-    // text is inlined rather than pointed at. Images are decoded but this
-    // request shape carries plain string content, so they are named as
-    // unavailable rather than silently dropped.
+    // an attached file is inlined rather than pointed at.
     const attached = inlineForDirectApi(options?.attachments, (p) =>
       fs.readFileSync(p),
     );
-    const imageNote = attached.images.length
-      ? `[${attached.images.length} attached image(s) cannot be sent to this harness.]
+    const text = `${attached.text}${prompt}`;
 
-`
-      : "";
+    // Images go as OpenAI content parts, which LM Studio implements. An
+    // earlier version declared them unsendable and pasted a note saying so
+    // into the prompt — which was wrong twice over: the transport supports
+    // them, and half this user's LM Studio models are vision models.
+    //
+    // Sent as data: URLs. There is no file for the server to fetch — it may
+    // not even be on this machine — so a path or an http URL would resolve
+    // to nothing at the far end.
+    const content: LMStudioContent = attached.images.length
+      ? [
+          { type: "text" as const, text },
+          ...attached.images.map((image) => ({
+            type: "image_url" as const,
+            image_url: {
+              url: `data:${image.mimeType};base64,${image.data}`,
+            },
+          })),
+        ]
+      : text;
 
     const request: LMStudioChatRequest = {
       model,
-      messages: [
-        { role: "user", content: `${attached.text}${imageNote}${prompt}` },
-      ],
+      messages: [{ role: "user", content }],
       temperature: 0.7,
       max_tokens: 4096,
       stream: false,

@@ -102,11 +102,21 @@ export function splitForCodex(attachments: HarnessAttachment[] | undefined): {
  */
 const INLINE_TEXT_LIMIT = 20000;
 
+export interface DirectImage {
+  /** Base64, with no data: prefix — that is Ollama's `images` field. */
+  data: string;
+  /**
+   * The real type, carried so a caller that needs a data: URL can build a
+   * truthful one. Labelling a JPEG as image/png is the kind of thing a
+   * strict endpoint rejects and a lenient one silently mis-decodes.
+   */
+  mimeType: string;
+}
+
 export interface DirectAttachments {
   /** Prepended to the prompt: file contents, or a note about what wasn't. */
   text: string;
-  /** Base64 image data, no data: prefix — Ollama's `images` field. */
-  images: string[];
+  images: DirectImage[];
 }
 
 /**
@@ -128,7 +138,7 @@ export function inlineForDirectApi(
 ): DirectAttachments {
   if (!attachments?.length) return { text: "", images: [] };
 
-  const images: string[] = [];
+  const images: DirectImage[] = [];
   const blocks: string[] = [];
 
   for (const attachment of attachments) {
@@ -143,7 +153,10 @@ export function inlineForDirectApi(
     }
 
     if (isImage(attachment)) {
-      images.push(buffer.toString("base64"));
+      images.push({
+        data: buffer.toString("base64"),
+        mimeType: attachment.mimeType || guessImageType(attachment.name),
+      });
       continue;
     }
 
@@ -163,4 +176,13 @@ export function inlineForDirectApi(
     : "";
 
   return { text, images };
+}
+
+/** Falls back to the extension when the browser sent no type. */
+function guessImageType(name: string): string {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "gif") return "image/gif";
+  if (ext === "webp") return "image/webp";
+  return "image/png";
 }
