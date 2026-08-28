@@ -57,7 +57,7 @@ export function harnessSpecs(config?: Config): HarnessSpec[] {
     {
       harness: "opencode",
       command: path("opencode", "opencode"),
-      args: ["run", "--pure", "--format", "json", "--thinking"],
+      args: ["run", "--pure", "--auto", "--format", "json", "--thinking"],
       parser: () => new OpenCodeParser(),
     },
     {
