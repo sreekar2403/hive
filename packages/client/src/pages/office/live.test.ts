@@ -31,7 +31,11 @@ describe("mapHarnessEvent", () => {
   });
 
   it("maps error events with clipped text", () => {
-    const v = mapHarnessEvent({ type: "error", text: "boom ".repeat(30), at: 0 });
+    const v = mapHarnessEvent({
+      type: "error",
+      text: "boom ".repeat(30),
+      at: 0,
+    });
     expect(v?.kind).toBe("error");
     expect((v as { label: string }).label.length).toBeLessThanOrEqual(43);
   });
@@ -44,7 +48,9 @@ describe("mapHarnessEvent", () => {
 
   it("ignores usage, status and tool-result events", () => {
     expect(mapHarnessEvent({ type: "usage", at: 0 })).toBeNull();
-    expect(mapHarnessEvent({ type: "status", text: "running", at: 0 })).toBeNull();
+    expect(
+      mapHarnessEvent({ type: "status", text: "running", at: 0 }),
+    ).toBeNull();
     expect(
       mapHarnessEvent({ type: "tool-result", callId: "x", at: 0 }),
     ).toBeNull();

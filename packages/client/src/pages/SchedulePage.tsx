@@ -193,7 +193,9 @@ export function SchedulePage() {
                 key={s.id}
                 className={cn(
                   "relative overflow-hidden p-3.5 pl-4 cursor-pointer transition-colors",
-                  selectedId === s.id ? "border-line-strong" : "hover:border-line-strong",
+                  selectedId === s.id
+                    ? "border-line-strong"
+                    : "hover:border-line-strong",
                   s.status === "paused" && "opacity-60",
                 )}
                 onClick={() => setSelectedId(s.id)}
@@ -240,7 +242,9 @@ export function SchedulePage() {
                       size="sm"
                       onClick={() => void toggle(s)}
                       aria-label={
-                        s.status === "active" ? `Pause ${s.name}` : `Resume ${s.name}`
+                        s.status === "active"
+                          ? `Pause ${s.name}`
+                          : `Resume ${s.name}`
                       }
                     >
                       {s.status === "active" ? (
@@ -276,10 +280,20 @@ export function SchedulePage() {
             ) : (
               <ul className="divide-y divide-line">
                 {runs.map((r) => (
-                  <li key={r.id} className="flex items-center gap-2.5 px-4 py-2.5">
-                    <StatusDot tone={r.status === "success" ? "ok" : "danger"} />
-                    <span className="text-[12px] text-ink flex-1">{r.status}</span>
-                    <span className="font-mono text-[11px] text-faint" data-numeric>
+                  <li
+                    key={r.id}
+                    className="flex items-center gap-2.5 px-4 py-2.5"
+                  >
+                    <StatusDot
+                      tone={r.status === "success" ? "ok" : "danger"}
+                    />
+                    <span className="text-[12px] text-ink flex-1">
+                      {r.status}
+                    </span>
+                    <span
+                      className="font-mono text-[11px] text-faint"
+                      data-numeric
+                    >
                       {formatWhen(r.startedAt)}
                     </span>
                   </li>
@@ -347,7 +361,10 @@ function CalendarView({
     <Card>
       <CardHeader
         eyebrow="Upcoming"
-        title={month.toLocaleString("default", { month: "long", year: "numeric" })}
+        title={month.toLocaleString("default", {
+          month: "long",
+          year: "numeric",
+        })}
         actions={
           <div className="flex items-center gap-1">
             <IconButton
@@ -376,7 +393,10 @@ function CalendarView({
       </div>
       <div className="grid grid-cols-7">
         {Array.from({ length: startPad }).map((_, i) => (
-          <div key={`pad-${i}`} className="min-h-24 border-r border-b border-line" />
+          <div
+            key={`pad-${i}`}
+            className="min-h-24 border-r border-b border-line"
+          />
         ))}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const day = i + 1;
@@ -463,7 +483,9 @@ function ScheduleForm({
       onSaved();
     } catch (err) {
       // The server validates the cron expression and explains what's wrong.
-      setError(err instanceof Error ? err.message : "Could not save the schedule");
+      setError(
+        err instanceof Error ? err.message : "Could not save the schedule",
+      );
     } finally {
       setSaving(false);
     }
@@ -477,7 +499,11 @@ function ScheduleForm({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()} disabled={!name || saving}>
+          <Button
+            variant="primary"
+            onClick={() => void save()}
+            disabled={!name || saving}
+          >
             {saving ? "Saving…" : schedule ? "Save changes" : "Create schedule"}
           </Button>
         </>

@@ -46,10 +46,20 @@ export interface ActivityEvent {
   at: number;
 }
 
+/** An uploaded file, as the composer and the server both refer to it. */
+export interface SentAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** Files sent with a user message, so they survive a reload. */
+  attachments?: SentAttachment[];
   harness?: string;
   model?: string;
   status?: "completed" | "failed";
@@ -99,7 +109,11 @@ interface ChatContextValue {
   newSession: () => ChatSession;
   deleteSession: (id: string) => void;
   renameSession: (id: string, name: string) => void;
-  send: (text: string, sessionId?: string) => Promise<void>;
+  send: (
+    text: string,
+    sessionId?: string,
+    attachments?: SentAttachment[],
+  ) => Promise<void>;
   isSending: (sessionId: string) => boolean;
   /** How many sessions have a task in flight, across every project. */
   busyCount: number;
@@ -342,9 +356,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   /* --------------------------- sending ----------------------------- */
 
   const send = useCallback(
-    async (text: string, sessionId?: string) => {
+    async (
+      text: string,
+      sessionId?: string,
+      attachments: SentAttachment[] = [],
+    ) => {
       const prompt = text.trim();
-      if (!prompt) return;
+      // An attachment on its own is a message: "what is wrong here?" with a
+      // screenshot is a complete thought, and refusing it would force
+      // people to type a word they do not mean.
+      if (!prompt && attachments.length === 0) return;
 
       // Resolve the target session up front: the reply is applied to this
       // id no matter which session (or page) is on screen when it lands.
@@ -390,12 +411,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         role: "user",
         content: prompt,
         createdAt: Date.now(),
+        attachments,
       };
 
       patchSession(targetId, (s) => ({
         ...s,
         projectId,
-        name: s.messages.length === 0 ? prompt.slice(0, 48) : s.name,
+        name:
+          s.messages.length === 0
+            ? (prompt || attachments[0]?.name || "New chat").slice(0, 48)
+            : s.name,
         messages: [...s.messages, userMsg],
         updatedAt: Date.now(),
       }));
@@ -421,6 +446,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           harness: harness || undefined,
           model: model || undefined,
           projectId: projectId ?? undefined,
+          attachments: attachments.length
+            ? attachments.map((a) => a.id)
+            : undefined,
         });
 
         // Prefer the server's own trail: it is complete even if an SSE

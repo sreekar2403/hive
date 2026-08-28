@@ -51,7 +51,10 @@ describe("ApprovalsStore", () => {
     const f = vi.fn((url: RequestInfo | URL) => {
       const path = String(url);
       if (path.endsWith("/api/permissions")) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([REQ_A]) });
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([REQ_A]),
+        });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     });
@@ -67,7 +70,10 @@ describe("ApprovalsStore", () => {
     const f = vi.fn((url: RequestInfo | URL) => {
       const path = String(url);
       if (path.endsWith("/api/permissions")) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([REQ_A]) });
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([REQ_A]),
+        });
       }
       return Promise.reject(new Error("network down"));
     });

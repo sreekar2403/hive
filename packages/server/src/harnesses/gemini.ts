@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { GeminiParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { attachmentPreamble } from "./attachments";
 
 /**
  * Google's Gemini CLI.
@@ -42,7 +43,7 @@ export class GeminiHarness implements Harness {
 
     // -p takes the prompt as its value, unlike the CLIs that accept it as a
     // trailing positional.
-    args.push("-p", prompt);
+    args.push("-p", `${attachmentPreamble(options?.attachments)}${prompt}`);
 
     return runHarness({
       command: this._path,

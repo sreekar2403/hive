@@ -54,7 +54,10 @@ export function KeysPane({
           )}
         </div>
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-faint" aria-hidden="true" />
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-faint"
+            aria-hidden="true"
+          />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -75,7 +78,9 @@ export function KeysPane({
             className="py-10 px-4"
           />
         ) : loading ? (
-          <div className="px-3 py-6 text-center text-[13px] text-muted">Loading…</div>
+          <div className="px-3 py-6 text-center text-[13px] text-muted">
+            Loading…
+          </div>
         ) : entries.length === 0 ? (
           <EmptyState
             icon={<KeyRound />}
@@ -84,7 +89,9 @@ export function KeysPane({
             className="py-10 px-4"
           />
         ) : filtered.length === 0 ? (
-          <div className="px-3 py-6 text-center text-[13px] text-muted">No matching keys</div>
+          <div className="px-3 py-6 text-center text-[13px] text-muted">
+            No matching keys
+          </div>
         ) : (
           <ul className="p-1.5 space-y-0.5">
             {filtered.map((entry) => {
@@ -102,7 +109,9 @@ export function KeysPane({
                         : "border-transparent hover:bg-surface-2",
                     )}
                   >
-                    <div className="font-mono text-xs text-ink truncate">{entry.key}</div>
+                    <div className="font-mono text-xs text-ink truncate">
+                      {entry.key}
+                    </div>
                     <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
                       <span data-numeric>{formatBytes(entry.size)}</span>
                       <span>{formatRelativeTime(entry.updatedAt)}</span>

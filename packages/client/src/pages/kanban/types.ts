@@ -32,6 +32,17 @@ export interface KanbanTask {
   model?: string | null;
   /** JSON array of repo-relative paths, as stored. Use TaskDetail.files. */
   files?: string | null;
+  /**
+   * Short label. A fan-out sub-agent's `prompt` is its full briefing — its
+   * own instruction plus what its siblings are doing plus the original
+   * request — so the card shows this instead where it is set.
+   */
+  title?: string | null;
+  /**
+   * The request this card was split out of, when a fan-out produced it.
+   * Null for an ordinary card, which is every card made by hand.
+   */
+  parent_id?: string | null;
   iterations: number;
   files_changed: number;
   output: string | null;

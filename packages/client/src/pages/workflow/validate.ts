@@ -15,7 +15,10 @@ export interface ValidationIssue {
  * builder can surface actionable messages as you edit, not just a red
  * outline.
  */
-export function validateWorkflow(nodes: HiveNode[], edges: HiveEdge[]): ValidationIssue[] {
+export function validateWorkflow(
+  nodes: HiveNode[],
+  edges: HiveEdge[],
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (nodes.length === 0) return issues;
 
@@ -34,8 +37,10 @@ export function validateWorkflow(nodes: HiveNode[], edges: HiveEdge[]): Validati
     outgoing.set(n.id, 0);
   }
   for (const e of edges) {
-    if (incoming.has(e.target)) incoming.set(e.target, incoming.get(e.target)! + 1);
-    if (outgoing.has(e.source)) outgoing.set(e.source, outgoing.get(e.source)! + 1);
+    if (incoming.has(e.target))
+      incoming.set(e.target, incoming.get(e.target)! + 1);
+    if (outgoing.has(e.source))
+      outgoing.set(e.source, outgoing.get(e.source)! + 1);
   }
 
   for (const n of nodes) {

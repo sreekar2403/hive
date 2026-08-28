@@ -90,3 +90,7 @@ docs/superpowers/
 /vitest.config.js.map
 /vitest.config.d.ts
 /vitest.config.d.ts.map
+
+# Second Brain memory, written by agent runs against this repo as a project.
+# Per-machine learning state, not source — and it changes on every run.
+mem/

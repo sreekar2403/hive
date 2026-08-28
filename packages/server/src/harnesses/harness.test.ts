@@ -6,27 +6,22 @@ import type { Harness } from "@hive/shared/harness";
 
 describe("Harness interface contract", () => {
   describe("isAvailable", () => {
-    it(
-      "returns a Promise<boolean>",
-      async () => {
-        const harnesses: Harness[] = [
-          new ClaudeCodeHarness(),
-          new OpenCodeHarness(),
-          new PiHarness(),
-        ];
+    it("returns a Promise<boolean>", async () => {
+      const harnesses: Harness[] = [
+        new ClaudeCodeHarness(),
+        new OpenCodeHarness(),
+        new PiHarness(),
+      ];
 
-        for (const harness of harnesses) {
-          const result = harness.isAvailable();
-          expect(result).toBeInstanceOf(Promise);
-          const isAvailable = await result;
-          expect(typeof isAvailable).toBe("boolean");
-        }
-      },
-      // Spawns three real CLIs sequentially to probe availability; each can
-      // take a few seconds on a cold Windows shell, so the default 5s budget
-      // is too tight.
-      20000,
-    );
+      for (const harness of harnesses) {
+        const result = harness.isAvailable();
+        expect(result).toBeInstanceOf(Promise);
+        const isAvailable = await result;
+        expect(typeof isAvailable).toBe("boolean");
+      }
+    }, // take a few seconds on a cold Windows shell, so the default 5s budget // Spawns three real CLIs sequentially to probe availability; each can
+    // is too tight.
+    20000);
 
     it("handles gracefully when command not found", async () => {
       // Use a non-existent path to test error handling
@@ -38,39 +33,35 @@ describe("Harness interface contract", () => {
   });
 
   describe("execute", () => {
-    it(
-      "execute method exists and returns a Promise",
-      async () => {
-        // Deliberately pointed at binaries that do not exist. This test only
-        // checks the shape of the interface, and it used to spawn the three
-        // real CLIs to do it — which meant a live model call per harness on
-        // a developer machine (slow, billed, non-deterministic) and three
-        // ENOENT spawn errors on CI. Both were the same mistake.
-        const harnesses: Harness[] = [
-          new ClaudeCodeHarness("/nonexistent/claude"),
-          new OpenCodeHarness("/nonexistent/opencode"),
-          new PiHarness("/nonexistent/pi"),
-        ];
+    it("execute method exists and returns a Promise", async () => {
+      // Deliberately pointed at binaries that do not exist. This test only
+      // checks the shape of the interface, and it used to spawn the three
+      // real CLIs to do it — which meant a live model call per harness on
+      // a developer machine (slow, billed, non-deterministic) and three
+      // ENOENT spawn errors on CI. Both were the same mistake.
+      const harnesses: Harness[] = [
+        new ClaudeCodeHarness("/nonexistent/claude"),
+        new OpenCodeHarness("/nonexistent/opencode"),
+        new PiHarness("/nonexistent/pi"),
+      ];
 
-        // The promises are awaited rather than left floating: an unawaited
-        // rejection here killed the vitest worker *after* the test passed.
-        const results = await Promise.all(
-          harnesses.map((harness) => {
-            expect(typeof harness.execute).toBe("function");
-            const result = harness.execute("test", { cwd: process.cwd() });
-            expect(result).toBeInstanceOf(Promise);
-            return result;
-          }),
-        );
+      // The promises are awaited rather than left floating: an unawaited
+      // rejection here killed the vitest worker *after* the test passed.
+      const results = await Promise.all(
+        harnesses.map((harness) => {
+          expect(typeof harness.execute).toBe("function");
+          const result = harness.execute("test", { cwd: process.cwd() });
+          expect(result).toBeInstanceOf(Promise);
+          return result;
+        }),
+      );
 
-        // A missing binary is reported as a failed run, never thrown.
-        for (const result of results) {
-          expect(result.success).toBe(false);
-          expect(result.exitCode).toBe(127);
-        }
-      },
-      20000,
-    );
+      // A missing binary is reported as a failed run, never thrown.
+      for (const result of results) {
+        expect(result.success).toBe(false);
+        expect(result.exitCode).toBe(127);
+      }
+    }, 20000);
   });
 
   describe("isCompatible", () => {

@@ -10,18 +10,13 @@ import { getCatalog, resolveModelRef } from "./models/catalog";
 import { describeHarnesses, harnessProfile } from "./harnesses/profiles";
 import type { SoulRoutingGuidance } from "./secondBrain/starterSoul";
 import { log } from "./telemetry";
+import { extractJsonObject } from "./llmJson";
 
 /** RoutingDecision enriched with the layer that decided and how sure it was. */
 export interface RoutingResult extends RoutingDecision {
   /** Which layer decided: useful in the logs when a route looks surprising. */
   strategy?:
-    | "soul"
-    | "llm"
-    | "rule"
-    | "learned"
-    | "semantic"
-    | "default"
-    | "fallback";
+    "soul" | "llm" | "rule" | "learned" | "semantic" | "default" | "fallback";
   /** The task type this prompt was classified as. */
   category?: string;
   /** 0…1 — how sure the deciding layer was. Rules are certain by fiat. */
@@ -67,34 +62,124 @@ export interface RouteOptions {
  */
 const CATEGORY_PROFILES: Record<string, string[]> = {
   test: [
-    "test", "tests", "testing", "spec", "assert", "assertion", "coverage",
-    "vitest", "jest", "mocha", "fixture", "mock", "stub", "regression",
-    "failing", "flaky", "suite", "expect", "snapshot",
+    "test",
+    "tests",
+    "testing",
+    "spec",
+    "assert",
+    "assertion",
+    "coverage",
+    "vitest",
+    "jest",
+    "mocha",
+    "fixture",
+    "mock",
+    "stub",
+    "regression",
+    "failing",
+    "flaky",
+    "suite",
+    "expect",
+    "snapshot",
   ],
   refactor: [
-    "refactor", "restructure", "rename", "extract", "simplify", "cleanup",
-    "tidy", "duplication", "readability", "decouple", "abstraction",
-    "reorganise", "reorganize", "consolidate", "dead", "unused",
+    "refactor",
+    "restructure",
+    "rename",
+    "extract",
+    "simplify",
+    "cleanup",
+    "tidy",
+    "duplication",
+    "readability",
+    "decouple",
+    "abstraction",
+    "reorganise",
+    "reorganize",
+    "consolidate",
+    "dead",
+    "unused",
   ],
   docs: [
-    "document", "documentation", "readme", "docs", "explain", "comment",
-    "guide", "tutorial", "changelog", "docstring", "write-up", "describe",
-    "onboarding", "wording", "prose", "clarify",
+    "document",
+    "documentation",
+    "readme",
+    "docs",
+    "explain",
+    "comment",
+    "guide",
+    "tutorial",
+    "changelog",
+    "docstring",
+    "write-up",
+    "describe",
+    "onboarding",
+    "wording",
+    "prose",
+    "clarify",
   ],
   devops: [
-    "deploy", "deployment", "build", "ci", "pipeline", "docker", "container",
-    "kubernetes", "infra", "infrastructure", "aws", "gcp", "azure", "release",
-    "environment", "secrets", "workflow", "runner", "artifact", "publish",
+    "deploy",
+    "deployment",
+    "build",
+    "ci",
+    "pipeline",
+    "docker",
+    "container",
+    "kubernetes",
+    "infra",
+    "infrastructure",
+    "aws",
+    "gcp",
+    "azure",
+    "release",
+    "environment",
+    "secrets",
+    "workflow",
+    "runner",
+    "artifact",
+    "publish",
   ],
   ui: [
-    "ui", "ux", "design", "css", "style", "styling", "theme", "component",
-    "layout", "responsive", "accessibility", "animation", "colour", "color",
-    "spacing", "typography", "button", "modal", "form", "render",
+    "ui",
+    "ux",
+    "design",
+    "css",
+    "style",
+    "styling",
+    "theme",
+    "component",
+    "layout",
+    "responsive",
+    "accessibility",
+    "animation",
+    "colour",
+    "color",
+    "spacing",
+    "typography",
+    "button",
+    "modal",
+    "form",
+    "render",
   ],
   research: [
-    "research", "investigate", "compare", "evaluate", "options", "tradeoff",
-    "tradeoffs", "survey", "benchmark", "docs", "reference", "how", "why",
-    "understand", "explore", "background", "prior",
+    "research",
+    "investigate",
+    "compare",
+    "evaluate",
+    "options",
+    "tradeoff",
+    "tradeoffs",
+    "survey",
+    "benchmark",
+    "docs",
+    "reference",
+    "how",
+    "why",
+    "understand",
+    "explore",
+    "background",
+    "prior",
   ],
 };
 
@@ -898,43 +983,6 @@ export function parseRoutingResponse(
       agent: "",
       reasoning: reason?.[1].trim(),
     };
-  }
-
-  return null;
-}
-
-/** First balanced `{…}` in the text, parsed. Null if there isn't one. */
-function extractJsonObject(text: string): Record<string, unknown> | null {
-  const start = text.indexOf("{");
-  if (start === -1) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-
-    if (ch === '"') inString = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        try {
-          const parsed = JSON.parse(text.slice(start, i + 1));
-          return parsed && typeof parsed === "object" ? parsed : null;
-        } catch {
-          return null;
-        }
-      }
-    }
   }
 
   return null;

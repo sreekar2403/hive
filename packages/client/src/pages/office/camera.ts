@@ -21,7 +21,11 @@ const MAX_ZOOM = 3;
 const NUDGE_STRENGTH = 0.4;
 
 /** One exponential-lerp step toward `target`. */
-export function stepCamera(s: CamState, target: CamState, dt: number): CamState {
+export function stepCamera(
+  s: CamState,
+  target: CamState,
+  dt: number,
+): CamState {
   // Frame-rate independent lerp factor.
   const k = 1 - Math.pow(1 - LERP, dt * 60);
   return {
@@ -126,7 +130,10 @@ export class Camera {
   wheel(dy: number, sx: number, sy: number): void {
     this.manual = true;
     const factor = dy > 0 ? 0.85 : 1.18;
-    const z = Math.min(MAX_ZOOM, Math.max(this.minZoom(), this.target.zoom * factor));
+    const z = Math.min(
+      MAX_ZOOM,
+      Math.max(this.minZoom(), this.target.zoom * factor),
+    );
     // Keep the world point under the cursor fixed while zooming.
     const wx = (sx - this.viewW / 2) / this.current.zoom + this.current.x;
     const wy = (sy - this.viewH / 2) / this.current.zoom + this.current.y;
@@ -168,7 +175,11 @@ export class Camera {
     if (this.nudgeLeft > 0 && !this.manual) {
       this.nudgeLeft -= dt;
       const ease = Math.max(this.nudgeLeft / this.nudgeTotal, 0);
-      next = { ...next, x: next.x + this.nudgeDX * ease, y: next.y + this.nudgeDY * ease };
+      next = {
+        ...next,
+        x: next.x + this.nudgeDX * ease,
+        y: next.y + this.nudgeDY * ease,
+      };
       if (this.nudgeLeft <= 0) {
         this.nudgeDX = 0;
         this.nudgeDY = 0;

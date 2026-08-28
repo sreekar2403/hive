@@ -1,11 +1,15 @@
+import fs from "fs";
 import {
   Harness,
   HarnessExecutionResult,
   HarnessOptions,
   HarnessEvent,
 } from "@hive/shared/harness";
+import { inlineForDirectApi } from "./attachments";
 
 interface OllamaGenerateRequest {
+  /** Base64 images for a vision model; ignored by models without one. */
+  images?: string[];
   model: string;
   prompt: string;
   stream: boolean;
@@ -53,9 +57,20 @@ export class OllamaDirectHarness implements Harness {
     const model = options?.model || "llama3.2";
     const startTime = Date.now();
 
+    // No shell and no file tool here, so a path would be unopenable. Text
+    // is inlined and images ride Ollama's own `images` field, which a
+    // vision model reads and a text-only one ignores.
+    const attached = inlineForDirectApi(options?.attachments, (p) =>
+      fs.readFileSync(p),
+    );
+
     const request: OllamaGenerateRequest = {
       model,
-      prompt,
+      prompt: `${attached.text}${prompt}`,
+      // Ollama wants bare base64, no data: prefix and no type.
+      ...(attached.images.length
+        ? { images: attached.images.map((image) => image.data) }
+        : {}),
       stream: false,
       options: {
         temperature: 0.7,
@@ -77,12 +92,16 @@ export class OllamaDirectHarness implements Harness {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
-        signal: options?.timeout ? AbortSignal.timeout(options.timeout) : undefined,
+        signal: options?.timeout
+          ? AbortSignal.timeout(options.timeout)
+          : undefined,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        events.push(eventId("error", `Ollama error: ${response.status} ${errorText}`));
+        events.push(
+          eventId("error", `Ollama error: ${response.status} ${errorText}`),
+        );
         return {
           success: false,
           exitCode: 1,
@@ -106,13 +125,14 @@ export class OllamaDirectHarness implements Harness {
         output: data.response,
         duration: Date.now() - startTime,
         events,
-        usage: data.eval_count && data.prompt_eval_count
-          ? {
-              inputTokens: data.prompt_eval_count,
-              outputTokens: data.eval_count,
-              totalTokens: data.prompt_eval_count + data.eval_count,
-            }
-          : undefined,
+        usage:
+          data.eval_count && data.prompt_eval_count
+            ? {
+                inputTokens: data.prompt_eval_count,
+                outputTokens: data.eval_count,
+                totalTokens: data.prompt_eval_count + data.eval_count,
+              }
+            : undefined,
       };
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);

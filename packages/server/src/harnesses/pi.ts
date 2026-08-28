@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { PiParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { attachmentPreamble } from "./attachments";
 
 export class PiHarness implements Harness {
   name = "pi";
@@ -31,7 +32,7 @@ export class PiHarness implements Harness {
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
 
-    args.push(prompt);
+    args.push(`${attachmentPreamble(options?.attachments)}${prompt}`);
 
     return runHarness({
       command: this._path,

@@ -22,6 +22,17 @@ export interface AgentSnapshot {
   /** Loop iterations used so far (null while idle) — drives budget pips. */
   iteration: number | null;
   maxIterations: number;
+  /**
+   * This character coordinates a fan-out rather than running a model.
+   *
+   * A coordinator holds no concurrency slot, spawns no harness and changes
+   * no files of its own; drawn as a peer of the agents it dispatched, it
+   * reads as a fourth agent that is inexplicably idle. The floor uses this
+   * to draw it as what it is.
+   */
+  coordinating: number;
+  /** The coordinator that dispatched this agent, when one did. */
+  dispatchedBy: string | null;
 }
 
 /**
@@ -139,7 +150,11 @@ function agentId(harness: string, seat: number): string {
   return `agent:${harness}:${seat}`;
 }
 
-function busyAgent(harness: string, task: AgentTask, index: number): AgentSnapshot {
+function busyAgent(
+  harness: string,
+  task: AgentTask,
+  index: number,
+): AgentSnapshot {
   const name = personaFor(harness, index);
   const orchestrator = Orchestrator.getActive();
   return {
@@ -149,13 +164,27 @@ function busyAgent(harness: string, task: AgentTask, index: number): AgentSnapsh
     persona: `${name} · ${harness}`,
     phase: task.phase,
     taskId: task.id,
-    taskPrompt: task.prompt,
+    // A sub-agent's prompt is its whole briefing — its instruction, its
+    // siblings' instructions, and the original request. The floor shows a
+    // speech bubble, so it gets the label where there is one.
+    taskPrompt: task.title?.trim() || task.prompt,
     startedAt: task.startedAt,
     filesTouched: task.filesChanged,
     lastOutput: lastLine(task.output),
     iteration: task.iteration ?? null,
     maxIterations: orchestrator?.getLoopBudget() ?? 1,
+    coordinating: subAgentsOf(task.id).length,
+    dispatchedBy: task.parentTaskId ?? null,
   };
+}
+
+/** The sub-agents a coordinating task dispatched, whatever their state. */
+function subAgentsOf(taskId: string): AgentTask[] {
+  return (
+    Orchestrator.getActive()
+      ?.getAllTasks()
+      .filter((t) => t.parentTaskId === taskId) ?? []
+  );
 }
 
 function idleAgent(harness: string): AgentSnapshot {
@@ -173,6 +202,8 @@ function idleAgent(harness: string): AgentSnapshot {
     lastOutput: null,
     iteration: null,
     maxIterations: Orchestrator.getActive()?.getLoopBudget() ?? 1,
+    coordinating: 0,
+    dispatchedBy: null,
   };
 }
 

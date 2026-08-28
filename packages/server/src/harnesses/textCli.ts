@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { LineTextParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { attachmentPreamble } from "./attachments";
 
 /**
  * The CLIs that have no structured output mode.
@@ -49,10 +50,13 @@ export abstract class TextCliHarness implements Harness {
     options?: HarnessOptions,
   ): Promise<HarnessExecutionResult> {
     const model = options?.model || this.model;
+    // None of these five take attachments. They all read files, though, so
+    // the paths are named in the prompt rather than dropped.
+    const withFiles = `${attachmentPreamble(options?.attachments)}${prompt}`;
 
     return runHarness({
       command: this.path,
-      args: [...this.argsFor(model), ...this.promptArgs(prompt)],
+      args: [...this.argsFor(model), ...this.promptArgs(withFiles)],
       options,
       parser: new LineTextParser(),
     });

@@ -59,8 +59,29 @@ export function branchNameFor(taskId: string, label?: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 32)
     .replace(/-+$/, "");
-  const short = taskId.slice(0, 8);
-  return slug ? `hive/${slug}-${short}` : `hive/task-${short}`;
+  return slug
+    ? `hive/${slug}-${shortId(taskId)}`
+    : `hive/task-${shortId(taskId)}`;
+}
+
+/**
+ * The part of a task id that actually distinguishes it.
+ *
+ * This used to be `taskId.slice(0, 8)`, which for the ids the Orchestrator
+ * mints — `task_<epoch-ms>_<random>` — is the constant `"task_178"` and
+ * stays constant for years. Two tasks whose prompts share a 32-character
+ * prefix therefore produced the *same* branch name, and the second
+ * worktree failed with "a worktree already exists".
+ *
+ * Sub-agents from one fan-out are exactly that case: their prompts are
+ * generated from one request and open identically, so the collision was
+ * not a rare tie but the normal outcome. Taking the tail keeps the random
+ * suffix, and a uuid's tail is just as distinctive as its head.
+ */
+function shortId(taskId: string): string {
+  const tail = taskId.split(/[_-]/).filter(Boolean).pop() ?? taskId;
+  const candidate = tail.length >= 6 ? tail : taskId.replace(/[^a-z0-9]/gi, "");
+  return candidate.slice(-8) || "task";
 }
 
 export interface Worktree {

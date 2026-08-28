@@ -4,8 +4,12 @@ import type { HiveEdge, HiveNode, WorkflowRecord } from "./types";
 /** Strips React Flow's transient runtime fields before persisting. */
 export function sanitizeNodes(nodes: HiveNode[]): HiveNode[] {
   return nodes.map((n) => {
-    const { selected: _selected, dragging: _dragging, measured: _measured, ...rest } =
-      n as HiveNode & { measured?: unknown };
+    const {
+      selected: _selected,
+      dragging: _dragging,
+      measured: _measured,
+      ...rest
+    } = n as HiveNode & { measured?: unknown };
     return rest as HiveNode;
   });
 }
@@ -17,7 +21,9 @@ export function sanitizeEdges(edges: HiveEdge[]): HiveEdge[] {
   });
 }
 
-export async function listWorkflows(projectId: string): Promise<WorkflowRecord[]> {
+export async function listWorkflows(
+  projectId: string,
+): Promise<WorkflowRecord[]> {
   const data = await API.get<{ workflows: WorkflowRecord[] }>(
     `/api/workflows?projectId=${encodeURIComponent(projectId)}`,
   );
@@ -35,7 +41,12 @@ export async function createWorkflow(input: {
 
 export async function updateWorkflow(
   id: string,
-  input: Partial<{ name: string; nodes: HiveNode[]; edges: HiveEdge[]; projectId: string }>,
+  input: Partial<{
+    name: string;
+    nodes: HiveNode[];
+    edges: HiveEdge[];
+    projectId: string;
+  }>,
 ): Promise<WorkflowRecord> {
   return API.put<WorkflowRecord>(`/api/workflows/${id}`, input);
 }

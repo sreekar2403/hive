@@ -4,12 +4,13 @@ import { Badge } from "../../../components/ui";
 import { cn } from "../../../lib/cn";
 import type { NodeStatus } from "../types";
 
-const STATUS_TONE: Record<NodeStatus, "neutral" | "accent" | "ok" | "danger"> = {
-  idle: "neutral",
-  running: "accent",
-  ok: "ok",
-  failed: "danger",
-};
+const STATUS_TONE: Record<NodeStatus, "neutral" | "accent" | "ok" | "danger"> =
+  {
+    idle: "neutral",
+    running: "accent",
+    ok: "ok",
+    failed: "danger",
+  };
 
 const STATUS_LABEL: Record<NodeStatus, string> = {
   idle: "Idle",
@@ -69,18 +70,27 @@ export function NodeShell({
           <Icon className="size-3.5" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[12.5px] font-medium text-ink truncate">{title}</div>
+          <div className="text-[12.5px] font-medium text-ink truncate">
+            {title}
+          </div>
           {subtitle ? (
             <div className="text-[11px] text-muted truncate">{subtitle}</div>
           ) : null}
         </div>
-        <Badge tone={STATUS_TONE[status]} className={status === "running" ? "motion-safe:animate-pulse" : undefined}>
+        <Badge
+          tone={STATUS_TONE[status]}
+          className={
+            status === "running" ? "motion-safe:animate-pulse" : undefined
+          }
+        >
           {STATUS_LABEL[status]}
         </Badge>
       </div>
 
       {children ? (
-        <div className="px-2.5 pb-2.5 -mt-0.5 text-[11px] text-muted">{children}</div>
+        <div className="px-2.5 pb-2.5 -mt-0.5 text-[11px] text-muted">
+          {children}
+        </div>
       ) : null}
 
       {handles.map((h, i) => (

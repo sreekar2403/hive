@@ -24,7 +24,10 @@ import capacityRoutes from "./routes/capacity";
 import harnessRoutes from "./routes/harnesses";
 import messageRoutes from "./routes/messages";
 import { resolveModelRef } from "./models/catalog";
+import { pruneAttachments, resolveAttachments } from "./attachments";
+import { createKanbanCard, finishKanbanCard } from "./kanban";
 import taskRoutes from "./routes/tasks";
+import attachmentRoutes from "./routes/attachments";
 import { startCronRunner } from "./scheduler/cronRunner";
 import eventsRouter, { broadcast } from "./routes/events";
 import {
@@ -60,15 +63,38 @@ class HiveServer {
   async start(): Promise<void> {
     const app = this.app;
 
+    // Attachments live in temp and are never referenced again once their
+    // run is over, but nothing else would ever delete them — a daily
+    // screenshot habit would quietly fill a disk.
+    try {
+      const removed = pruneAttachments();
+      if (removed > 0) {
+        console.log(`Removed ${removed} expired attachment(s)`);
+      }
+    } catch {
+      // A reaper that cannot delete is not a reason to refuse to boot.
+    }
+
     app.use(cors(corsOptions(this.config)));
-    app.use(express.json());
+    // Attachments arrive as base64 in a JSON body, so the default 100kb
+    // limit would reject every screenshot. The ceiling is the per-file limit
+    // plus room for base64's ~33% overhead and the rest of the envelope.
+    app.use(express.json({ limit: "32mb" }));
     // Gates /api/* whenever a token is configured; /health stays open.
     app.use(authMiddleware(this.config));
     app.use(express.static(publicDir));
 
     // Chat endpoint
     app.post("/api/chat", async (req, res) => {
-      const { message, sessionId, projectId, harness, model, agent } = req.body;
+      const {
+        message,
+        sessionId,
+        projectId,
+        harness,
+        model,
+        agent,
+        attachments: attachmentIds,
+      } = req.body;
 
       if (!message) {
         return res.status(400).json({ error: "Message is required" });
@@ -80,7 +106,9 @@ class HiveServer {
       // onto a session record that was never created. The record lives in
       // SQLite, so a restart no longer restarts the conversation.
       const session =
-        typeof sessionId === "string" && sessionId ? sessionId : this.generateId();
+        typeof sessionId === "string" && sessionId
+          ? sessionId
+          : this.generateId();
       ensureSession(session, typeof projectId === "string" ? projectId : null);
 
       // The user's turn is recorded before the run, not after: a task that
@@ -111,6 +139,10 @@ class HiveServer {
           {
             model: picked?.ref ?? null,
             agent: typeof agent === "string" && agent ? agent : null,
+            // Ids, resolved to real paths here. One that has aged out is
+            // skipped rather than failing the message — the person's text
+            // is still worth running.
+            attachments: resolveAttachments(attachmentIds),
             // Pass conversation history for context. The turn just
             // recorded is dropped — it is the prompt itself, and repeating
             // it as "history" made every message look like a reply to
@@ -126,36 +158,22 @@ class HiveServer {
         // message.
         registerTaskSession(task.id, session);
 
-        // Create a corresponding kanban task for tracking
+        // The board card for the request itself. A fan-out opens one more
+        // per sub-agent from inside the Orchestrator, which is the only
+        // place that knows they exist — see kanban.ts.
         if (projectId) {
-          const db = getDb();
-          const now = Date.now();
-          kanbanTaskId = randomUUID();
-          const branchName = `hive/${projectId}/${kanbanTaskId}`;
-          db.prepare(
-            `INSERT INTO kanban_tasks
-              (id, project_id, prompt, harness, status, branch_name, run_task_id, session_id, model, files, iterations, files_changed, output, error, started_at, completed_at, created_at, updated_at)
-             VALUES (@id, @project_id, @prompt, @harness, @status, @branch_name, @run_task_id, @session_id, @model, @files, @iterations, @files_changed, @output, @error, @started_at, @completed_at, @created_at, @updated_at)`,
-          ).run({
-            id: kanbanTaskId,
-            project_id: projectId,
-            prompt: message.trim(),
+          kanbanTaskId = createKanbanCard({
+            projectId,
+            prompt: message,
             harness: task.harness,
-            run_task_id: task.id,
-            session_id: session,
+            runTaskId: task.id,
+            sessionId: session,
             model: picked?.ref ?? null,
-            files: null,
-            status: "in_progress",
-            branch_name: branchName,
-            iterations: 0,
-            files_changed: 0,
-            output: null,
-            error: null,
-            started_at: now,
-            completed_at: null,
-            created_at: now,
-            updated_at: now,
+            branchName: `hive/${projectId}/${task.id}`,
           });
+          // A fan-out's sub-agents hang their own cards off this one, and
+          // the Orchestrator is the only place that knows they exist.
+          task.kanbanCardId = kanbanTaskId;
         }
 
         broadcast("task:started", {
@@ -167,31 +185,16 @@ class HiveServer {
 
         const result = await this.orchestrator.executeTask(task.id);
 
-        // Update kanban task with result
-        if (kanbanTaskId && projectId) {
-          const db = getDb();
-          const completedAt = Date.now();
-          db.prepare(
-            `UPDATE kanban_tasks SET
-               status = @status,
-               iterations = @iterations,
-               files_changed = @files_changed,
-               files = @files,
-               output = @output,
-               error = @error,
-               completed_at = @completed_at,
-               updated_at = @updated_at
-             WHERE id = @id`,
-          ).run({
-            id: kanbanTaskId,
+        if (kanbanTaskId) {
+          finishKanbanCard(kanbanTaskId, {
             status: result.status === "completed" ? "done" : "failed",
             iterations: result.iteration,
-            files_changed: task.filesChanged.length,
-            files: JSON.stringify(task.filesChanged ?? []),
+            files: task.filesChanged ?? [],
             output: result.output,
-            error: result.status === "failed" ? (result.error ?? "Unknown error") : null,
-            completed_at: completedAt,
-            updated_at: completedAt,
+            error:
+              result.status === "failed"
+                ? (result.error ?? "Unknown error")
+                : null,
           });
         }
 
@@ -202,13 +205,16 @@ class HiveServer {
           status: result.status,
         });
 
-        broadcast(result.status === "failed" ? "task:failed" : "task:completed", {
-          sessionId: session,
-          taskId: result.id,
-          projectId: result.projectId,
-          harness: result.harness,
-          status: result.status,
-        });
+        broadcast(
+          result.status === "failed" ? "task:failed" : "task:completed",
+          {
+            sessionId: session,
+            taskId: result.id,
+            projectId: result.projectId,
+            harness: result.harness,
+            status: result.status,
+          },
+        );
 
         res.json({
           sessionId: session,
@@ -225,14 +231,10 @@ class HiveServer {
         const detail = err instanceof Error ? err.message : String(err);
         if (kanbanTaskId) {
           try {
-            const failedAt = Date.now();
-            getDb()
-              .prepare(
-                `UPDATE kanban_tasks
-                    SET status = 'failed', error = ?, completed_at = ?, updated_at = ?
-                  WHERE id = ?`,
-              )
-              .run(detail, failedAt, failedAt, kanbanTaskId);
+            finishKanbanCard(kanbanTaskId, {
+              status: "failed",
+              error: detail,
+            });
           } catch {
             // The board is a view onto the run, never the reason it failed.
           }
@@ -291,6 +293,7 @@ class HiveServer {
 
     // Messages between agents working the same session
     app.use("/api/messages", messageRoutes);
+    app.use("/api/attachments", attachmentRoutes);
 
     // Shared memory browsing/editing
     setSharedMemory(this.sharedMemory);
@@ -313,7 +316,9 @@ class HiveServer {
 
     app.get("/api/permissions", (req, res) => {
       const sessionId =
-        typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
+        typeof req.query.sessionId === "string"
+          ? req.query.sessionId
+          : undefined;
       res.json(permissionManager.getPending(sessionId));
     });
 

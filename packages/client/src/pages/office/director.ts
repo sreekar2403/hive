@@ -77,10 +77,7 @@ export function decide(input: DirectorInput): {
     return {
       state: { phase: "idle", until: 0 },
       actions: hadSomething
-        ? [
-            { type: "clear" },
-            { type: "carry", kind: null },
-          ]
+        ? [{ type: "clear" }, { type: "carry", kind: null }]
         : [{ type: "clear" }],
     };
   }
@@ -178,5 +175,7 @@ export function decide(input: DirectorInput): {
 
 /** Break-room chat spots an initiator can walk to (page-level pairing). */
 export function pickChatSpot(rng: () => number): TilePoint {
-  return BREAK_SPOTS[Math.floor(rng() * BREAK_SPOTS.length) % BREAK_SPOTS.length];
+  return BREAK_SPOTS[
+    Math.floor(rng() * BREAK_SPOTS.length) % BREAK_SPOTS.length
+  ];
 }

@@ -144,7 +144,9 @@ function LogStream() {
         </div>
         <Select
           value={filters.level}
-          onChange={(e) => setFilters({ level: e.target.value as LogLevel | "" })}
+          onChange={(e) =>
+            setFilters({ level: e.target.value as LogLevel | "" })
+          }
           className="h-8 w-28 text-[12px]"
           aria-label="Filter by level"
         >
@@ -184,7 +186,11 @@ function LogStream() {
           onClick={() => setPaused(!paused)}
           aria-label={paused ? "Resume live tail" : "Pause live tail"}
         >
-          {paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
+          {paused ? (
+            <Play className="size-3.5" />
+          ) : (
+            <Pause className="size-3.5" />
+          )}
         </IconButton>
         <IconButton size="sm" onClick={clear} aria-label="Clear the view">
           <Trash2 className="size-3.5" />
@@ -305,7 +311,8 @@ function groupTraces(traces: TraceSummary[]) {
 }
 
 function TraceExplorer() {
-  const { traces, tracesLoading, selectedTaskId, selectTrace, spans } = useLogs();
+  const { traces, tracesLoading, selectedTaskId, selectTrace, spans } =
+    useLogs();
   const groups = useMemo(() => groupTraces(traces), [traces]);
 
   if (tracesLoading && traces.length === 0) {
@@ -337,37 +344,41 @@ function TraceExplorer() {
               </div>
             ) : null}
             {group.traces.map((t) => (
-          <button
-            key={t.taskId}
-            onClick={() => selectTrace(t.taskId)}
-            className={cn(
-              "w-full text-left px-3 py-2.5 border-l-2 border-b border-b-line transition-colors",
-              selectedTaskId === t.taskId
-                ? "bg-accent-soft border-l-accent"
-                : "border-l-transparent hover:bg-surface-2",
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <StatusDot
-                tone={
-                  t.status === "ok"
-                    ? "ok"
-                    : t.status === "failed"
-                      ? "danger"
-                      : "accent"
-                }
-                pulse={t.status === "running"}
-              />
-              <span className="text-[13px] text-ink truncate flex-1">{t.name}</span>
-            </div>
-            <div className="flex items-center gap-2 mt-1 font-mono text-[10px] text-faint">
-              <span data-numeric>{formatMs(t.durationMs)}</span>
-              <span data-numeric>{t.spanCount} spans</span>
-              <span className="ml-auto">
-                {new Date(t.startedAt).toLocaleTimeString([], { hour12: false })}
-              </span>
-            </div>
-          </button>
+              <button
+                key={t.taskId}
+                onClick={() => selectTrace(t.taskId)}
+                className={cn(
+                  "w-full text-left px-3 py-2.5 border-l-2 border-b border-b-line transition-colors",
+                  selectedTaskId === t.taskId
+                    ? "bg-accent-soft border-l-accent"
+                    : "border-l-transparent hover:bg-surface-2",
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <StatusDot
+                    tone={
+                      t.status === "ok"
+                        ? "ok"
+                        : t.status === "failed"
+                          ? "danger"
+                          : "accent"
+                    }
+                    pulse={t.status === "running"}
+                  />
+                  <span className="text-[13px] text-ink truncate flex-1">
+                    {t.name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1 font-mono text-[10px] text-faint">
+                  <span data-numeric>{formatMs(t.durationMs)}</span>
+                  <span data-numeric>{t.spanCount} spans</span>
+                  <span className="ml-auto">
+                    {new Date(t.startedAt).toLocaleTimeString([], {
+                      hour12: false,
+                    })}
+                  </span>
+                </div>
+              </button>
             ))}
           </div>
         ))}
@@ -496,7 +507,10 @@ function SpanWaterfall({
               >
                 <button
                   onClick={() => toggle(`collapsed:${span.id}`)}
-                  className={cn("text-faint hover:text-ink", !hasKids && "invisible")}
+                  className={cn(
+                    "text-faint hover:text-ink",
+                    !hasKids && "invisible",
+                  )}
                   aria-label={collapsed ? "Expand" : "Collapse"}
                 >
                   {collapsed ? (

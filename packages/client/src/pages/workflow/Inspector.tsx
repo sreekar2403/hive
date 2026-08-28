@@ -329,7 +329,9 @@ function AgentTaskFields({
               min={10}
               step={10}
               value={data.timeoutSec}
-              onChange={(e) => set({ timeoutSec: Number(e.target.value) || 60 })}
+              onChange={(e) =>
+                set({ timeoutSec: Number(e.target.value) || 60 })
+              }
             />
           )}
         </Field>

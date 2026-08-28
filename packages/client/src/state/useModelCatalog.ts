@@ -18,6 +18,12 @@ export interface ModelOption {
   ref: string;
   contextLabel: string | null;
   thinking: boolean | null;
+  /**
+   * Whether the model can look at an image. `null` means no source could
+   * say — shown as unknown rather than as "no", so an undocumented model
+   * is not greyed out for a limitation it may not have.
+   */
+  vision: boolean | null;
   harness: string;
 }
 

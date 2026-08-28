@@ -24,6 +24,7 @@ function toView(config: Config) {
   const { authToken, ...server } = config.server;
   return {
     localModels: config.localModels,
+    vision: config.vision,
     harnesses: config.harnesses,
     routing: config.routing,
     permission: config.permission,
@@ -80,13 +81,34 @@ router.put("/", (req: Request, res: Response) => {
 
 function validatePartialConfig(body: any): void {
   if (body.localModels) {
-    if (typeof body.localModels !== "object" || Array.isArray(body.localModels)) {
+    if (
+      typeof body.localModels !== "object" ||
+      Array.isArray(body.localModels)
+    ) {
       throw new Error("localModels must be an object");
     }
     for (const [key, value] of Object.entries(body.localModels)) {
       if (typeof value !== "string") {
         throw new Error(`localModels.${key} must be a string (a base URL)`);
       }
+    }
+  }
+
+  if (body.vision) {
+    if (typeof body.vision !== "object" || Array.isArray(body.vision)) {
+      throw new Error("vision must be an object");
+    }
+    if (
+      body.vision.model !== undefined &&
+      typeof body.vision.model !== "string"
+    ) {
+      throw new Error("vision.model must be a catalog id, or empty to choose");
+    }
+    if (
+      body.vision.always !== undefined &&
+      typeof body.vision.always !== "boolean"
+    ) {
+      throw new Error("vision.always must be a boolean");
     }
   }
 
@@ -109,7 +131,9 @@ function validatePartialConfig(body: any): void {
         "concurrency" in h &&
         (typeof h.concurrency !== "number" || h.concurrency < 1)
       ) {
-        throw new Error(`harnesses.${id}.concurrency must be a positive number`);
+        throw new Error(
+          `harnesses.${id}.concurrency must be a positive number`,
+        );
       }
     }
   }
@@ -161,10 +185,16 @@ function validatePartialConfig(body: any): void {
 
   if (body.loop) {
     const l = body.loop;
-    if ("maxIterations" in l && (typeof l.maxIterations !== "number" || l.maxIterations < 1)) {
+    if (
+      "maxIterations" in l &&
+      (typeof l.maxIterations !== "number" || l.maxIterations < 1)
+    ) {
       throw new Error("loop.maxIterations must be a positive number");
     }
-    if ("timeoutMs" in l && (typeof l.timeoutMs !== "number" || l.timeoutMs < 1000)) {
+    if (
+      "timeoutMs" in l &&
+      (typeof l.timeoutMs !== "number" || l.timeoutMs < 1000)
+    ) {
       throw new Error("loop.timeoutMs must be at least 1000ms");
     }
     if ("pipeline" in l && l.pipeline !== undefined) {
@@ -180,7 +210,9 @@ function validatePartialConfig(body: any): void {
       }
       if (
         "maxRepairs" in pl &&
-        (typeof pl.maxRepairs !== "number" || pl.maxRepairs < 0 || pl.maxRepairs > 10)
+        (typeof pl.maxRepairs !== "number" ||
+          pl.maxRepairs < 0 ||
+          pl.maxRepairs > 10)
       ) {
         throw new Error("loop.pipeline.maxRepairs must be between 0 and 10");
       }
@@ -271,7 +303,9 @@ function validatePartialConfig(body: any): void {
         throw new Error("secondBrain.routing.minSamples must be at least 1");
       }
       if ("minMargin" in r && !isUnitInterval(r.minMargin)) {
-        throw new Error("secondBrain.routing.minMargin must be between 0 and 1");
+        throw new Error(
+          "secondBrain.routing.minMargin must be between 0 and 1",
+        );
       }
     }
 

@@ -62,7 +62,9 @@ export function ExecutionSection({
                 max={50}
                 value={draft.loop.maxIterations}
                 onChange={(e) =>
-                  setLoop({ maxIterations: Math.max(1, Number(e.target.value) || 1) })
+                  setLoop({
+                    maxIterations: Math.max(1, Number(e.target.value) || 1),
+                  })
                 }
               />
             )}
@@ -108,7 +110,9 @@ export function ExecutionSection({
             )}
           </Field>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-ink">Retry on failure</span>
+            <span className="text-[12px] font-medium text-ink">
+              Retry on failure
+            </span>
             <div className="flex items-center gap-2 h-9">
               <Switch
                 checked={draft.loop.retry.enabled}
@@ -131,9 +135,8 @@ export function ExecutionSection({
           <p className="text-[12px] text-muted max-w-[62ch] mb-2.5">
             Runs each task as plan → implement → test → review → ship, with a
             gate after every stage: a run that changes no files, leaves tests
-            failing, or leaves conflict markers in the diff is sent back
-            rather than reported as done. It costs several harness runs per
-            task.
+            failing, or leaves conflict markers in the diff is sent back rather
+            than reported as done. It costs several harness runs per task.
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
@@ -241,7 +244,10 @@ export function PermissionsSection({
   const actions = draft.permission.destructiveActions;
 
   const setPermission = (patch: Partial<SettingsConfig["permission"]>) =>
-    onChange((prev) => ({ ...prev, permission: { ...prev.permission, ...patch } }));
+    onChange((prev) => ({
+      ...prev,
+      permission: { ...prev.permission, ...patch },
+    }));
 
   const addAction = () => {
     const value = newAction.trim().toLowerCase();
@@ -283,7 +289,9 @@ export function PermissionsSection({
                 step={5}
                 value={Math.round(draft.permission.timeout / 1000)}
                 onChange={(e) =>
-                  setPermission({ timeout: (Number(e.target.value) || 60) * 1000 })
+                  setPermission({
+                    timeout: (Number(e.target.value) || 60) * 1000,
+                  })
                 }
               />
             )}
@@ -326,7 +334,11 @@ export function PermissionsSection({
                 placeholder="force-push"
                 aria-label="New trigger word"
               />
-              <Button size="sm" onClick={addAction} disabled={!newAction.trim()}>
+              <Button
+                size="sm"
+                onClick={addAction}
+                disabled={!newAction.trim()}
+              >
                 <Plus className="size-3.5" />
                 Add
               </Button>
@@ -384,7 +396,10 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    general: { ...prev.general, defaultProjectId: e.target.value },
+                    general: {
+                      ...prev.general,
+                      defaultProjectId: e.target.value,
+                    },
                   }))
                 }
               >
@@ -456,7 +471,10 @@ export function GeneralSection({
       <Card>
         <CardHeader eyebrow="Office Floor" title="Grid settings" />
         <div className="p-4 grid grid-cols-2 gap-4">
-          <Field label="Grid columns" hint="Number of columns in the office grid.">
+          <Field
+            label="Grid columns"
+            hint="Number of columns in the office grid."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -468,7 +486,10 @@ export function GeneralSection({
                   onChange((prev) => ({
                     ...prev,
                     office: {
-                      gridCols: Math.max(8, Math.min(32, Number(e.target.value) || 16)),
+                      gridCols: Math.max(
+                        8,
+                        Math.min(32, Number(e.target.value) || 16),
+                      ),
                       gridRows: prev.office?.gridRows ?? 9,
                       tileSize: prev.office?.tileSize ?? 64,
                     },
@@ -490,7 +511,10 @@ export function GeneralSection({
                     ...prev,
                     office: {
                       gridCols: prev.office?.gridCols ?? 16,
-                      gridRows: Math.max(6, Math.min(24, Number(e.target.value) || 9)),
+                      gridRows: Math.max(
+                        6,
+                        Math.min(24, Number(e.target.value) || 9),
+                      ),
                       tileSize: prev.office?.tileSize ?? 64,
                     },
                   }))
@@ -498,7 +522,10 @@ export function GeneralSection({
               />
             )}
           </Field>
-          <Field label="Tile size (px)" hint="Size of each grid tile in pixels.">
+          <Field
+            label="Tile size (px)"
+            hint="Size of each grid tile in pixels."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -512,7 +539,10 @@ export function GeneralSection({
                     office: {
                       gridCols: prev.office?.gridCols ?? 16,
                       gridRows: prev.office?.gridRows ?? 9,
-                      tileSize: Math.max(32, Math.min(128, Number(e.target.value) || 64)),
+                      tileSize: Math.max(
+                        32,
+                        Math.min(128, Number(e.target.value) || 64),
+                      ),
                     },
                   }))
                 }
@@ -525,7 +555,10 @@ export function GeneralSection({
       <Card>
         <CardHeader eyebrow="Kanban" title="WIP limits per column" />
         <div className="p-4 grid grid-cols-2 gap-4">
-          <Field label="Backlog" hint="Work-in-progress limit for Backlog column (0 = unlimited).">
+          <Field
+            label="Backlog"
+            hint="Work-in-progress limit for Backlog column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -536,13 +569,22 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, backlog: Math.max(0, Number(e.target.value) || 0) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        backlog: Math.max(0, Number(e.target.value) || 0),
+                      },
+                    },
                   }))
                 }
               />
             )}
           </Field>
-          <Field label="Queued" hint="Work-in-progress limit for Queued column (0 = unlimited).">
+          <Field
+            label="Queued"
+            hint="Work-in-progress limit for Queued column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -553,13 +595,22 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, queued: Math.max(0, Number(e.target.value) || 0) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        queued: Math.max(0, Number(e.target.value) || 0),
+                      },
+                    },
                   }))
                 }
               />
             )}
           </Field>
-          <Field label="In Progress" hint="Work-in-progress limit for In Progress column (0 = unlimited).">
+          <Field
+            label="In Progress"
+            hint="Work-in-progress limit for In Progress column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -570,13 +621,22 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, in_progress: Math.max(0, Number(e.target.value) || 3) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        in_progress: Math.max(0, Number(e.target.value) || 3),
+                      },
+                    },
                   }))
                 }
               />
             )}
           </Field>
-          <Field label="Review" hint="Work-in-progress limit for Review column (0 = unlimited).">
+          <Field
+            label="Review"
+            hint="Work-in-progress limit for Review column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -587,13 +647,22 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, review: Math.max(0, Number(e.target.value) || 2) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        review: Math.max(0, Number(e.target.value) || 2),
+                      },
+                    },
                   }))
                 }
               />
             )}
           </Field>
-          <Field label="Testing" hint="Work-in-progress limit for Testing column (0 = unlimited).">
+          <Field
+            label="Testing"
+            hint="Work-in-progress limit for Testing column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -604,13 +673,22 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, testing: Math.max(0, Number(e.target.value) || 2) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        testing: Math.max(0, Number(e.target.value) || 2),
+                      },
+                    },
                   }))
                 }
               />
             )}
           </Field>
-          <Field label="Blocked" hint="Work-in-progress limit for Blocked column (0 = unlimited).">
+          <Field
+            label="Blocked"
+            hint="Work-in-progress limit for Blocked column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -621,13 +699,22 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, blocked: Math.max(0, Number(e.target.value) || 0) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        blocked: Math.max(0, Number(e.target.value) || 0),
+                      },
+                    },
                   }))
                 }
               />
             )}
           </Field>
-          <Field label="Done" hint="Work-in-progress limit for Done column (0 = unlimited).">
+          <Field
+            label="Done"
+            hint="Work-in-progress limit for Done column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -638,13 +725,22 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, done: Math.max(0, Number(e.target.value) || 0) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        done: Math.max(0, Number(e.target.value) || 0),
+                      },
+                    },
                   }))
                 }
               />
             )}
           </Field>
-          <Field label="Failed" hint="Work-in-progress limit for Failed column (0 = unlimited).">
+          <Field
+            label="Failed"
+            hint="Work-in-progress limit for Failed column (0 = unlimited)."
+          >
             {(id) => (
               <Input
                 id={id}
@@ -655,7 +751,13 @@ export function GeneralSection({
                 onChange={(e) =>
                   onChange((prev) => ({
                     ...prev,
-                    kanban: { ...prev.kanban, wipLimits: { ...prev.kanban?.wipLimits, failed: Math.max(0, Number(e.target.value) || 0) } },
+                    kanban: {
+                      ...prev.kanban,
+                      wipLimits: {
+                        ...prev.kanban?.wipLimits,
+                        failed: Math.max(0, Number(e.target.value) || 0),
+                      },
+                    },
                   }))
                 }
               />

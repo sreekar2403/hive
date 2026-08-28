@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, FileText, Pencil, Trash2, X } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { Badge, Button, EmptyState, IconButton, Modal, Textarea } from "../../components/ui";
-import { formatBytes, formatTimestamp, looksLikeJson, tryParseJson } from "./format";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  IconButton,
+  Modal,
+  Textarea,
+} from "../../components/ui";
+import {
+  formatBytes,
+  formatTimestamp,
+  looksLikeJson,
+  tryParseJson,
+} from "./format";
 import { JsonTree } from "./JsonTree";
 import type { MemoryEntry } from "./types";
 
@@ -54,7 +66,9 @@ export function ValuePane({
   const handleSave = async () => {
     setSaveError(null);
     if (looksLikeJson(draft) && tryParseJson(draft) === undefined) {
-      setSaveError("This looks like JSON but doesn't parse — fix the syntax before saving.");
+      setSaveError(
+        "This looks like JSON but doesn't parse — fix the syntax before saving.",
+      );
       return;
     }
     setSaving(true);
@@ -114,20 +128,38 @@ export function ValuePane({
       <div className="px-4 pt-3 pb-2.5 border-b border-line shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-mono text-sm text-ink truncate">{entry.key}</div>
+            <div className="font-mono text-sm text-ink truncate">
+              {entry.key}
+            </div>
             <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
-              <Badge tone={isJson ? "info" : "neutral"}>{isJson ? "JSON" : "Text"}</Badge>
-              <span data-numeric>{formatBytes(Buffer_byteLength(entry.value))}</span>
+              <Badge tone={isJson ? "info" : "neutral"}>
+                {isJson ? "JSON" : "Text"}
+              </Badge>
+              <span data-numeric>
+                {formatBytes(Buffer_byteLength(entry.value))}
+              </span>
               <span>Updated {formatTimestamp(entry.updatedAt)}</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {mode === "view" ? (
               <>
-                <IconButton size="sm" onClick={handleCopy} aria-label="Copy value">
-                  {copied ? <Check className="size-4 text-ok" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
+                <IconButton
+                  size="sm"
+                  onClick={handleCopy}
+                  aria-label="Copy value"
+                >
+                  {copied ? (
+                    <Check className="size-4 text-ok" aria-hidden="true" />
+                  ) : (
+                    <Copy className="size-4" aria-hidden="true" />
+                  )}
                 </IconButton>
-                <IconButton size="sm" onClick={() => setMode("edit")} aria-label="Edit value">
+                <IconButton
+                  size="sm"
+                  onClick={() => setMode("edit")}
+                  aria-label="Edit value"
+                >
                   <Pencil className="size-4" aria-hidden="true" />
                 </IconButton>
                 <IconButton
@@ -141,11 +173,21 @@ export function ValuePane({
               </>
             ) : (
               <>
-                <Button variant="ghost" size="sm" onClick={handleCancel} disabled={saving}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancel}
+                  disabled={saving}
+                >
                   <X className="size-3.5" aria-hidden="true" />
                   Cancel
                 </Button>
-                <Button variant="primary" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void handleSave()}
+                  disabled={saving}
+                >
                   <Check className="size-3.5" aria-hidden="true" />
                   {saving ? "Saving…" : "Save"}
                 </Button>
@@ -165,7 +207,9 @@ export function ValuePane({
               aria-label="Edit value"
               spellCheck={false}
             />
-            {saveError ? <p className="text-[12px] text-danger">{saveError}</p> : null}
+            {saveError ? (
+              <p className="text-[12px] text-danger">{saveError}</p>
+            ) : null}
           </div>
         ) : isJson ? (
           <JsonTree value={parsed} />
@@ -183,17 +227,26 @@ export function ValuePane({
         description={`Permanently delete "${entry.key}" from this session. This can't be undone.`}
         footer={
           <>
-            <Button variant="default" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+            <Button
+              variant="default"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleting}
+            >
               Cancel
             </Button>
-            <Button variant="danger" onClick={() => void handleDelete()} disabled={deleting}>
+            <Button
+              variant="danger"
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+            >
               {deleting ? "Deleting…" : "Delete entry"}
             </Button>
           </>
         }
       >
         <p className="text-[13px] text-muted">
-          The key <span className="font-mono text-ink">{entry.key}</span> will be removed from{" "}
+          The key <span className="font-mono text-ink">{entry.key}</span> will
+          be removed from{" "}
           <span className="font-mono text-ink">{sessionId}</span>.
         </p>
       </Modal>

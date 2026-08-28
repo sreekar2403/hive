@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { CursorAgentParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { attachmentPreamble } from "./attachments";
 
 /**
  * Cursor's headless agent (`cursor-agent`), the CLI half of the editor.
@@ -40,7 +41,7 @@ export class CursorAgentHarness implements Harness {
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
 
-    args.push(prompt);
+    args.push(`${attachmentPreamble(options?.attachments)}${prompt}`);
 
     return runHarness({
       command: this._path,

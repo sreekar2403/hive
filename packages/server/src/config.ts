@@ -194,6 +194,25 @@ export interface Config {
     ollama: string;
     lmstudio: string;
   };
+  /**
+   * Which model looks at an attached image when the model running the task
+   * cannot. See visionBridge.ts — the image is described in words and the
+   * description is handed to the working agent.
+   */
+  vision: {
+    /**
+     * A catalog id (`harness/provider/model`). Empty means "pick one",
+     * which prefers a vision model on the harness already in use.
+     *
+     * Worth setting by hand: the automatic choice knows only which models
+     * *can* see, not which of them is any good at reading a screenshot, and
+     * on a machine with several it will not necessarily pick the one you
+     * would have.
+     */
+    model: string;
+    /** Describe images even when the working model could see them itself. */
+    always: boolean;
+  };
   permission: {
     enabled: boolean;
     timeout: number;
@@ -237,6 +256,27 @@ export interface Config {
       maxRepairs: number;
       /** Overrides test-command detection; empty means detect. */
       testCommand: string;
+    };
+    /**
+     * Sub-agent fan-out: one request split across several agents that run
+     * at the same time, each in its own worktree, then merged back. See
+     * fanout/planner.ts for when a request qualifies — the planner declines
+     * far more often than it accepts, because a wrong split costs N agent
+     * runs and produces N answers to questions nobody asked.
+     */
+    fanout: {
+      enabled: boolean;
+      /** Ceiling on sub-agents per request. Hard-capped by MAX_SUBTASKS. */
+      maxSubtasks: number;
+      /**
+       * Merge the finished sub-branches back automatically. Off leaves each
+       * one on disk to be reviewed and merged by hand, which is the right
+       * default for anyone who does not want agents touching their current
+       * branch unattended.
+       */
+      merge: boolean;
+      /** Budget for the planning call itself, in milliseconds. */
+      plannerTimeoutMs: number;
     };
   };
   server: {
@@ -471,6 +511,10 @@ export function createDefaultConfig(): Config {
       ollama: "http://localhost:11434",
       lmstudio: "http://localhost:1234",
     },
+    vision: {
+      model: "",
+      always: false,
+    },
     // Every harness starts *off*. A harness is only useful if its CLI is
     // installed, and defaulting to `enabled: true` meant a fresh config
     // claimed twelve agents were ready on a machine that had none of them —
@@ -602,6 +646,12 @@ export function createDefaultConfig(): Config {
         plan: true,
         maxRepairs: 2,
         testCommand: "",
+      },
+      fanout: {
+        enabled: true,
+        maxSubtasks: 4,
+        merge: true,
+        plannerTimeoutMs: 120000,
       },
       retry: {
         enabled: true,

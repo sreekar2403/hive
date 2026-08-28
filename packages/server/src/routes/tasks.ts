@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { getDb } from "../db/database";
+import { ensureKanbanTable } from "../kanban";
 import { broadcast } from "./events";
 
 /**
@@ -68,6 +69,10 @@ export interface KanbanTask {
   model: string | null;
   /** JSON array of repo-relative paths the run touched. */
   files: string | null;
+  /** Short label; a sub-agent's prompt is a briefing, not a card title. */
+  title: string | null;
+  /** The request this card was split out of, for a fan-out sub-agent. */
+  parent_id: string | null;
   iterations: number;
   files_changed: number;
   output: string | null;
@@ -78,52 +83,13 @@ export interface KanbanTask {
   updated_at: number;
 }
 
-let ensured = false;
-
-/** Idempotent — see the module comment for why this table is self-owned. */
+/**
+ * The table is owned by kanban.ts, which both this board and the
+ * orchestrator write to — see its comment for why a fan-out's sub-agents
+ * each need a card of their own.
+ */
 function ensureTable(): void {
-  if (ensured) return;
-  const db = getDb();
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS kanban_tasks (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      harness TEXT,
-      status TEXT NOT NULL DEFAULT 'queued',
-      branch_name TEXT,
-      run_task_id TEXT,
-      session_id TEXT,
-      model TEXT,
-      files TEXT,
-      iterations INTEGER NOT NULL DEFAULT 0,
-      files_changed INTEGER NOT NULL DEFAULT 0,
-      output TEXT,
-      error TEXT,
-      started_at INTEGER,
-      completed_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  // Boards created before runs were linked back predate these columns.
-  const columns = db.prepare("PRAGMA table_info(kanban_tasks)").all() as Array<{
-    name: string;
-  }>;
-  for (const [name, decl] of [
-    ["run_task_id", "TEXT"],
-    ["session_id", "TEXT"],
-    ["model", "TEXT"],
-    ["files", "TEXT"],
-  ] as const) {
-    if (!columns.some((c) => c.name === name)) {
-      db.exec(`ALTER TABLE kanban_tasks ADD COLUMN ${name} ${decl}`);
-    }
-  }
-  db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_kanban_tasks_project ON kanban_tasks (project_id)`,
-  );
-  ensured = true;
+  ensureKanbanTable();
 }
 
 function eventForStatus(status: TaskStatus): string {
@@ -137,7 +103,8 @@ function eventForStatus(status: TaskStatus): string {
 router.get("/", (req: Request, res: Response) => {
   ensureTable();
   const db = getDb();
-  const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+  const projectId =
+    typeof req.query.projectId === "string" ? req.query.projectId : undefined;
   if (!projectId) {
     return res.status(400).json({ error: "projectId is required" });
   }
@@ -145,13 +112,15 @@ router.get("/", (req: Request, res: Response) => {
   const clauses = ["project_id = ?"];
   const params: unknown[] = [projectId];
 
-  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const status =
+    typeof req.query.status === "string" ? req.query.status : undefined;
   if (status) {
     clauses.push("status = ?");
     params.push(status);
   }
 
-  const harness = typeof req.query.harness === "string" ? req.query.harness : undefined;
+  const harness =
+    typeof req.query.harness === "string" ? req.query.harness : undefined;
   if (harness) {
     clauses.push("harness = ?");
     params.push(harness);
@@ -170,9 +139,9 @@ router.get("/", (req: Request, res: Response) => {
 router.get("/:id", (req: Request, res: Response) => {
   ensureTable();
   const db = getDb();
-  const row = db.prepare("SELECT * FROM kanban_tasks WHERE id = ?").get(req.params.id) as
-    | KanbanTask
-    | undefined;
+  const row = db
+    .prepare("SELECT * FROM kanban_tasks WHERE id = ?")
+    .get(req.params.id) as KanbanTask | undefined;
   if (!row) return res.status(404).json({ error: "Not found" });
   res.json(row);
 });
@@ -196,7 +165,8 @@ router.get("/:id/detail", (req: Request, res: Response) => {
   let files: string[] = [];
   try {
     const parsed = task.files ? JSON.parse(task.files) : [];
-    if (Array.isArray(parsed)) files = parsed.filter((f) => typeof f === "string");
+    if (Array.isArray(parsed))
+      files = parsed.filter((f) => typeof f === "string");
   } catch {
     files = [];
   }
@@ -266,6 +236,9 @@ router.post("/", (req: Request, res: Response) => {
     id: randomUUID(),
     project_id: projectId,
     prompt: prompt.trim(),
+    // A hand-added card is its own title, and belongs to no request.
+    title: null,
+    parent_id: null,
     harness: typeof harness === "string" && harness ? harness : null,
     status: (status as TaskStatus) ?? "queued",
     branch_name: null,
@@ -289,11 +262,15 @@ router.post("/", (req: Request, res: Response) => {
 
   db.prepare(
     `INSERT INTO kanban_tasks
-      (id, project_id, prompt, harness, status, branch_name, run_task_id, session_id, model, files, iterations, files_changed, output, error, started_at, completed_at, created_at, updated_at)
-     VALUES (@id, @project_id, @prompt, @harness, @status, @branch_name, @run_task_id, @session_id, @model, @files, @iterations, @files_changed, @output, @error, @started_at, @completed_at, @created_at, @updated_at)`,
+      (id, project_id, prompt, title, parent_id, harness, status, branch_name, run_task_id, session_id, model, files, iterations, files_changed, output, error, started_at, completed_at, created_at, updated_at)
+     VALUES (@id, @project_id, @prompt, @title, @parent_id, @harness, @status, @branch_name, @run_task_id, @session_id, @model, @files, @iterations, @files_changed, @output, @error, @started_at, @completed_at, @created_at, @updated_at)`,
   ).run(task);
 
-  broadcast("task:progress", { taskId: task.id, projectId: task.project_id, status: task.status });
+  broadcast("task:progress", {
+    taskId: task.id,
+    projectId: task.project_id,
+    status: task.status,
+  });
   res.status(201).json(task);
 });
 
@@ -311,15 +288,27 @@ router.put("/:id", (req: Request, res: Response) => {
   const body = req.body ?? {};
 
   if (body.status !== undefined && !STATUSES.includes(body.status)) {
-    return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+    return res
+      .status(400)
+      .json({ error: `status must be one of ${STATUSES.join(", ")}` });
   }
 
   const next: KanbanTask = {
     ...existing,
-    prompt: typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : existing.prompt,
-    harness: body.harness === null ? null : typeof body.harness === "string" ? body.harness : existing.harness,
+    prompt:
+      typeof body.prompt === "string" && body.prompt.trim()
+        ? body.prompt.trim()
+        : existing.prompt,
+    harness:
+      body.harness === null
+        ? null
+        : typeof body.harness === "string"
+          ? body.harness
+          : existing.harness,
     status: body.status ?? existing.status,
-    iterations: Number.isFinite(body.iterations) ? Math.max(0, body.iterations) : existing.iterations,
+    iterations: Number.isFinite(body.iterations)
+      ? Math.max(0, body.iterations)
+      : existing.iterations,
     files_changed: Number.isFinite(body.files_changed)
       ? Math.max(0, body.files_changed)
       : existing.files_changed,
@@ -357,7 +346,11 @@ router.put("/:id", (req: Request, res: Response) => {
       status: next.status,
     });
   } else {
-    broadcast("task:progress", { taskId: next.id, projectId: next.project_id, status: next.status });
+    broadcast("task:progress", {
+      taskId: next.id,
+      projectId: next.project_id,
+      status: next.status,
+    });
   }
 
   res.json(next);
@@ -373,7 +366,11 @@ router.delete("/:id", (req: Request, res: Response) => {
   if (!existing) return res.status(404).json({ error: "Not found" });
 
   db.prepare("DELETE FROM kanban_tasks WHERE id = ?").run(req.params.id);
-  broadcast("task:progress", { taskId: existing.id, projectId: existing.project_id, status: "deleted" });
+  broadcast("task:progress", {
+    taskId: existing.id,
+    projectId: existing.project_id,
+    status: "deleted",
+  });
   res.status(204).end();
 });
 

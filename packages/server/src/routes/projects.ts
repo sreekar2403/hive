@@ -171,19 +171,82 @@ router.put("/:id", (req: Request, res: Response) => {
   res.json(decorate({ ...existing, name, color, updated_at }));
 });
 
-// DELETE /api/projects/:id — removes it from Hive; never touches the folder.
+/**
+ * DELETE /api/projects/:id — removes it from Hive; never touches the folder.
+ *
+ * The row is not the only thing that referred to it. Board cards, chat
+ * sessions, schedules, workflows and log lines all carry a `project_id`,
+ * and deleting only the project left every one of them pointing at
+ * something that no longer exists: cards that cannot be opened, schedules
+ * that fire against a missing path, a Logs screen filtered by a project
+ * that is not in the filter list.
+ *
+ * So the delete takes them with it, and says what it took — removing
+ * sixteen board cards is not something to do silently, and the count is
+ * what lets the client warn before asking.
+ *
+ * Chat sessions are kept and unscoped rather than deleted: the
+ * conversation is the user's, not the project's, and it still reads
+ * perfectly well without a repository attached. Everything else is
+ * meaningless without its project and goes.
+ */
 router.delete("/:id", (req: Request, res: Response) => {
-  if (isGeneralProject(req.params.id)) {
+  const id = req.params.id;
+  if (isGeneralProject(id)) {
     return res
       .status(400)
       .json({ error: "The general workspace cannot be removed." });
   }
+
   const db = getDb();
-  const result = db
-    .prepare("DELETE FROM projects WHERE id = ?")
-    .run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: "Not found" });
-  res.status(204).end();
+  const existing = db.prepare("SELECT id FROM projects WHERE id = ?").get(id);
+  if (!existing) return res.status(404).json({ error: "Not found" });
+
+  const removed = db.transaction(() => {
+    const counts = {
+      tasks: db.prepare("DELETE FROM kanban_tasks WHERE project_id = ?").run(id)
+        .changes,
+      schedules: db
+        .prepare("DELETE FROM schedules WHERE project_id = ?")
+        .run(id).changes,
+      workflows: db
+        .prepare("DELETE FROM workflows WHERE project_id = ?")
+        .run(id).changes,
+      logs: db.prepare("DELETE FROM logs WHERE project_id = ?").run(id).changes,
+      // Kept, but no longer pointing at a project that is gone.
+      sessions: db
+        .prepare(
+          "UPDATE chat_sessions SET project_id = NULL WHERE project_id = ?",
+        )
+        .run(id).changes,
+    };
+    db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+    return counts;
+  })();
+
+  res.json({ removed });
+});
+
+/**
+ * GET /api/projects/:id/usage — what deleting this project would take.
+ *
+ * Asked before the confirmation is shown, so the dialog can say "and 16
+ * board cards" rather than making the user find out afterwards.
+ */
+router.get("/:id/usage", (req: Request, res: Response) => {
+  const id = req.params.id;
+  const db = getDb();
+  const count = (sql: string) =>
+    (db.prepare(sql).get(id) as { c: number } | undefined)?.c ?? 0;
+
+  res.json({
+    tasks: count("SELECT COUNT(*) c FROM kanban_tasks WHERE project_id = ?"),
+    schedules: count("SELECT COUNT(*) c FROM schedules WHERE project_id = ?"),
+    workflows: count("SELECT COUNT(*) c FROM workflows WHERE project_id = ?"),
+    sessions: count(
+      "SELECT COUNT(*) c FROM chat_sessions WHERE project_id = ?",
+    ),
+  });
 });
 
 export default router;

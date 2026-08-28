@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { ClaudeCodeParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { attachmentPreamble } from "./attachments";
 
 export class ClaudeCodeHarness implements Harness {
   name = "claude-code";
@@ -28,7 +29,15 @@ export class ClaudeCodeHarness implements Harness {
     // thinking blocks as they happen. Plain --output-format json returns
     // one envelope at the end, which is what used to land in the chat
     // window verbatim.
-    const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
+    // No attachment flag, but a file-reading tool that opens images as
+    // well as text — naming the paths is all it needs.
+    const args = [
+      "-p",
+      `${attachmentPreamble(options?.attachments)}${prompt}`,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ];
 
     const model = options?.model || this._model;
     if (model && model !== "default") args.push("--model", model);

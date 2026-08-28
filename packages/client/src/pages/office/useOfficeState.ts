@@ -23,7 +23,9 @@ export function useOfficeState() {
         setError(null);
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Could not reach the swarm");
+          setError(
+            err instanceof Error ? err.message : "Could not reach the swarm",
+          );
         }
       } finally {
         if (!cancelled) setLoading(false);

@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  Building2,
-  FolderGit2,
-  GitCompare,
-  MessageSquare,
-} from "lucide-react";
+import { Building2, FolderGit2, GitCompare, MessageSquare } from "lucide-react";
 import {
   Badge,
   Card,
@@ -162,7 +157,10 @@ export function Dashboard() {
             <ul className="divide-y divide-line">
               {agents.map((a) => (
                 <li key={a.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <StatusDot tone={a.taskId ? "accent" : "neutral"} pulse={!!a.taskId} />
+                  <StatusDot
+                    tone={a.taskId ? "accent" : "neutral"}
+                    pulse={!!a.taskId}
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] text-ink truncate">
                       {a.name}
@@ -176,7 +174,9 @@ export function Dashboard() {
                       </span>
                     ) : null}
                   </span>
-                  <Badge tone={a.taskId ? "accent" : "neutral"}>{a.phase}</Badge>
+                  <Badge tone={a.taskId ? "accent" : "neutral"}>
+                    {a.phase}
+                  </Badge>
                 </li>
               ))}
             </ul>
@@ -275,9 +275,14 @@ function Stat({
   };
   return (
     <Card className="relative overflow-hidden p-4 pl-5">
-      <span className={cn("absolute left-0 top-0 bottom-0 w-0.5", accentBar[tone])} />
+      <span
+        className={cn("absolute left-0 top-0 bottom-0 w-0.5", accentBar[tone])}
+      />
       <div className="eyebrow mb-2">{label}</div>
-      <div className="text-[28px] leading-none font-semibold text-ink" data-numeric>
+      <div
+        className="text-[28px] leading-none font-semibold text-ink"
+        data-numeric
+      >
         {value ?? "—"}
       </div>
       <div className="text-[12px] text-muted mt-1.5">{hint}</div>

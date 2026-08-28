@@ -157,7 +157,9 @@ export function SettingsPage() {
             <div className="max-w-4xl">
               <div className="mb-5">
                 <div className="eyebrow mb-1">Settings</div>
-                <h2 className="text-[17px] font-semibold text-ink">{active.label}</h2>
+                <h2 className="text-[17px] font-semibold text-ink">
+                  {active.label}
+                </h2>
               </div>
 
               {error ? (
@@ -166,7 +168,9 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {section === "models" ? <ModelsSection /> : null}
+              {section === "models" ? (
+                <ModelsSection draft={draft} onChange={update} />
+              ) : null}
               {section === "harnesses" ? (
                 <HarnessesSection draft={draft} onChange={update} />
               ) : null}
@@ -191,7 +195,9 @@ export function SettingsPage() {
           {/* Only appears once something has actually changed. */}
           {dirty ? (
             <div className="shrink-0 border-t border-line bg-surface px-6 py-3 flex items-center justify-between gap-4">
-              <span className="text-[13px] text-muted">You have unsaved changes.</span>
+              <span className="text-[13px] text-muted">
+                You have unsaved changes.
+              </span>
               <div className="flex items-center gap-2">
                 <Button onClick={discard} disabled={saving}>
                   Discard

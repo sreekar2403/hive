@@ -6,9 +6,12 @@ import { RuntimeGuard } from "./runtimeGuard";
 import { SharedMemory } from "./sharedMemory";
 import { Config } from "./config";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
+import type { HarnessAttachment } from "@hive/shared/harness";
+import { describeImagesFor } from "./visionBridge";
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import { getDb } from "./db/database";
+import { createKanbanCard, finishKanbanCard } from "./kanban";
 import { broadcast } from "./routes/events";
 import { endSpan, log, recordSpan, startSpan } from "./telemetry";
 import { ensureRootDirectory, isGeneralProject } from "./generalWorkspace";
@@ -19,6 +22,14 @@ import { effectiveAgentLimit } from "./capacity";
 import { runPipeline, type StageName } from "./pipeline";
 import { runGit } from "./branches";
 import { briefingFor as mailBriefingFor } from "./agentMail";
+import { currentBranch } from "./gitUtils";
+import { asksForFanout, planFanout, type FanoutPlan } from "./fanout/planner";
+import {
+  briefSubAgent,
+  composeFanoutAnswer,
+  type MergeReport,
+  type SubResult,
+} from "./fanout/summary";
 import {
   branchNameFor,
   commitAll,
@@ -66,10 +77,33 @@ export interface AgentTask {
   events: HarnessEvent[];
   /** Previous messages in this conversation for context. */
   conversationHistory?: Array<{ role: string; content: string }>;
+  /** Files the person attached to the message that started this run. */
+  attachments?: HarnessAttachment[];
   /** Iterations the loop actually used, mirrored from LoopEngine state. */
   iteration?: number;
   /** Why the loop gave up, when it did. */
   error?: string | null;
+  /**
+   * Set on a sub-agent to the task it was split out of. Its presence is
+   * also what stops fan-out recursing: a sub-task is never re-planned.
+   */
+  parentTaskId?: string | null;
+  /**
+   * The board card this run reports into, when it has one.
+   *
+   * Set by whoever opened the card — server.ts for a chat request, the
+   * fan-out below for a sub-agent. The Orchestrator needs it so a
+   * sub-agent's card can point at the request it was split out of.
+   */
+  kanbanCardId?: string | null;
+  /**
+   * Short label for the UI. A sub-agent's `prompt` is the full briefing —
+   * its own instruction plus what its siblings are doing plus the original
+   * request — which is correct to run and useless to read in a task list.
+   * Overwriting `prompt` with the label instead was worse than useless: it
+   * threw away the briefing the agent needed.
+   */
+  title?: string | null;
 }
 
 /** A long run can emit thousands of events; the trail keeps the newest. */
@@ -207,7 +241,6 @@ export class Orchestrator {
 
   private config: Config;
   private harnesses: Map<string, Harness>;
-  private loopEngine: LoopEngine;
   private router: Router;
   private permissionManager: PermissionManager;
   private resourceManager: ResourceManager;
@@ -228,7 +261,6 @@ export class Orchestrator {
     this.config = config;
     this.harnesses = harnesses;
     this.router = new Router(config, harnesses);
-    this.loopEngine = new LoopEngine(config, harnesses, this.router);
     this.permissionManager = new PermissionManager(config);
     this.resourceManager = new ResourceManager(config);
     // Read through a function so a Settings change takes effect on the next
@@ -261,6 +293,7 @@ export class Orchestrator {
       model?: string | null;
       agent?: string | null;
       conversationHistory?: Array<{ role: string; content: string }>;
+      attachments?: HarnessAttachment[];
     },
   ): Promise<AgentTask> {
     const taskId = this.generateId();
@@ -284,6 +317,7 @@ export class Orchestrator {
       agent: selection?.agent ?? null,
       events: [],
       conversationHistory: selection?.conversationHistory ?? [],
+      attachments: selection?.attachments ?? [],
     };
 
     this.tasks.set(taskId, task);
@@ -298,6 +332,15 @@ export class Orchestrator {
   ): Promise<AgentTask> {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
+
+    // Is this one piece of work, or several?
+    //
+    // Asked *before* a slot is taken, and that ordering is load-bearing: a
+    // parent holding a slot while its children queue for slots of their own
+    // is a deadlock, and with `maxConcurrentAgents: 1` it is a guaranteed
+    // one. The parent never runs a harness itself, so it never needs a slot.
+    const plan = await this.planFanoutFor(task);
+    if (plan) return await this.runFanout(task, plan, onIteration);
 
     // Wait for a slot before anything else happens. A task holding one is
     // "running"; until then it is queued in Intake, which is exactly what
@@ -331,6 +374,278 @@ export class Orchestrator {
       // slot goes back so the next queued run can start.
       this.gate.release();
     }
+  }
+
+  /**
+   * Whether this task should be split, and into what.
+   *
+   * Returns null far more often than not — see fanout/planner.ts. The
+   * cheap guards run first so the common case never pays for a model call:
+   * a sub-agent is never re-split (that would recurse), and a short request
+   * with no explicit ask is taken at face value.
+   */
+  private async planFanoutFor(task: AgentTask): Promise<FanoutPlan | null> {
+    const settings = this.config.loop?.fanout;
+    if (!settings?.enabled) return null;
+    if (task.parentTaskId) return null;
+
+    const explicit = asksForFanout(task.prompt);
+    // A one-line request is a question, not a programme of work. Asking a
+    // model to confirm that costs a round trip to reach the answer the
+    // length already gave us.
+    if (!explicit && task.prompt.trim().length < 80) return null;
+
+    const harnessId =
+      task.requestedHarness && this.harnesses.has(task.requestedHarness)
+        ? task.requestedHarness
+        : task.harness;
+    const harness = this.harnesses.get(harnessId);
+    if (!harness) return null;
+
+    const planStart = Date.now();
+    const plan = await planFanout(task.prompt, {
+      harness,
+      model: task.model ?? undefined,
+      available: Array.from(this.harnesses.keys()),
+      conversationHistory: task.conversationHistory,
+      maxSubtasks: settings.maxSubtasks,
+      timeoutMs: settings.plannerTimeoutMs,
+    });
+
+    recordSpan(
+      task.id,
+      plan ? `Split into ${plan.subtasks.length} agents` : "Ran as one task",
+      "route",
+      null,
+      planStart,
+      "ok",
+      plan ? { subtasks: plan.subtasks.map((s) => s.title) } : undefined,
+    );
+
+    if (plan) {
+      log(
+        "info",
+        "fanout",
+        `Split into ${plan.subtasks.length}: ${plan.subtasks.map((s) => s.title).join(", ")}`,
+        { taskId: task.id, projectId: task.projectId },
+      );
+    }
+
+    return plan;
+  }
+
+  /**
+   * Runs a plan's sub-agents at the same time and folds their work back
+   * into one answer.
+   *
+   * The parent task is a coordinator, not a worker: it spawns no harness of
+   * its own, so it holds no concurrency slot and cannot starve its own
+   * children. Each child takes a slot the normal way, which means
+   * `maxConcurrentAgents` still governs how much actually runs at once —
+   * a six-way split on a two-slot machine runs two at a time rather than
+   * six, and that is the intended behaviour, not a limitation.
+   */
+  private async runFanout(
+    parent: AgentTask,
+    plan: FanoutPlan,
+    onIteration?: LoopCallback,
+  ): Promise<AgentTask> {
+    parent.status = "running";
+    this.setPhase(parent, "conference");
+
+    const children = await this.createParallelBranches(
+      parent.sessionId,
+      plan.subtasks.map((subtask) => ({
+        // Each agent is told what its siblings are doing; they run in
+        // separate checkouts and would otherwise duplicate shared work and
+        // conflict on every file of it.
+        prompt: briefSubAgent(subtask, plan.subtasks, parent.prompt),
+        harness: subtask.harness ?? parent.requestedHarness ?? undefined,
+        // The model the user picked applies to the whole request, sub-agents
+        // included — picking opencode/ornith in the composer and getting a
+        // different model on the actual work would be a surprise.
+        model: parent.model,
+        agent: parent.agent,
+        // Every sub-agent gets what was attached to the request. Which of
+        // them needs the screenshot is not knowable here, and an agent that
+        // does not need it simply does not open it.
+        attachments: parent.attachments,
+      })),
+      parent.projectId,
+    );
+
+    for (const [index, child] of children.entries()) {
+      child.parentTaskId = parent.id;
+      child.title = plan.subtasks[index].title;
+
+      // A card each. A four-agent request that showed one card was hiding
+      // the part worth looking at: every sub-agent has its own branch,
+      // worktree, files and outcome, and the request's own card can only
+      // report a union of those with no attribution.
+      if (child.projectId) {
+        try {
+          child.kanbanCardId = createKanbanCard({
+            projectId: child.projectId,
+            // The briefing is what runs; the label is what reads.
+            prompt: plan.subtasks[index].prompt,
+            title: plan.subtasks[index].title,
+            parentId: parent.kanbanCardId ?? null,
+            harness: child.harness,
+            runTaskId: child.id,
+            sessionId: child.sessionId,
+            model: child.model,
+            branchName: child.branchName,
+          });
+        } catch (err) {
+          // The board is a view onto the run, never a reason to fail it.
+          log("warn", "fanout", `Could not open a board card: ${String(err)}`, {
+            taskId: child.id,
+            projectId: child.projectId,
+          });
+        }
+      }
+
+      broadcast("task:started", {
+        sessionId: child.sessionId,
+        taskId: child.id,
+        projectId: child.projectId,
+        prompt: plan.subtasks[index].title,
+        parentTaskId: parent.id,
+      });
+    }
+
+    broadcast("fanout:planned", {
+      sessionId: parent.sessionId,
+      taskId: parent.id,
+      projectId: parent.projectId,
+      reasoning: plan.reasoning,
+      subtasks: children.map((child, index) => ({
+        taskId: child.id,
+        title: plan.subtasks[index].title,
+        branch: child.branchName,
+      })),
+    });
+
+    // allSettled, not all: one agent throwing must not discard the work the
+    // others finished, which is exactly the case a fan-out exists to handle.
+    const settled = await Promise.allSettled(
+      children.map((child) => this.executeTask(child.id, onIteration)),
+    );
+
+    const results: SubResult[] = children.map((child, index) => {
+      const outcome = settled[index];
+      const finished = outcome.status === "fulfilled" ? outcome.value : child;
+      return {
+        taskId: child.id,
+        title: plan.subtasks[index].title,
+        harness: finished.harness,
+        branch: finished.branchName,
+        success:
+          outcome.status === "fulfilled" && finished.status === "completed",
+        output: finished.output ?? "",
+        filesChanged: finished.filesChanged ?? [],
+        error:
+          outcome.status === "rejected"
+            ? String(outcome.reason)
+            : (finished.error ?? null),
+      };
+    });
+
+    // Close each sub-agent's card with what that agent actually did, before
+    // the summary is composed — the board is how someone watching sees a
+    // partial result while the rest is still merging.
+    for (const [index, child] of children.entries()) {
+      if (!child.kanbanCardId) continue;
+      const outcome = results[index];
+      try {
+        finishKanbanCard(child.kanbanCardId, {
+          status: outcome.success ? "done" : "failed",
+          iterations: child.iteration ?? 0,
+          files: outcome.filesChanged,
+          output: outcome.output,
+          error: outcome.error ?? null,
+          branchName: outcome.branch,
+        });
+      } catch {
+        // Same reasoning as opening it: never fail a run over the board.
+      }
+      broadcast(outcome.success ? "task:completed" : "task:failed", {
+        sessionId: child.sessionId,
+        taskId: child.id,
+        projectId: child.projectId,
+        harness: child.harness,
+        parentTaskId: parent.id,
+      });
+    }
+
+    const merge = await this.mergeFanout(parent, children);
+
+    parent.output = composeFanoutAnswer(results, merge, plan.reasoning);
+    parent.filesChanged = [
+      ...new Set(results.flatMap((result) => result.filesChanged)),
+    ];
+    parent.completedAt = Date.now();
+    // The coordinator runs no loop of its own, so its iteration count was
+    // left undefined — and the board's `iterations` column is NOT NULL, so
+    // writing the request's card threw *after* every agent had finished
+    // and the whole response was lost with the work already on disk. The
+    // sum is both non-null and the true answer to "how many attempts did
+    // this request take".
+    parent.iteration = children.reduce(
+      (total, child) => total + (child.iteration ?? 0),
+      0,
+    );
+    // The coordinator succeeded if any agent did; a fan-out where every
+    // piece failed is a failed request, and one where some pieces landed is
+    // a partial result the summary spells out agent by agent.
+    parent.status = results.some((result) => result.success)
+      ? "completed"
+      : "failed";
+    this.setPhase(
+      parent,
+      parent.status === "completed" ? "break-room" : "conference",
+    );
+
+    return parent;
+  }
+
+  /**
+   * Commits and merges the sub-branches, when merging is turned on.
+   *
+   * Merges into whatever branch the repository is actually on, not `main`.
+   * Landing an agent's work on a branch the user is not standing on is a
+   * surprise they would find later, in a diff they did not ask for.
+   */
+  private async mergeFanout(
+    parent: AgentTask,
+    children: AgentTask[],
+  ): Promise<MergeReport | null> {
+    if (!this.config.loop?.fanout?.merge) return null;
+
+    const repoPath = this.workingTreeFor(parent.projectId) ?? process.cwd();
+    const target = currentBranch(repoPath);
+    if (!target || target === "HEAD") {
+      // Detached HEAD: there is no branch to merge into, and picking one
+      // would be inventing an intent the user never expressed.
+      log(
+        "warn",
+        "fanout",
+        "No current branch to merge into; branches left as they are",
+        {
+          taskId: parent.id,
+          projectId: parent.projectId,
+        },
+      );
+      return null;
+    }
+
+    const collected = await this.collectParallelBranches(
+      children.map((child) => child.id),
+      target,
+      parent.projectId,
+    );
+
+    return { ...collected, target };
   }
 
   /** How much work is in flight, for the Settings and Office screens. */
@@ -368,7 +683,9 @@ export class Orchestrator {
     // on the agent's actual shell calls is below, in runTaskGuarded.
     const gateOn = this.config.permission.gateOn ?? "prompt";
     if (this.config.permission.enabled && gateOn !== "commands") {
-      const awaitingApproval = this.permissionManager.isDestructive(task.prompt);
+      const awaitingApproval = this.permissionManager.isDestructive(
+        task.prompt,
+      );
       if (awaitingApproval) {
         this.setPhase(task, "conference");
       }
@@ -406,8 +723,20 @@ export class Orchestrator {
 
     // The working tree this task runs against — resolved once, because the
     // Second Brain's store roots hang off it as well as the harness's cwd.
-    const cwd = this.workingTreeFor(task.projectId);
-    const brain = this.brainFor(cwd);
+    //
+    // A task holding a worktree runs *in* it. createParallelBranches has
+    // always created one per parallel task, but execution resolved the cwd
+    // from the project alone and so ran every one of them in the shared
+    // checkout — the isolation existed on disk and did nothing. That is the
+    // whole point of fanning out, so the worktree wins where there is one.
+    const projectTree = this.workingTreeFor(task.projectId);
+    const isolated = this.worktrees.get(task.id);
+    const cwd = isolated?.path ?? projectTree;
+
+    // The brain stays keyed to the project, not to the throwaway checkout:
+    // lessons learned in a worktree that is about to be deleted belong to
+    // the project the work was for.
+    const brain = this.brainFor(projectTree);
     const category = brain.categorize(task.prompt);
     brain.learning.taskStarted(task.id);
     this.recordCorrectionOfPrevious(task, brain);
@@ -512,9 +841,11 @@ export class Orchestrator {
       // The mailbox is a convenience; a task must not fail over it.
     }
     if (mail) {
-      briefing.text = briefing.text ? `${briefing.text}
+      briefing.text = briefing.text
+        ? `${briefing.text}
 
-${mail}` : mail;
+${mail}`
+        : mail;
       log("info", "orchestrator", "Read messages from other agents", {
         taskId: task.id,
         projectId: task.projectId,
@@ -537,8 +868,18 @@ ${mail}` : mail;
       });
     }
 
-    // Initialize loop engine with the prompt
-    this.loopEngine.start(task.prompt);
+    // One engine per task, never a shared one.
+    //
+    // LoopEngine carries the whole run on itself — iteration counter,
+    // current prompt, previous output, the conversation history. A single
+    // instance shared across tasks was fine only while exactly one task
+    // could ever be in flight; ConcurrencyGate admits `maxConcurrentAgents`
+    // of them, and sub-agent fan-out runs several by design. Sharing it
+    // meant two agents overwriting each other's prompt and iteration count
+    // mid-run, which surfaces as a task retrying against another task's
+    // error.
+    const loopEngine = new LoopEngine(this.config, this.harnesses, this.router);
+    loopEngine.start(task.prompt);
 
     // Execute with loop
     const callback: LoopCallback = async (
@@ -586,18 +927,40 @@ ${mail}` : mail;
     // so the agent can finish the job it was stopped in the middle of.
     const guardEnabled = this.config.permission.enabled && gateOn !== "prompt";
     const approvedCommands = new Set<string>();
+
+    // An image attached to a task running on a model that cannot see one is
+    // described in words first, by a model that can. What comes back joins
+    // the briefing, and the images it covered are dropped from the
+    // attachment list — sending both would hand a blind model a file it
+    // still cannot open, next to a description of it.
+    const seen = await describeImagesFor(task.attachments, {
+      harnesses: this.harnesses,
+      harness: decision.harness,
+      model: task.model,
+      preferred: this.config.vision?.model,
+      always: this.config.vision?.always,
+    });
+    const attachments = (task.attachments ?? []).filter(
+      (attachment) => !seen.described.includes(attachment),
+    );
+    const preamble = seen.preamble
+      ? `${seen.preamble}
+${briefing.text}`
+      : briefing.text;
+
     const runOptions = {
       cwd,
       harness: pinned ?? undefined,
       model: task.model ?? undefined,
       agent: task.agent ?? undefined,
-      preamble: briefing.text,
+      preamble,
       hints: brain.getRoutingHints(task.prompt),
       soul: brain.getRoutingGuidance(),
       conversationHistory: task.conversationHistory,
+      attachments,
     };
 
-    let result!: Awaited<ReturnType<typeof this.loopEngine.run>>;
+    let result!: Awaited<ReturnType<typeof loopEngine.run>>;
     let guardAttempt = 0;
 
     for (;;) {
@@ -607,7 +970,7 @@ ${mail}` : mail;
         ? new RuntimeGuard(this.permissionManager, approvedCommands)
         : null;
 
-      result = await this.loopEngine.run(
+      result = await loopEngine.run(
         callback,
         task.id,
         rootSpan,
@@ -871,7 +1234,8 @@ ${mail}` : mail;
             iteration,
             stage: input.stage,
           });
-          if (onIteration) await onIteration(iteration, output, success, filesChanged);
+          if (onIteration)
+            await onIteration(iteration, output, success, filesChanged);
         },
         task.id,
         stageSpan,
@@ -968,11 +1332,23 @@ ${mail}` : mail;
    */
   async createParallelBranches(
     sessionId: string,
-    tasks: Array<{ prompt: string; harness?: string }>,
+    tasks: Array<{
+      prompt: string;
+      harness?: string;
+      /** Model in the CLI's own notation; see models/catalog.ts. */
+      model?: string | null;
+      agent?: string | null;
+      attachments?: HarnessAttachment[];
+    }>,
     projectId: string | null = null,
   ): Promise<AgentTask[]> {
     const repoPath = this.workingTreeFor(projectId) ?? process.cwd();
     const createdTasks: AgentTask[] = [];
+    // Branch names are derived from the prompt, and sub-agents from one
+    // fan-out have prompts that open identically. `branchNameFor` keeps
+    // them apart by task id, but a tie here would cost an agent its
+    // isolation, so the batch also refuses to hand out a name twice.
+    const taken = new Set<string>();
 
     for (const taskDef of tasks) {
       const task = await this.createTask(
@@ -980,17 +1356,32 @@ ${mail}` : mail;
         taskDef.prompt,
         taskDef.harness,
         projectId,
+        {
+          model: taskDef.model ?? null,
+          agent: taskDef.agent ?? null,
+          attachments: taskDef.attachments,
+        },
       );
 
-      const branch = branchNameFor(task.id, taskDef.prompt);
+      let branch = branchNameFor(task.id, taskDef.prompt);
+      for (let suffix = 2; taken.has(branch); suffix++) {
+        branch = `${branchNameFor(task.id, taskDef.prompt)}-${suffix}`;
+      }
+      taken.add(branch);
+
       const created = createWorktree(repoPath, branch);
       if (created.ok && created.worktree) {
         task.branchName = branch;
         this.worktrees.set(task.id, created.worktree);
-        log("info", "orchestrator", `Isolated ${branch} at ${created.worktree.path}`, {
-          taskId: task.id,
-          projectId,
-        });
+        log(
+          "info",
+          "orchestrator",
+          `Isolated ${branch} at ${created.worktree.path}`,
+          {
+            taskId: task.id,
+            projectId,
+          },
+        );
       } else {
         // Say so rather than quietly sharing a tree: the caller's whole
         // reason for asking was that these run at once.
@@ -1117,10 +1508,18 @@ ${mail}` : mail;
 
     const push = runGit(["push", "-u", "origin", branchName], repoPath);
     if (!push.ok) {
-      return { url: null, error: `Could not push ${branchName}: ${push.output}` };
+      return {
+        url: null,
+        error: `Could not push ${branchName}: ${push.output}`,
+      };
     }
 
-    return this.createPullRequest(branchName, targetBranch, repoPath, sessionId);
+    return this.createPullRequest(
+      branchName,
+      targetBranch,
+      repoPath,
+      sessionId,
+    );
   }
 
   private async createPullRequest(

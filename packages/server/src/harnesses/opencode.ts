@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { OpenCodeParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { opencodeFileArgs } from "./attachments";
 
 export class OpenCodeHarness implements Harness {
   name = "opencode";
@@ -26,7 +27,19 @@ export class OpenCodeHarness implements Harness {
   ): Promise<HarnessExecutionResult> {
     // `--format json` is the event stream (see OpenCodeParser); `--thinking`
     // makes reasoning blocks part of it instead of being dropped.
-    const args = ["run", "--pure", "--format", "json", "--thinking"];
+    //
+    // `--auto` is not optional here, despite how its help text reads.
+    // opencode asks for approval on some tool calls, and it asks on its own
+    // stdin — which runner.ts closes, because these CLIs otherwise sit
+    // waiting on a prompt nobody will answer. Without `--auto` the run does
+    // not fail, it hangs: the log shows `message=asking permission=bash` and
+    // then nothing, forever, until the task times out with no output.
+    //
+    // The approval itself is not being skipped, it is being moved. Hive
+    // watches the tool-call stream and stops the agent on a destructive
+    // command itself (permissions.ts + runtimeGuard.ts), and asks a human
+    // through the UI, where there is somebody who can actually answer.
+    const args = ["run", "--pure", "--auto", "--format", "json", "--thinking"];
 
     // opencode runs a local server of its own and resolves the workspace
     // itself, so inheriting the spawn cwd is not enough — without --dir it
@@ -38,7 +51,18 @@ export class OpenCodeHarness implements Harness {
     if (model) args.push("--model", model);
     if (options?.agent) args.push("--agent", options.agent);
 
+    // The prompt goes first, and the order is not cosmetic: `--file` is
+    // declared variadic (`[array]`), so yargs keeps consuming positionals
+    // after it. With the flag first, the prompt is swallowed as a second
+    // filename and the run dies with
+    //   Error: File not found: <the entire prompt>
+    // which then feeds the retry loop a prompt containing its own error,
+    // growing it each attempt until spawn fails with ENAMETOOLONG.
     args.push(prompt);
+
+    // opencode takes any file type here, so nothing needs describing in
+    // the prompt for it to be seen.
+    args.push(...opencodeFileArgs(options?.attachments));
 
     return runHarness({
       command: this._path,
