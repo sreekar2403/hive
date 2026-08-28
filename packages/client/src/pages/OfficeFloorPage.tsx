@@ -987,6 +987,18 @@ export function OfficeFloorPage() {
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px] truncate">
                         {a.name}
+                        {a.dispatchedBy ? (
+                          /* A sub-agent, so the roster says whose. Without
+                             this a fan-out reads as unrelated agents that
+                             happened to start together. */
+                          <span
+                            className="ml-1 rp-mono text-[11px]"
+                            style={{ color: "var(--rp-ink-500)" }}
+                            title="Dispatched as part of a split request"
+                          >
+                            ↳ sub-agent
+                          </span>
+                        ) : null}
                       </span>
                       <span
                         className="block rp-mono text-[13px] truncate"
@@ -996,7 +1008,9 @@ export function OfficeFloorPage() {
                       </span>
                     </span>
                     <Badge tone={a.taskId ? "accent" : "neutral"}>
-                      {ZONES_BY_ID[a.phase]?.label ?? a.phase}
+                      {a.coordinating
+                        ? `coordinating ${a.coordinating}`
+                        : (ZONES_BY_ID[a.phase]?.label ?? a.phase)}
                     </Badge>
                   </button>
                 ))

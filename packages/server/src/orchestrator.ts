@@ -9,6 +9,7 @@ import { Harness, HarnessEvent } from "@hive/shared/harness";
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import { getDb } from "./db/database";
+import { createKanbanCard, finishKanbanCard } from "./kanban";
 import { broadcast } from "./routes/events";
 import { endSpan, log, recordSpan, startSpan } from "./telemetry";
 import { ensureRootDirectory, isGeneralProject } from "./generalWorkspace";
@@ -83,6 +84,14 @@ export interface AgentTask {
    * also what stops fan-out recursing: a sub-task is never re-planned.
    */
   parentTaskId?: string | null;
+  /**
+   * The board card this run reports into, when it has one.
+   *
+   * Set by whoever opened the card — server.ts for a chat request, the
+   * fan-out below for a sub-agent. The Orchestrator needs it so a
+   * sub-agent's card can point at the request it was split out of.
+   */
+  kanbanCardId?: string | null;
   /**
    * Short label for the UI. A sub-agent's `prompt` is the full briefing —
    * its own instruction plus what its siblings are doing plus the original
@@ -458,6 +467,34 @@ export class Orchestrator {
     for (const [index, child] of children.entries()) {
       child.parentTaskId = parent.id;
       child.title = plan.subtasks[index].title;
+
+      // A card each. A four-agent request that showed one card was hiding
+      // the part worth looking at: every sub-agent has its own branch,
+      // worktree, files and outcome, and the request's own card can only
+      // report a union of those with no attribution.
+      if (child.projectId) {
+        try {
+          child.kanbanCardId = createKanbanCard({
+            projectId: child.projectId,
+            // The briefing is what runs; the label is what reads.
+            prompt: plan.subtasks[index].prompt,
+            title: plan.subtasks[index].title,
+            parentId: parent.kanbanCardId ?? null,
+            harness: child.harness,
+            runTaskId: child.id,
+            sessionId: child.sessionId,
+            model: child.model,
+            branchName: child.branchName,
+          });
+        } catch (err) {
+          // The board is a view onto the run, never a reason to fail it.
+          log("warn", "fanout", `Could not open a board card: ${String(err)}`, {
+            taskId: child.id,
+            projectId: child.projectId,
+          });
+        }
+      }
+
       broadcast("task:started", {
         sessionId: child.sessionId,
         taskId: child.id,
@@ -504,6 +541,33 @@ export class Orchestrator {
       };
     });
 
+    // Close each sub-agent's card with what that agent actually did, before
+    // the summary is composed — the board is how someone watching sees a
+    // partial result while the rest is still merging.
+    for (const [index, child] of children.entries()) {
+      if (!child.kanbanCardId) continue;
+      const outcome = results[index];
+      try {
+        finishKanbanCard(child.kanbanCardId, {
+          status: outcome.success ? "done" : "failed",
+          iterations: child.iteration ?? 0,
+          files: outcome.filesChanged,
+          output: outcome.output,
+          error: outcome.error ?? null,
+          branchName: outcome.branch,
+        });
+      } catch {
+        // Same reasoning as opening it: never fail a run over the board.
+      }
+      broadcast(outcome.success ? "task:completed" : "task:failed", {
+        sessionId: child.sessionId,
+        taskId: child.id,
+        projectId: child.projectId,
+        harness: child.harness,
+        parentTaskId: parent.id,
+      });
+    }
+
     const merge = await this.mergeFanout(parent, children);
 
     parent.output = composeFanoutAnswer(results, merge, plan.reasoning);
@@ -511,6 +575,16 @@ export class Orchestrator {
       ...new Set(results.flatMap((result) => result.filesChanged)),
     ];
     parent.completedAt = Date.now();
+    // The coordinator runs no loop of its own, so its iteration count was
+    // left undefined — and the board's `iterations` column is NOT NULL, so
+    // writing the request's card threw *after* every agent had finished
+    // and the whole response was lost with the work already on disk. The
+    // sum is both non-null and the true answer to "how many attempts did
+    // this request take".
+    parent.iteration = children.reduce(
+      (total, child) => total + (child.iteration ?? 0),
+      0,
+    );
     // The coordinator succeeded if any agent did; a fan-out where every
     // piece failed is a failed request, and one where some pieces landed is
     // a partial result the summary spells out agent by agent.

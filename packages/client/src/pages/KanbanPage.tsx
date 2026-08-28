@@ -38,11 +38,7 @@ import {
   harnessColorVar,
   harnessLabel,
 } from "./kanban/constants";
-import type {
-  KanbanTask,
-  TaskDetailPayload,
-  TaskStatus,
-} from "./kanban/types";
+import type { KanbanTask, TaskDetailPayload, TaskStatus } from "./kanban/types";
 import { useStickyState } from "../lib/useStickyState";
 
 type Density = "compact" | "comfortable";
@@ -141,11 +137,32 @@ export function KanbanPage() {
       if (!needle) return true;
       return (
         t.prompt.toLowerCase().includes(needle) ||
+        (t.title ?? "").toLowerCase().includes(needle) ||
         (t.harness ?? "").toLowerCase().includes(needle) ||
         (t.branch_name ?? "").toLowerCase().includes(needle)
       );
     });
   }, [tasks, harnessFilter, query]);
+
+  /**
+   * Fan-out relationships, computed over every task rather than the
+   * filtered set: a sub-agent can finish while its request is still
+   * running, so parent and children routinely sit in different columns and
+   * a child may be filtered out while its parent is on screen.
+   */
+  const fanout = useMemo(() => {
+    const childCount = new Map<string, number>();
+    const parentOf = new Map<string, KanbanTask>();
+    const byId = new Map(tasks.map((t) => [t.id, t]));
+
+    for (const task of tasks) {
+      if (!task.parent_id) continue;
+      childCount.set(task.parent_id, (childCount.get(task.parent_id) ?? 0) + 1);
+      const parent = byId.get(task.parent_id);
+      if (parent) parentOf.set(task.id, parent);
+    }
+    return { childCount, parentOf };
+  }, [tasks]);
 
   const byStatus = useMemo(() => {
     const groups = new Map<TaskStatus, KanbanTask[]>(
@@ -180,41 +197,43 @@ export function KanbanPage() {
     settled, which made every drag feel like it had to think about it — and
     quietly discarded the response it had already been given.
   */
-  const move = useCallback(
-    async (task: KanbanTask, status: TaskStatus) => {
-      if (task.status === status) return;
-      const previous = task;
+  const move = useCallback(async (task: KanbanTask, status: TaskStatus) => {
+    if (task.status === status) return;
+    const previous = task;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, status } : t)),
+    );
+    announce(
+      `${task.prompt.slice(0, 40)} moved to ${COLUMNS_BY_ID[status].title}`,
+    );
+    try {
+      const updated = await API.put<KanbanTask>(`/api/tasks/${task.id}`, {
+        status,
+      });
+      setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    } catch {
       setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, status } : t)),
+        prev.map((t) => (t.id === previous.id ? previous : t)),
       );
-      announce(`${task.prompt.slice(0, 40)} moved to ${COLUMNS_BY_ID[status].title}`);
+      announce("That move could not be saved");
+    }
+  }, []);
+
+  const remove = useCallback(
+    async (task: KanbanTask) => {
+      const previous = tasks;
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      setSelected((current) => (current?.id === task.id ? null : current));
       try {
-        const updated = await API.put<KanbanTask>(`/api/tasks/${task.id}`, {
-          status,
-        });
-        setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        await API.del(`/api/tasks/${task.id}`);
+        announce("Task deleted");
       } catch {
-        setTasks((prev) =>
-          prev.map((t) => (t.id === previous.id ? previous : t)),
-        );
-        announce("That move could not be saved");
+        setTasks(previous);
+        announce("That task could not be deleted");
       }
     },
-    [],
+    [tasks],
   );
-
-  const remove = useCallback(async (task: KanbanTask) => {
-    const previous = tasks;
-    setTasks((prev) => prev.filter((t) => t.id !== task.id));
-    setSelected((current) => (current?.id === task.id ? null : current));
-    try {
-      await API.del(`/api/tasks/${task.id}`);
-      announce("Task deleted");
-    } catch {
-      setTasks(previous);
-      announce("That task could not be deleted");
-    }
-  }, [tasks]);
 
   const create = useCallback(
     async (input: { prompt: string; harness: string; status: TaskStatus }) => {
@@ -342,7 +361,8 @@ export function KanbanPage() {
           {columns.map((col) => {
             const items = byStatus.get(col.id) ?? [];
             const isCollapsed = collapsed.includes(col.id);
-            const over = col.wipLimit !== undefined && items.length > col.wipLimit;
+            const over =
+              col.wipLimit !== undefined && items.length > col.wipLimit;
 
             if (isCollapsed) {
               return (
@@ -374,7 +394,9 @@ export function KanbanPage() {
                   e.preventDefault();
                   setDragOver(col.id);
                 }}
-                onDragLeave={() => setDragOver((c) => (c === col.id ? null : c))}
+                onDragLeave={() =>
+                  setDragOver((c) => (c === col.id ? null : c))
+                }
                 onDrop={() => {
                   const task = tasks.find((t) => t.id === dragging);
                   if (task) void move(task, col.id);
@@ -461,6 +483,8 @@ export function KanbanPage() {
                       <TaskCard
                         key={task.id}
                         task={task}
+                        agentCount={fanout.childCount.get(task.id) ?? 0}
+                        parent={fanout.parentOf.get(task.id) ?? null}
                         density={density}
                         dragging={dragging === task.id}
                         onDragStart={() => setDragging(task.id)}
@@ -557,6 +581,8 @@ function CollapsedColumn({
 
 function TaskCard({
   task,
+  agentCount,
+  parent,
   density,
   dragging,
   onDragStart,
@@ -566,6 +592,10 @@ function TaskCard({
   onDelete,
 }: {
   task: KanbanTask;
+  /** Sub-agents this request was split into; 0 for an ordinary card. */
+  agentCount: number;
+  /** The request this card was split out of, when it is a sub-agent. */
+  parent: KanbanTask | null;
   density: Density;
   dragging: boolean;
   onDragStart: () => void;
@@ -579,6 +609,11 @@ function TaskCard({
       ? formatDuration(task.completed_at - task.started_at)
       : null;
 
+  // A sub-agent's prompt is its full briefing — its own instruction, what
+  // its siblings are doing, and the original request. Correct to run and
+  // unreadable on a card, so the planner's label wins where there is one.
+  const heading = task.title?.trim() || task.prompt;
+
   return (
     <article
       draggable
@@ -590,8 +625,21 @@ function TaskCard({
         dragging
           ? "opacity-40 border-accent"
           : "border-line hover:border-line-strong",
+        // Sub-agents cannot be nested under their request the way they are
+        // in a tree: a finished agent sits in a different column from its
+        // still-running parent. An inset rail carries the relationship
+        // across columns instead, and the parent line below names it.
+        parent ? "ml-2 border-l-2 border-l-accent/40" : null,
       )}
     >
+      {parent ? (
+        <p
+          className="mb-1 truncate font-mono text-[10px] text-faint"
+          title={`Split from: ${parent.title?.trim() || parent.prompt}`}
+        >
+          ↳ {parent.title?.trim() || parent.prompt}
+        </p>
+      ) : null}
       <div className="flex items-start gap-1.5">
         {/* The whole card is draggable — the grip is the affordance that
             says so, since nothing else about a card suggests it. */}
@@ -610,7 +658,7 @@ function TaskCard({
               density === "compact" ? "line-clamp-2" : "line-clamp-3",
             )}
           >
-            {task.prompt}
+            {heading}
           </p>
         </button>
         <IconButton
@@ -626,6 +674,15 @@ function TaskCard({
       </div>
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+        {agentCount > 0 ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-sm bg-accent-soft px-1 font-mono text-[10px] text-accent"
+            title={`Split across ${agentCount} sub-agents, each on its own branch`}
+            data-numeric
+          >
+            {agentCount} agents
+          </span>
+        ) : null}
         <span
           className="inline-flex items-center gap-1 font-mono text-[10px] text-muted"
           title={harnessLabel(task.harness)}
@@ -754,7 +811,10 @@ function CreateTaskModal({
           )}
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Harness" hint="Leave on automatic to let routing decide.">
+          <Field
+            label="Harness"
+            hint="Leave on automatic to let routing decide."
+          >
             {(id) => (
               <Select
                 id={id}
@@ -897,7 +957,9 @@ function TaskDetail({
 
         <div>
           <div className="eyebrow mb-1.5">Prompt</div>
-          <p className="text-[13px] text-ink whitespace-pre-wrap">{task.prompt}</p>
+          <p className="text-[13px] text-ink whitespace-pre-wrap">
+            {task.prompt}
+          </p>
         </div>
 
         <div className="grid grid-cols-4 gap-3">
@@ -995,8 +1057,8 @@ function TaskDetail({
         {tab === "activity" ? (
           spans.length === 0 ? (
             <p className="text-[12px] text-muted">
-              No trace was recorded for this card — it was added to the board
-              by hand rather than produced by a run.
+              No trace was recorded for this card — it was added to the board by
+              hand rather than produced by a run.
             </p>
           ) : (
             <ul className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">

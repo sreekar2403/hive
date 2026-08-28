@@ -10,6 +10,12 @@ import type {
 } from "@hive/shared/harness";
 import { Orchestrator } from "../orchestrator";
 import { createDefaultConfig, type Config } from "../config";
+import {
+  createKanbanCard,
+  ensureKanbanTable,
+  finishKanbanCard,
+} from "../kanban";
+import { getDb } from "../db/database";
 
 /**
  * The fan-out path end to end, with scripted harnesses instead of real CLIs.
@@ -310,5 +316,180 @@ describe("sub-agent fan-out", () => {
 
     expect(finished.status).toBe("completed");
     expect(finished.output).toMatch(/1 finished, 1 did not/);
+  });
+});
+
+/**
+ * The board is how someone watching a fan-out sees what each agent did.
+ * One card for a four-agent request hid the only interesting part: every
+ * sub-agent has its own branch, files and outcome, and the request's card
+ * can report nothing but an unattributed union of them.
+ */
+describe("sub-agent board cards", () => {
+  const PROJECT = "proj-fanout-test";
+
+  function cards() {
+    return getDb()
+      .prepare(
+        `SELECT id, title, prompt, parent_id, status, branch_name, harness,
+                files, files_changed
+           FROM kanban_tasks WHERE project_id = ? ORDER BY created_at`,
+      )
+      .all(PROJECT) as Array<{
+      id: string;
+      title: string | null;
+      prompt: string;
+      parent_id: string | null;
+      status: string;
+      branch_name: string | null;
+      harness: string | null;
+      files: string | null;
+      files_changed: number;
+    }>;
+  }
+
+  beforeEach(() => {
+    ensureKanbanTable();
+    getDb()
+      .prepare(`DELETE FROM kanban_tasks WHERE project_id = ?`)
+      .run(PROJECT);
+  });
+
+  async function runSplit(harness: Harness) {
+    const orchestrator = orchestratorFor(
+      configFor({ maxConcurrentAgents: 2, fanout: { merge: false } as never }),
+      harness,
+    );
+    const parentCard = createKanbanCard({
+      projectId: PROJECT,
+      prompt: REQUEST,
+      harness: "scripted",
+      runTaskId: null,
+      sessionId: "board",
+      model: null,
+      branchName: null,
+    });
+
+    const parent = await orchestrator.createTask(
+      "board",
+      REQUEST,
+      "scripted",
+      PROJECT,
+    );
+    parent.kanbanCardId = parentCard;
+    await orchestrator.executeTask(parent.id);
+    return parentCard;
+  }
+
+  it("opens a card for every sub-agent", async () => {
+    await runSplit(scriptedHarness({ plan: TWO_WAY_PLAN }));
+    expect(cards()).toHaveLength(3); // the request, plus one per agent
+  });
+
+  it("hangs each sub-card off the request it was split from", async () => {
+    const parentCard = await runSplit(scriptedHarness({ plan: TWO_WAY_PLAN }));
+    const children = cards().filter((c) => c.parent_id !== null);
+
+    expect(children).toHaveLength(2);
+    for (const child of children) expect(child.parent_id).toBe(parentCard);
+  });
+
+  it("titles a sub-card with the label, not the briefing", () => {
+    return runSplit(scriptedHarness({ plan: TWO_WAY_PLAN })).then(() => {
+      const children = cards().filter((c) => c.parent_id !== null);
+      expect(children.map((c) => c.title).sort()).toEqual([
+        "Backend PRD",
+        "Frontend PRD",
+      ]);
+      // The briefing would be unreadable on a card, and is not the title.
+      for (const child of children) {
+        expect(child.title).not.toContain("Other agents on this request");
+      }
+    });
+  });
+
+  it("gives each sub-card its own branch", async () => {
+    await runSplit(scriptedHarness({ plan: TWO_WAY_PLAN }));
+    const branches = cards()
+      .filter((c) => c.parent_id !== null)
+      .map((c) => c.branch_name);
+
+    expect(new Set(branches).size).toBe(2);
+    for (const branch of branches) expect(branch).toMatch(/^hive\//);
+  });
+
+  it("closes each sub-card with that agent's own outcome", async () => {
+    const harness = scriptedHarness({ plan: TWO_WAY_PLAN });
+    const original = harness.execute.bind(harness);
+    harness.execute = async (prompt: string, opts?: HarnessOptions) => {
+      if (ownInstruction(prompt).includes("docs/backend-prd.md")) {
+        return {
+          success: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "model exploded",
+          output: "",
+          filesChanged: [],
+          duration: 1,
+          events: [],
+        };
+      }
+      return original(prompt, opts);
+    };
+
+    await runSplit(harness);
+    const children = cards().filter((c) => c.parent_id !== null);
+    const byTitle = new Map(children.map((c) => [c.title, c]));
+
+    expect(byTitle.get("Frontend PRD")?.status).toBe("done");
+    expect(byTitle.get("Backend PRD")?.status).toBe("failed");
+  });
+
+  /*
+   * The regression: a coordinator runs no loop, so its `iteration` stayed
+   * undefined, and `kanban_tasks.iterations` is NOT NULL. Closing the
+   * request's card threw *after* every agent had finished — the files were
+   * on disk and the whole response was lost to a 500.
+   */
+  it("reports an iteration count for the request itself", async () => {
+    const harness = scriptedHarness({ plan: TWO_WAY_PLAN });
+    const orchestrator = orchestratorFor(
+      configFor({ maxConcurrentAgents: 2, fanout: { merge: false } as never }),
+      harness,
+    );
+
+    const parent = await orchestrator.createTask("s9", REQUEST, "scripted");
+    const finished = await orchestrator.executeTask(parent.id);
+
+    expect(finished.iteration).toBeTypeOf("number");
+    expect(finished.iteration).toBeGreaterThan(0);
+  });
+
+  it("closes a card even when the caller reports no iterations", async () => {
+    // server.ts writes `result.iteration` straight into a NOT NULL column;
+    // an undefined there is what turned a finished fan-out into a 500.
+    const card = createKanbanCard({
+      projectId: PROJECT,
+      prompt: REQUEST,
+      harness: "scripted",
+      runTaskId: null,
+      sessionId: "board",
+      model: null,
+      branchName: null,
+    });
+
+    expect(() =>
+      finishKanbanCard(card, { status: "done", iterations: undefined }),
+    ).not.toThrow();
+
+    const row = getDb()
+      .prepare(`SELECT iterations FROM kanban_tasks WHERE id = ?`)
+      .get(card) as { iterations: number };
+    expect(row.iterations).toBe(0);
+  });
+
+  it("opens no sub-cards when the request is not split", async () => {
+    await runSplit(scriptedHarness({ plan: { parallel: false } }));
+    expect(cards().filter((c) => c.parent_id !== null)).toHaveLength(0);
   });
 });
