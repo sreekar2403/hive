@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hive Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/your-repo/hive/main/install.sh | bash
-# Or: npx hive@latest
+# Usage: curl -fsSL https://raw.githubusercontent.com/sreekar2403/hive/main/install.sh | bash
+# Or: npx hive@latest (once published) or pnpm install && pnpm dev:server
 
 set -e
 
@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 HIVE_VERSION="latest"
 INSTALL_DIR="${HOME}/.hive"
-REPO_URL="https://github.com/your-org/hive"
+REPO_URL="https://github.com/sreekar2403/hive"
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║                    Hive Installer                              ║${NC}"
@@ -106,10 +106,14 @@ case $INSTALL_METHOD in
         TEMP_DIR=$(mktemp -d)
         git clone "$REPO_URL" "$TEMP_DIR/hive"
         cd "$TEMP_DIR/hive"
-        echo "Installing dependencies..."
-        npm install
+        echo "Installing dependencies (pnpm required)..."
+        if ! command -v pnpm &> /dev/null; then
+            echo "Installing pnpm..."
+            npm install -g pnpm
+        fi
+        pnpm install
         echo "Building..."
-        npm run build
+        pnpm build
         echo ""
         echo -e "${GREEN}✓${NC} Built successfully!"
         echo ""
@@ -139,9 +143,10 @@ echo -e "${BLUE}═════════════════════�
 echo -e "${GREEN}Installation complete!${NC}"
 echo ""
 echo "Next steps:"
-echo "1. Run ${GREEN}hive doctor${NC} to verify your setup"
-echo "2. Configure at least one AI provider in Settings → Providers"
+echo "1. Run ${GREEN}hive doctor${NC} to verify your setup (add --deep to test event streams)"
+echo "2. Hive uses whatever CLIs you already authenticated (claude /login, codex login, opencode auth). No API keys in Hive."
+echo "   For local models, set Ollama/LM Studio URLs in Settings → Models or hive.config.json."
 echo "3. Start Hive with ${GREEN}hive${NC} and open http://localhost:3000"
 echo ""
-echo "Documentation: https://github.com/your-org/hive/docs"
+echo "Documentation: https://github.com/sreekar2403/hive#readme"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"

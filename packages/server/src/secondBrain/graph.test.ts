@@ -94,7 +94,9 @@ describe("KnowledgeGraph", () => {
       strength: 0.8,
     });
 
-    expect(edge.id).toBe("influences|preference:terse-commits|strategy:short-messages");
+    expect(edge.id).toBe(
+      "influences|preference:terse-commits|strategy:short-messages",
+    );
     expect(edge.strength).toBe(0.8);
 
     const loaded = graph.load();
@@ -168,8 +170,18 @@ describe("KnowledgeGraph", () => {
     graph.upsertNode("project", { id: "a", type: "user_pref", label: "A" });
     graph.upsertNode("project", { id: "b", type: "task_pattern", label: "B" });
     graph.upsertNode("project", { id: "c", type: "harness_perf", label: "C" });
-    graph.upsertEdge("project", { type: "influences", from: "a", to: "b", strength: 0.5 });
-    graph.upsertEdge("project", { type: "influences", from: "b", to: "c", strength: 0.5 });
+    graph.upsertEdge("project", {
+      type: "influences",
+      from: "a",
+      to: "b",
+      strength: 0.5,
+    });
+    graph.upsertEdge("project", {
+      type: "influences",
+      from: "b",
+      to: "c",
+      strength: 0.5,
+    });
 
     const hitsDepth1 = graph.query("a", { depth: 1 });
     expect(hitsDepth1.map((h) => h.node.id)).toEqual(["b"]);
@@ -182,8 +194,18 @@ describe("KnowledgeGraph", () => {
     graph.upsertNode("project", { id: "a", type: "user_pref", label: "A" });
     graph.upsertNode("project", { id: "b", type: "task_pattern", label: "B" });
     graph.upsertNode("project", { id: "c", type: "harness_perf", label: "C" });
-    graph.upsertEdge("project", { type: "influences", from: "a", to: "b", strength: 0.5 });
-    graph.upsertEdge("project", { type: "influences", from: "b", to: "c", strength: 0.5 });
+    graph.upsertEdge("project", {
+      type: "influences",
+      from: "a",
+      to: "b",
+      strength: 0.5,
+    });
+    graph.upsertEdge("project", {
+      type: "influences",
+      from: "b",
+      to: "c",
+      strength: 0.5,
+    });
 
     const hits = graph.query("a", { depth: 2 });
     const hitC = hits.find((h) => h.node.id === "c");
@@ -195,8 +217,18 @@ describe("KnowledgeGraph", () => {
   it("query does not revisit nodes in cycles", () => {
     graph.upsertNode("project", { id: "a", type: "user_pref", label: "A" });
     graph.upsertNode("project", { id: "b", type: "task_pattern", label: "B" });
-    graph.upsertEdge("project", { type: "influences", from: "a", to: "b", strength: 0.8 });
-    graph.upsertEdge("project", { type: "influences", from: "b", to: "a", strength: 0.8 });
+    graph.upsertEdge("project", {
+      type: "influences",
+      from: "a",
+      to: "b",
+      strength: 0.8,
+    });
+    graph.upsertEdge("project", {
+      type: "influences",
+      from: "b",
+      to: "a",
+      strength: 0.8,
+    });
 
     const hits = graph.query("a", { depth: 3 });
     // Should not go a -> b -> a -> b ...
@@ -247,7 +279,12 @@ describe("KnowledgeGraph", () => {
   it("returns stats with node and edge counts", () => {
     graph.upsertNode("project", { id: "a", type: "user_pref", label: "A" });
     graph.upsertNode("project", { id: "b", type: "task_pattern", label: "B" });
-    graph.upsertEdge("project", { type: "influences", from: "a", to: "b", strength: 0.5 });
+    graph.upsertEdge("project", {
+      type: "influences",
+      from: "a",
+      to: "b",
+      strength: 0.5,
+    });
 
     const stats = graph.stats();
     expect(stats.nodes).toBe(2);

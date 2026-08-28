@@ -47,8 +47,13 @@ function brainFor(req: Request, res: Response): SecondBrain | null {
   return orchestrator.brainForProject(projectId);
 }
 
-function scopeFrom(value: unknown, fallback: BrainScope = "global"): BrainScope {
-  return SCOPES.includes(value as BrainScope) ? (value as BrainScope) : fallback;
+function scopeFrom(
+  value: unknown,
+  fallback: BrainScope = "global",
+): BrainScope {
+  return SCOPES.includes(value as BrainScope)
+    ? (value as BrainScope)
+    : fallback;
 }
 
 /** GET /api/brain — store sizes, roots on disk, and whether the layer is on. */
@@ -136,7 +141,9 @@ router.post("/suggestions/:id/approve", (req: Request, res: Response) => {
     scopeFrom(req.body?.scope),
   );
   if (!soul) {
-    return res.status(404).json({ error: "No pending suggestion with that id" });
+    return res
+      .status(404)
+      .json({ error: "No pending suggestion with that id" });
   }
   res.json({ approved: true, soul });
 });
@@ -151,7 +158,9 @@ router.post("/suggestions/:id/reject", (req: Request, res: Response) => {
     scopeFrom(req.body?.scope),
   );
   if (!ok) {
-    return res.status(404).json({ error: "No pending suggestion with that id" });
+    return res
+      .status(404)
+      .json({ error: "No pending suggestion with that id" });
   }
   res.json({ rejected: true });
 });
@@ -194,7 +203,9 @@ router.post("/records", (req: Request, res: Response) => {
 
   const text = req.body?.text;
   if (typeof text !== "string" || !text.trim()) {
-    return res.status(400).json({ error: "text (non-empty string) is required" });
+    return res
+      .status(400)
+      .json({ error: "text (non-empty string) is required" });
   }
 
   const record = brain.note(text, {
@@ -264,7 +275,9 @@ router.post("/briefing", (req: Request, res: Response) => {
 
   const prompt = req.body?.prompt;
   if (typeof prompt !== "string" || !prompt.trim()) {
-    return res.status(400).json({ error: "prompt (non-empty string) is required" });
+    return res
+      .status(400)
+      .json({ error: "prompt (non-empty string) is required" });
   }
 
   res.json(
@@ -273,7 +286,8 @@ router.post("/briefing", (req: Request, res: Response) => {
       prompt,
       category: brain.categorize(prompt),
       harness: typeof req.body?.harness === "string" ? req.body.harness : null,
-      projectId: typeof req.body?.projectId === "string" ? req.body.projectId : null,
+      projectId:
+        typeof req.body?.projectId === "string" ? req.body.projectId : null,
     }),
   );
 });
@@ -305,7 +319,10 @@ router.post("/learn", async (req: Request, res: Response) => {
   try {
     const queued = await brain.runLearningBatch(req.body?.force !== false);
     if (queued === null) {
-      return res.json({ ran: false, reason: "Learning is disabled or already running" });
+      return res.json({
+        ran: false,
+        reason: "Learning is disabled or already running",
+      });
     }
     res.json({ ran: true, suggestions: queued });
   } catch (err) {

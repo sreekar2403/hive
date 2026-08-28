@@ -37,7 +37,9 @@ async function runLearningBatches(): Promise<void> {
   if (!orchestrator) return;
 
   const tasks = orchestrator.getAllTasks();
-  const hasActiveTasks = tasks.some((t) => t.status === "pending" || t.status === "running");
+  const hasActiveTasks = tasks.some(
+    (t) => t.status === "pending" || t.status === "running",
+  );
   if (hasActiveTasks) {
     console.log("[cron] Skipping learning batch: tasks in progress");
     return;
@@ -46,12 +48,16 @@ async function runLearningBatches(): Promise<void> {
   try {
     // Run learning batch for each project. The argument is `force` — false
     // means the brain's own interval and busy-check still apply.
-    const projects = getDb().prepare("SELECT id FROM projects").all() as { id: string }[];
+    const projects = getDb().prepare("SELECT id FROM projects").all() as {
+      id: string;
+    }[];
     for (const project of projects) {
       const brain = orchestrator.brainForProject(project.id);
       const queued = await brain.runLearningBatch(false);
       if (queued && queued.length > 0) {
-        console.log(`[cron] Queued ${queued.length} soul.md suggestions for project ${project.id}`);
+        console.log(
+          `[cron] Queued ${queued.length} soul.md suggestions for project ${project.id}`,
+        );
       }
     }
 
@@ -59,7 +65,9 @@ async function runLearningBatches(): Promise<void> {
     const globalBrain = orchestrator.brainForProject(null);
     const globalQueued = await globalBrain.runLearningBatch(false);
     if (globalQueued && globalQueued.length > 0) {
-      console.log(`[cron] Queued ${globalQueued.length} global soul.md suggestions`);
+      console.log(
+        `[cron] Queued ${globalQueued.length} global soul.md suggestions`,
+      );
     }
   } catch (err) {
     console.error("[cron] Learning batch failed:", err);
@@ -158,8 +166,18 @@ export function getNextRunTimes(expr: string, count = 5): number[] {
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 function pad(n: number): string {
@@ -186,7 +204,9 @@ function describeFrequency(minute: string, hour: string): string | null {
   }
   if (hour === "*" && minute !== "*") {
     const m = parseInt(minute, 10);
-    return Number.isNaN(m) || m === 0 ? "Every hour" : `Every hour at minute ${m}`;
+    return Number.isNaN(m) || m === 0
+      ? "Every hour"
+      : `Every hour at minute ${m}`;
   }
   if (minute === "*" && hour !== "*") {
     return `Every minute during hour ${hour}`;

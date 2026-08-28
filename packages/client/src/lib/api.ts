@@ -68,7 +68,10 @@ async function request<T>(
     // caller that passes its own `headers` alongside a signal.
     ...init,
     method,
-    headers: { ...headers, ...((init?.headers as Record<string, string>) ?? {}) },
+    headers: {
+      ...headers,
+      ...((init?.headers as Record<string, string>) ?? {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 

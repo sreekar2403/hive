@@ -52,6 +52,8 @@ instead of eight terminals.
 
 ![The Hive dashboard: who is working, what is uncommitted, which harnesses are online](sample.png)
 
+> **Demo:** 30s capture of fan-out (one message → 3 sub-agents), attachments drag/drop, and Office floor live — coming in `docs/demo.gif`. Tracked in `CHANGELOG.md` Unreleased.
+
 ## Quick start
 
 **Prerequisites**
@@ -317,7 +319,7 @@ start is told once, in its prompt.
   produced it — including the routing decision and why it was made.
 - **Memory** — the per-session key/value store agents share, browsable and editable.
 - **Permissions** — approve or deny destructive work. This is a real gate, and it watches what the
-  agent *does*, not what you asked for: when a run reaches for `git reset --hard` or `rm -rf`, the
+  agent _does_, not what you asked for: when a run reaches for `git reset --hard` or `rm -rf`, the
   harness process is killed mid-run and the task waits here until someone answers or it times out.
   Approving re-runs the task with that one command allowed, so the agent can finish. A prompt that
   merely mentions "reset" is not blocked — see `permission.gateOn` under Configuration.
@@ -458,12 +460,12 @@ them change properties people reasonably assume a tool like this already has.
   for work too small to justify spawning a whole agent CLI. Inbound: expose Hive itself — tasks,
   board, routing decisions — as an MCP server, so it can be driven from Claude Desktop, Cowork or an
   IDE instead of only its own UI.
-- **Sandboxed agent runs.** The permission gate *detects* a destructive command and stops the run;
+- **Sandboxed agent runs.** The permission gate _detects_ a destructive command and stops the run;
   it does not contain anything, and a command matching no pattern can still do real damage. An
   opt-in container/gVisor sandbox per worktree would bound the blast radius, which is currently
   "arbitrary shell access to your repo."
 - **Budget and spend caps.** Token and cost per run are already recorded and then never read back. A
-  per-project and per-day ceiling that *refuses* to admit a run — rather than reporting the damage
+  per-project and per-day ceiling that _refuses_ to admit a run — rather than reporting the damage
   afterwards — is what stops a retry storm turning into a surprise bill.
 - **A router scorecard.** The Second Brain already tracks success rate per harness per category and
   only ever feeds it back into routing. Surfacing it — which agent wins which category, over how
@@ -480,19 +482,35 @@ them change properties people reasonably assume a tool like this already has.
 pnpm dev:server     # API server via tsx, no build step
 pnpm dev:client     # Vite dev server for the UI
 pnpm dev:electron   # UI + Electron window
-pnpm test           # vitest (327 tests)
+pnpm build         # tsc --build (shared+server) + client vite build
+pnpm typecheck     # tsc --noEmit over the whole repo
+pnpm test           # vitest (see vitest.config.mts — server tests; client tests via jsdom)
 pnpm lint           # eslint
 pnpm format         # prettier --write .
+pnpm format:check   # CI gate: prettier --check .
 ```
 
-`pnpm build` (`tsc --build`) does not currently work from the root — the root `tsconfig.json` has no
-`references` array. To typecheck a package, `cd` into it and run `tsc` directly; `packages/server`
-and `packages/shared` each have a working tsconfig.
+`pnpm build` compiles `shared` + `server` via `tsc --build` and then runs `pnpm --filter @hive/client build`.
+To typecheck without emitting, run `pnpm typecheck` from the root or `pnpm --filter @hive/server exec tsc --noEmit`.
 
 See **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** for the package layout, how to add a harness, a
 provider or a settings field, and the sharp edges worth knowing about before you hit them.
-**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** covers how a request becomes a running agent, and
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** covers how a request becomes a running agent (including fan-out), and
 **[docs/API.md](docs/API.md)** is the REST + SSE reference.
+
+### Ports & API base
+
+- API defaults to `http://localhost:3001`, UI to `http://localhost:3000`.
+- Override with `hive --port 3005 --ui-port 3006` (or `PORT`/`HIVE_UI_PORT` env). The UI picks up the API port via `VITE_API_BASE` — `bin/hive.js` sets it for both Vite dev (`VITE_API_BASE`) and Electron (`HIVE_API_BASE`/`HIVE_UI_URL`). If you start server/client by hand, set `VITE_API_BASE=http://localhost:<apiPort>`.
+- `hive doctor` reports both ports and whether a Hive server is actually listening vs just “port in use”.
+
+## Fan-out, attachments, and vision
+
+**Fan-out.** A single chat message can split into sub-agents (`loop.fanout.enabled`, default `true`, `config.ts` `fanout/maxSubtasks=4`). The planner (`packages/server/src/fanout/planner.ts`) declines by default — short prompts (<80 chars) or single tasks run as one agent. When it accepts, each subtask gets its own branch + worktree, boards as a sub-card (`parent_id`), runs under `ConcurrencyGate`, then branches are committed and merged into the current branch (`loop.fanout.merge`). Explicit “use subagents / in parallel” lowers the bar but never forces a split; sub-agents are never re-planned (no recursion). Parent task holds no concurrency slot (avoids deadlock at `maxConcurrentAgents:1`).
+
+**Attachments.** Drop images/files in the composer (`ChatPage.tsx` `useAttachments.ts`). Files are stored under OS temp, not the working tree (so `git diff` isn’t polluted), paths are absolute (sub-agents have different worktrees). Per-harness translation: `opencode --file`, `codex --image`, others via prompt-named paths, `ollamaDirect`/`lmstudioDirect` inline text / `images` / `image_url`. Served at `GET /api/attachments/:id` with `Content-Disposition: attachment` + `nosniff`.
+
+**Vision fallback.** Blind models (e.g. `qwen2.5-coder`) get image descriptions from a vision model (`vision.model` in config, or auto-picked). Capability comes from Ollama (`/api/tags` capabilities) and LM Studio `/api/v0/models` (`type: vlm`), joined with `opencode models` catalog; `null` means “assume can see”. Refusals (“does not support image input”) are detected (`refusal.ts`) and not forwarded as facts.
 
 ## Repository layout
 
@@ -503,11 +521,12 @@ packages/server                      Express API, orchestrator, SQLite
 packages/server/src/router.ts        the routing cascade, soul.md first
 packages/server/src/setup.ts         first-run: probe, seed soul.md, reconcile harnesses
 packages/server/src/secondBrain/starterSoul.ts   writes and reads soul.md's routing section
-packages/server/src/harnesses/       one adapter per CLI
+packages/server/src/fanout/          planner + summary for sub-agent fan-out
+packages/server/src/visionBridge.ts  vision fallback + refusal detection
+packages/server/src/harnesses/       one adapter per CLI (+ winShim.ts for .cmd shims)
 packages/server/src/harnesses/profiles.ts   what each CLI is for — read by the router
 packages/server/src/harnesses/eventStream.ts   each CLI's output format, pinned by tests
 packages/client                      React UI (Vite) + the Electron shell
-packages/ui                          empty scaffold — packages/client is the real UI
 docs/                                architecture, development, API, design system
 docs/examples/                       ready-to-import workflow recipes
 hive.config.json                     configuration, read and written by the app

@@ -37,10 +37,14 @@ import type {
  * Returning `[]` (or throwing) simply means "no suggestions this round".
  */
 export interface Synthesizer {
-  propose(input: {
-    records: BrainRecord[];
-    soul: string[];
-  }): Promise<Array<{ section: string; entry: string; rationale: string; confidence: number }>>;
+  propose(input: { records: BrainRecord[]; soul: string[] }): Promise<
+    Array<{
+      section: string;
+      entry: string;
+      rationale: string;
+      confidence: number;
+    }>
+  >;
 }
 
 /** How many observations before a routing record is allowed to advise anyone. */
@@ -172,7 +176,9 @@ export class LearningAgent {
    * or null when it declined to run — the caller can tell "nothing to learn"
    * apart from "not now".
    */
-  async runBatch(options: { force?: boolean } = {}): Promise<SoulSuggestion[] | null> {
+  async runBatch(
+    options: { force?: boolean } = {},
+  ): Promise<SoulSuggestion[] | null> {
     if (!this.config.enabled || !this.config.learning.enabled) return null;
     if (!options.force && !this.config.learning.triggers.periodic) return null;
     if (this.batchRunning) return null;
@@ -182,7 +188,8 @@ export class LearningAgent {
     if (!options.force && this.activeTasks.size > 0) return null;
 
     const since = Date.now() - this.lastBatchAt;
-    if (!options.force && since < this.config.learning.batchIntervalMs) return null;
+    if (!options.force && since < this.config.learning.batchIntervalMs)
+      return null;
 
     this.batchRunning = true;
     try {
@@ -224,7 +231,10 @@ export class LearningAgent {
   routingHints(category: string): RoutingHint[] {
     if (!this.config.enabled) return [];
 
-    const floor = Math.max(ROUTING_ADVICE_FLOOR, this.config.routing.minSamples);
+    const floor = Math.max(
+      ROUTING_ADVICE_FLOOR,
+      this.config.routing.minSamples,
+    );
     const hints: RoutingHint[] = [];
 
     for (const record of this.records.list({
@@ -474,7 +484,10 @@ export class LearningAgent {
 
     // 1. Harness preferences, where one harness clearly beats the others.
     const byCategory = new Map<string, BrainRecord[]>();
-    for (const record of this.records.list({ store: "task", shelf: "routing" })) {
+    for (const record of this.records.list({
+      store: "task",
+      shelf: "routing",
+    })) {
       if (!record.category) continue;
       const list = byCategory.get(record.category) ?? [];
       list.push(record);
@@ -488,7 +501,10 @@ export class LearningAgent {
       if (ranked.length < 2) continue;
 
       const [best, runnerUp] = ranked;
-      if (best.confidence - runnerUp.confidence < this.config.routing.minMargin) {
+      if (
+        best.confidence - runnerUp.confidence <
+        this.config.routing.minMargin
+      ) {
         continue;
       }
 
@@ -545,7 +561,12 @@ export class LearningAgent {
 
   /** LLM-assisted pass. Never allowed to break the batch if it misbehaves. */
   private async synthesise(): Promise<
-    Array<{ section: string; entry: string; rationale: string; confidence: number }>
+    Array<{
+      section: string;
+      entry: string;
+      rationale: string;
+      confidence: number;
+    }>
   > {
     if (!this.synthesizer) return [];
     try {

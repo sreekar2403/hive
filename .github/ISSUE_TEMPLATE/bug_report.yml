@@ -1,0 +1,34 @@
+name: Bug report
+description: Something broke
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Steps to reproduce + expected vs actual
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Hive version / commit
+      description: output of `hive --version` or git SHA
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node (node --version), pnpm, CLIs on PATH
+      placeholder: Windows 11, Node 22.14, pnpm 9.12, claude 1.x, opencode 0.x
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / `hive doctor` output
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues
+          required: true

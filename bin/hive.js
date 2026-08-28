@@ -484,7 +484,13 @@ const CHECK_MARKS = { ok: "ok  ", warn: "warn", miss: "miss", info: "info" };
 
 function reportLine(state, label, detail) {
   const paintState =
-    state === "ok" ? green : state === "miss" ? red : state === "warn" ? yellow : dim;
+    state === "ok"
+      ? green
+      : state === "miss"
+        ? red
+        : state === "warn"
+          ? yellow
+          : dim;
   console.log(
     `  ${paintState(CHECK_MARKS[state])} ${bold(String(label).padEnd(12))} ${dim(detail)}`,
   );
@@ -613,14 +619,20 @@ async function doctorCommand(options) {
   const [api, ui, ollama, lmstudio] = await Promise.all([
     hiveIsListening(options.apiPort),
     portInUse(options.uiPort),
-    get("http://localhost:11434/api/tags").then((c) => c === 200).catch(() => false),
-    get("http://localhost:1234/v1/models").then((c) => c === 200).catch(() => false),
+    get("http://localhost:11434/api/tags")
+      .then((c) => c === 200)
+      .catch(() => false),
+    get("http://localhost:1234/v1/models")
+      .then((c) => c === 200)
+      .catch(() => false),
   ]);
   add(
     "info",
     "ports",
     `api ${options.apiPort}: ${api ? "hive running" : "free"} · ui ${options.uiPort}: ${ui ? "in use" : "free"}`,
-    ui && !api ? "Something else holds the UI port — `hive stop` or --ui-port." : undefined,
+    ui && !api
+      ? "Something else holds the UI port — `hive stop` or --ui-port."
+      : undefined,
   );
   add(
     "info",
@@ -647,7 +659,9 @@ async function doctorCommand(options) {
     console.error(
       `       ${dim("Hive drives other CLIs; install at least one:")}`,
     );
-    console.error(`       ${dim("claude   → npm i -g @anthropic-ai/claude-code")}`);
+    console.error(
+      `       ${dim("claude   → npm i -g @anthropic-ai/claude-code")}`,
+    );
     console.error(`       ${dim("opencode → npm i -g opencode-ai")}`);
   }
 
@@ -672,7 +686,11 @@ async function doctorCommand(options) {
         } else {
           report.ok = false;
           deepFailed = true;
-          reportLine("miss", probe.harness, probe.error ?? "stream did not parse");
+          reportLine(
+            "miss",
+            probe.harness,
+            probe.error ?? "stream did not parse",
+          );
           // A timeout and a format change are different problems and need
           // different advice.
           console.error(
@@ -711,7 +729,9 @@ async function doctorCommand(options) {
   console.log("");
   if (!hasConfig) {
     note("first run — Hive writes a default hive.config.json when it starts.");
-    console.log(`  ${dim("Run")} ${bold("hive")} ${dim("for the desktop app, or")} ${bold("hive web")} ${dim("for the browser.")}`);
+    console.log(
+      `  ${dim("Run")} ${bold("hive")} ${dim("for the desktop app, or")} ${bold("hive web")} ${dim("for the browser.")}`,
+    );
   } else {
     note("ready — run `hive` to start everything.");
   }
@@ -753,7 +773,9 @@ function runDeepProbe() {
       try {
         resolve(JSON.parse(line));
       } catch {
-        resolve({ error: err.trim().slice(0, 300) || "probe produced no report" });
+        resolve({
+          error: err.trim().slice(0, 300) || "probe produced no report",
+        });
       }
     });
   });

@@ -69,11 +69,7 @@ export type BrainRecordInput = Partial<
 /* ------------------------------------------------------------------ */
 
 export type GraphNodeType =
-  | "user_pref"
-  | "task_pattern"
-  | "harness_perf"
-  | "soul_entry"
-  | "category";
+  "user_pref" | "task_pattern" | "harness_perf" | "soul_entry" | "category";
 
 export type GraphEdgeType = "influences" | "correlates" | "derived_from";
 

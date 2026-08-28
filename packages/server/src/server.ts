@@ -1,14 +1,28 @@
 import express, { Express } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import { z } from "zod";
 import http from "http";
 import path from "path";
 import fs from "fs";
-import { randomUUID } from "crypto";
 import { Orchestrator } from "./orchestrator";
 import { Config } from "./config";
 import { SharedMemory } from "./sharedMemory";
 import { Harness } from "@hive/shared/harness";
-import { getDb } from "./db/database";
+
+const chatSchema = z.object({
+  message: z
+    .string()
+    .min(1, "Message is required")
+    .max(20000, "Message too long (max 20000 chars)"),
+  sessionId: z.string().max(200).optional(),
+  projectId: z.string().max(200).nullable().optional(),
+  harness: z.string().max(100).optional(),
+  model: z.string().max(300).optional(),
+  agent: z.string().max(100).optional(),
+  attachments: z.array(z.string().max(300)).max(10).optional(),
+});
 import scheduleRoutes from "./routes/schedules";
 import workflowRoutes from "./routes/workflows";
 import projectRoutes from "./routes/projects";
@@ -75,17 +89,50 @@ class HiveServer {
       // A reaper that cannot delete is not a reason to refuse to boot.
     }
 
+    app.use(
+      helmet({
+        contentSecurityPolicy: false,
+        crossOriginEmbedderPolicy: false,
+      }),
+    );
     app.use(cors(corsOptions(this.config)));
     // Attachments arrive as base64 in a JSON body, so the default 100kb
     // limit would reject every screenshot. The ceiling is the per-file limit
     // plus room for base64's ~33% overhead and the rest of the envelope.
     app.use(express.json({ limit: "32mb" }));
+    // Basic abuse protection — generous for local use, but stops a retry storm
+    // or a misbehaving script from hammering the model loop.
+    app.use(
+      "/api/",
+      rateLimit({
+        windowMs: 60 * 1000,
+        max: 120,
+        standardHeaders: true,
+        legacyHeaders: false,
+      }),
+    );
+    app.use(
+      "/api/chat",
+      rateLimit({
+        windowMs: 60 * 1000,
+        max: 20,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { error: "Too many chat requests, please slow down." },
+      }),
+    );
     // Gates /api/* whenever a token is configured; /health stays open.
     app.use(authMiddleware(this.config));
     app.use(express.static(publicDir));
 
     // Chat endpoint
     app.post("/api/chat", async (req, res) => {
+      const parsed = chatSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+      }
       const {
         message,
         sessionId,
@@ -94,11 +141,7 @@ class HiveServer {
         model,
         agent,
         attachments: attachmentIds,
-      } = req.body;
-
-      if (!message) {
-        return res.status(400).json({ error: "Message is required" });
-      }
+      } = parsed.data;
 
       // The client owns its session ids and sends one with every message.
       // Adopting an id we haven't seen (a client that outlived a server

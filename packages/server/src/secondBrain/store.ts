@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { LAYOUT, ensureStore, storeExists } from "./paths";
+import { ensureStore, storeExists } from "./paths";
 import type {
   BrainRecord,
   BrainRecordInput,
@@ -27,7 +27,9 @@ import type {
 const SAFE_ID = /^[A-Za-z0-9._-]+$/;
 
 function isSafeId(id: string): boolean {
-  return typeof id === "string" && SAFE_ID.test(id) && id !== "." && id !== "..";
+  return (
+    typeof id === "string" && SAFE_ID.test(id) && id !== "." && id !== ".."
+  );
 }
 
 /** Turns a title into a stable, filesystem-safe id. */
@@ -120,11 +122,7 @@ export class RecordStore {
    * and `confidence` moves toward the new value rather than jumping to it,
    * so one lucky observation can't mint a high-confidence fact.
    */
-  put(
-    scope: BrainScope,
-    ref: ShelfRef,
-    input: BrainRecordInput,
-  ): BrainRecord {
+  put(scope: BrainScope, ref: ShelfRef, input: BrainRecordInput): BrainRecord {
     const root = this.rootFor(scope);
     if (!root) throw new Error(`Second Brain has no '${scope}' scope`);
 
@@ -251,13 +249,20 @@ export class RecordStore {
     }
     // A null category on the record means "applies everywhere", so it stays
     // in the running for any category the caller asks about.
-    if (query.category && record.category && record.category !== query.category) {
+    if (
+      query.category &&
+      record.category &&
+      record.category !== query.category
+    ) {
       return false;
     }
     if (query.harness && record.harness && record.harness !== query.harness) {
       return false;
     }
-    if (query.text && !this.haystack(record).includes(query.text.toLowerCase())) {
+    if (
+      query.text &&
+      !this.haystack(record).includes(query.text.toLowerCase())
+    ) {
       return false;
     }
     return true;

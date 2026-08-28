@@ -59,7 +59,10 @@ export function ensureRootDirectory(): string {
 
     if (!isGitRepo(dir)) {
       git("git init", dir);
-      git('git commit --allow-empty -m "Hive general workspace" --no-gpg-sign', dir);
+      git(
+        'git commit --allow-empty -m "Hive general workspace" --no-gpg-sign',
+        dir,
+      );
     }
 
     const readme = path.join(dir, "README.md");

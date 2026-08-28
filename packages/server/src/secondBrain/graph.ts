@@ -47,7 +47,10 @@ export class KnowledgeGraph {
       for (const edge of file.edges) edges.set(edge.id, edge);
     }
 
-    return { nodes: Array.from(nodes.values()), edges: Array.from(edges.values()) };
+    return {
+      nodes: Array.from(nodes.values()),
+      edges: Array.from(edges.values()),
+    };
   }
 
   /**
@@ -72,7 +75,10 @@ export class KnowledgeGraph {
       id: node.id,
       type: node.type,
       label: node.label,
-      properties: { ...(existing?.properties ?? {}), ...(node.properties ?? {}) },
+      properties: {
+        ...(existing?.properties ?? {}),
+        ...(node.properties ?? {}),
+      },
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -116,7 +122,10 @@ export class KnowledgeGraph {
       from: edge.from,
       to: edge.to,
       strength,
-      properties: { ...(existing?.properties ?? {}), ...(edge.properties ?? {}) },
+      properties: {
+        ...(existing?.properties ?? {}),
+        ...(edge.properties ?? {}),
+      },
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -145,7 +154,10 @@ export class KnowledgeGraph {
     if (!seed) return [];
 
     const maxDepth = options.depth ?? 2;
-    const adjacency = new Map<string, Array<{ to: string; strength: number }>>();
+    const adjacency = new Map<
+      string,
+      Array<{ to: string; strength: number }>
+    >();
     for (const edge of edges) {
       push(adjacency, edge.from, { to: edge.to, strength: edge.strength });
       push(adjacency, edge.to, { to: edge.from, strength: edge.strength });
