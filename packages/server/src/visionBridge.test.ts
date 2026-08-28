@@ -6,6 +6,7 @@ import type {
   HarnessOptions,
 } from "@hive/shared/harness";
 import { describeImagesFor } from "./visionBridge";
+import { looksLikeRefusal } from "./refusal";
 import * as catalog from "./models/catalog";
 
 const png: HarnessAttachment = {
@@ -230,5 +231,48 @@ describe("describeImagesFor", () => {
     });
     expect(result.preamble).toContain("could not be described");
     expect(result.described).toEqual([]);
+  });
+});
+
+/**
+ * A refusal arrives as a *successful* run: exit 0, real text, saying the
+ * model cannot see. It was being passed into a block labelled "this is what
+ * the image contains", where the working agent would read
+ * "does not support image input" as a fact about the picture.
+ *
+ * Seen for real: Ollama reports ornith-1.5 as vision-capable and it is, but
+ * opencode gates image input on its own per-model config, which the Ollama
+ * provider block did not set. The model can see; that route to it could not.
+ */
+describe("looksLikeRefusal", () => {
+  it("catches a model saying it cannot read the image", () => {
+    for (const text of [
+      'Cannot read "checker.png" — this model does not support image input.',
+      "I can't see images.",
+      "I am unable to view the attached screenshot.",
+      "Sorry, I do not have the ability to process images.",
+      "I cannot open the file you attached.",
+    ]) {
+      expect(looksLikeRefusal(text), text).toBe(true);
+    }
+  });
+
+  it("does not discard a real description", () => {
+    for (const text of [
+      "Three equal horizontal bands: red on top, green in the middle, and blue at the bottom.",
+      "A screenshot of a terminal. No text in this image is legible at this size.",
+      "A photograph of a whiteboard covered in handwriting.",
+      "A checkerboard pattern of alternating black and white squares.",
+    ]) {
+      expect(looksLikeRefusal(text), text).toBe(false);
+    }
+  });
+
+  /* A long answer that discusses images is a description, not a refusal. */
+  it("does not mistake a detailed description for a refusal", () => {
+    const long =
+      "A screenshot of a settings page. The user cannot see the password field because it is masked. " +
+      "x".repeat(700);
+    expect(looksLikeRefusal(long)).toBe(false);
   });
 });

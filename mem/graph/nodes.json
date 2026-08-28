@@ -1,0 +1,47 @@
+[
+  {
+    "id": "category:general",
+    "type": "category",
+    "label": "general",
+    "properties": {
+      "category": "general"
+    },
+    "createdAt": 1787905880461,
+    "updatedAt": 1787905880461
+  },
+  {
+    "id": "harness_perf:opencode-general",
+    "type": "harness_perf",
+    "label": "opencode · general",
+    "properties": {
+      "harness": "opencode",
+      "category": "general"
+    },
+    "createdAt": 1787905880462,
+    "updatedAt": 1787905880462
+  },
+  {
+    "id": "task_pattern:routing-general-opencode",
+    "type": "task_pattern",
+    "label": "opencode on general tasks: 100% success",
+    "properties": {
+      "recordId": "routing-general-opencode",
+      "shelf": "routing",
+      "confidence": 1
+    },
+    "createdAt": 1787905880464,
+    "updatedAt": 1787905880464
+  },
+  {
+    "id": "task_pattern:strategy-general-opencode",
+    "type": "task_pattern",
+    "label": "opencode handles general work first try",
+    "properties": {
+      "recordId": "strategy-general-opencode",
+      "shelf": "strategies",
+      "confidence": 0.7
+    },
+    "createdAt": 1787905880466,
+    "updatedAt": 1787905880466
+  }
+]

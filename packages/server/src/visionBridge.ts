@@ -3,6 +3,7 @@ import type { HarnessAttachment } from "@hive/shared/harness";
 import { getCatalog } from "./models/catalog";
 import { isImage } from "./harnesses/attachments";
 import { log } from "./telemetry";
+import { looksLikeRefusal } from "./refusal";
 
 /**
  * Letting a model that cannot see an image work with one anyway.
@@ -28,20 +29,35 @@ import { log } from "./telemetry";
 /**
  * What the describing model is asked for.
  *
- * Deliberately exhaustive and deliberately not interpretive. The agent
- * receiving this has the actual task; a describer that decided what mattered
- * would be making that call with none of the context for it, and the detail
- * it dropped is exactly the one the agent needed.
+ * Factual and not interpretive: the agent receiving this has the actual
+ * task, and a describer that decided what mattered would be making that
+ * call with none of the context for it.
+ *
+ * The order of the instructions is doing real work. An earlier version led
+ * with "transcribe every error message, label, code, URL and number" and
+ * asked for "anything that looks wrong, highlighted or selected" — a prompt
+ * written for the screenshot-of-a-broken-app case. Handed an image with no
+ * text in it, that primed the model to produce UI-shaped content, and it
+ * duly invented some: a 48×48 checkerboard came back as "a nested list of
+ * tasks, an arrow pointing to a box, and a status line". The same model,
+ * same image, asked plainly what it saw, answered "a checkerboard pattern
+ * of alternating black and white squares".
+ *
+ * So: say what this *is* first, and make transcription conditional on there
+ * being something to transcribe. Inventing text is the failure mode worth
+ * spending a line to forbid outright, because the description is handed on
+ * labelled as a transcription and will be believed.
  */
 const DESCRIBE_PROMPT = [
-  "Describe this image in full, factual detail. Someone who cannot see it has to work from your description alone.",
+  "Say exactly what is in this image. Someone who cannot see it has to work from your description alone.",
   "",
-  "Include, where they apply:",
-  "  - every piece of text, transcribed exactly (error messages, labels, code, URLs, numbers)",
-  "  - the layout and what is where",
-  "  - colours, states and anything that looks wrong, highlighted or selected",
+  "Start with what the image is — a screenshot, a photograph, a diagram, a chart, an abstract pattern, something else — and what it shows.",
+  "Then describe the layout, the colours and anything notable about them.",
   "",
-  "Do not summarise, interpret, or say what should be done about it. Transcribe.",
+  "If the image contains text, transcribe it exactly: error messages, labels, code, URLs and numbers, verbatim.",
+  "If it contains no text, say 'No text in this image.' Do not invent text, labels or user-interface elements that are not there.",
+  "",
+  "Describe only what is actually visible. Do not interpret it, do not guess what it is for, and do not say what should be done about it.",
 ].join("\n");
 
 export interface VisionBridgeContext {
@@ -192,6 +208,26 @@ export async function describeImagesFor(
       // Falls through to the failure note below.
     }
 
+    // A refusal is not a description, and it arrives as a *successful* run:
+    // exit 0, real text, saying the model cannot see. Passing that through
+    // is the worst of the options here, because the block it lands in is
+    // labelled "this is what the image contains" — the working agent would
+    // read "does not support image input" as a fact about the picture.
+    //
+    // Seen for real: Ollama reports ornith-1.5 as vision-capable and it is,
+    // but opencode gates image input on its own per-model config, which the
+    // Ollama provider block does not set. The model can see; that route to
+    // it cannot. Capability belongs to the harness-and-model pair, not the
+    // model alone, and no catalog lookup here would have caught it.
+    if (text && looksLikeRefusal(text)) {
+      log(
+        "warn",
+        "vision",
+        `${describer.id} refused the image: ${text.slice(0, 120)}`,
+      );
+      text = "";
+    }
+
     if (text) {
       sections.push("", `--- ${image.name} ---`, text);
       described.push(image);
@@ -205,3 +241,4 @@ export async function describeImagesFor(
   sections.push("=== End attached images ===", "");
   return { preamble: sections.join("\n"), described };
 }
+export { looksLikeRefusal } from "./refusal";

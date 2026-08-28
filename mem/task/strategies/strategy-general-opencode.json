@@ -1,0 +1,20 @@
+{
+  "id": "strategy-general-opencode",
+  "store": "task",
+  "shelf": "strategies",
+  "title": "opencode handles general work first try",
+  "body": "model=ollama/qwen2.5-coder:7b\niterations=1\nfiles_changed=0\nduration_ms=208021",
+  "tags": [
+    "strategy",
+    "general",
+    "opencode"
+  ],
+  "category": "general",
+  "harness": "opencode",
+  "confidence": 0.7,
+  "samples": 1,
+  "source": "observed",
+  "approved": false,
+  "createdAt": 1787905880460,
+  "updatedAt": 1787905880460
+}
