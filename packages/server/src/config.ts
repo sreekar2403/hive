@@ -238,6 +238,27 @@ export interface Config {
       /** Overrides test-command detection; empty means detect. */
       testCommand: string;
     };
+    /**
+     * Sub-agent fan-out: one request split across several agents that run
+     * at the same time, each in its own worktree, then merged back. See
+     * fanout/planner.ts for when a request qualifies — the planner declines
+     * far more often than it accepts, because a wrong split costs N agent
+     * runs and produces N answers to questions nobody asked.
+     */
+    fanout: {
+      enabled: boolean;
+      /** Ceiling on sub-agents per request. Hard-capped by MAX_SUBTASKS. */
+      maxSubtasks: number;
+      /**
+       * Merge the finished sub-branches back automatically. Off leaves each
+       * one on disk to be reviewed and merged by hand, which is the right
+       * default for anyone who does not want agents touching their current
+       * branch unattended.
+       */
+      merge: boolean;
+      /** Budget for the planning call itself, in milliseconds. */
+      plannerTimeoutMs: number;
+    };
   };
   server: {
     port: number;
@@ -602,6 +623,12 @@ export function createDefaultConfig(): Config {
         plan: true,
         maxRepairs: 2,
         testCommand: "",
+      },
+      fanout: {
+        enabled: true,
+        maxSubtasks: 4,
+        merge: true,
+        plannerTimeoutMs: 120000,
       },
       retry: {
         enabled: true,
