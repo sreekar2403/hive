@@ -194,6 +194,25 @@ export interface Config {
     ollama: string;
     lmstudio: string;
   };
+  /**
+   * Which model looks at an attached image when the model running the task
+   * cannot. See visionBridge.ts — the image is described in words and the
+   * description is handed to the working agent.
+   */
+  vision: {
+    /**
+     * A catalog id (`harness/provider/model`). Empty means "pick one",
+     * which prefers a vision model on the harness already in use.
+     *
+     * Worth setting by hand: the automatic choice knows only which models
+     * *can* see, not which of them is any good at reading a screenshot, and
+     * on a machine with several it will not necessarily pick the one you
+     * would have.
+     */
+    model: string;
+    /** Describe images even when the working model could see them itself. */
+    always: boolean;
+  };
   permission: {
     enabled: boolean;
     timeout: number;
@@ -491,6 +510,10 @@ export function createDefaultConfig(): Config {
     localModels: {
       ollama: "http://localhost:11434",
       lmstudio: "http://localhost:1234",
+    },
+    vision: {
+      model: "",
+      always: false,
     },
     // Every harness starts *off*. A harness is only useful if its CLI is
     // installed, and defaulting to `enabled: true` meant a fresh config

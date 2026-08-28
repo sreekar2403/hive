@@ -36,7 +36,10 @@ export function RoutingSection({
   const rules = draft.routing.rules;
 
   const setRules = (next: RoutingRule[]) =>
-    onChange((prev) => ({ ...prev, routing: { ...prev.routing, rules: next } }));
+    onChange((prev) => ({
+      ...prev,
+      routing: { ...prev.routing, rules: next },
+    }));
 
   const patch = (id: string, p: Partial<RoutingRule>) =>
     setRules(rules.map((r) => (r.id === id ? { ...r, ...p } : r)));
@@ -72,13 +75,15 @@ export function RoutingSection({
       <p className="text-[13px] text-muted max-w-[62ch]">
         When you send a task, Hive reads your prompt and hands the work to the
         first rule that matches. Order is priority — move a rule up to give it
-        first refusal. The <span className="font-mono text-[12px]">default</span>{" "}
-        rule catches anything nothing else matched.
+        first refusal. The{" "}
+        <span className="font-mono text-[12px]">default</span> rule catches
+        anything nothing else matched.
       </p>
 
       <div className="flex items-center justify-between">
         <div className="eyebrow">
-          {rules.length} {rules.length === 1 ? "rule" : "rules"}, in priority order
+          {rules.length} {rules.length === 1 ? "rule" : "rules"}, in priority
+          order
         </div>
         <Button size="sm" onClick={add}>
           <Plus className="size-3.5" />
@@ -115,7 +120,10 @@ export function RoutingSection({
                 <div className="flex items-start gap-3">
                   {/* Priority controls */}
                   <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0">
-                    <span className="font-mono text-[10px] text-faint" data-numeric>
+                    <span
+                      className="font-mono text-[10px] text-faint"
+                      data-numeric
+                    >
                       {isDefault ? "—" : i + 1}
                     </span>
                     <IconButton
@@ -179,7 +187,9 @@ export function RoutingSection({
 
                     {/* Match */}
                     <label className="flex flex-col gap-1">
-                      <span className="eyebrow">Matches prompts containing</span>
+                      <span className="eyebrow">
+                        Matches prompts containing
+                      </span>
                       {isDefault ? (
                         <span className="text-[13px] text-muted">
                           Everything the rules above didn't match.
@@ -188,7 +198,9 @@ export function RoutingSection({
                         <Input
                           className="h-8 font-mono text-[12px]"
                           value={rule.pattern}
-                          onChange={(e) => patch(rule.id, { pattern: e.target.value })}
+                          onChange={(e) =>
+                            patch(rule.id, { pattern: e.target.value })
+                          }
                           placeholder="test|spec|assert"
                           aria-label="Match pattern"
                         />
@@ -202,7 +214,9 @@ export function RoutingSection({
                         <Select
                           className="h-8 text-[13px]"
                           value={rule.harness}
-                          onChange={(e) => patch(rule.id, { harness: e.target.value })}
+                          onChange={(e) =>
+                            patch(rule.id, { harness: e.target.value })
+                          }
                           aria-label="Harness"
                         >
                           {HARNESS_IDS.map((h) => (
@@ -217,7 +231,9 @@ export function RoutingSection({
                         <Input
                           className="h-8 font-mono text-[12px]"
                           value={rule.model}
-                          onChange={(e) => patch(rule.id, { model: e.target.value })}
+                          onChange={(e) =>
+                            patch(rule.id, { model: e.target.value })
+                          }
                           placeholder="harness default"
                           aria-label="Model"
                         />
@@ -235,7 +251,9 @@ export function RoutingSection({
         <CardHeader eyebrow="Fallbacks" title="When routing can't decide" />
         <div className="p-4 grid grid-cols-2 gap-4 max-w-2xl">
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-ink">Preferred harness</span>
+            <span className="text-[12px] font-medium text-ink">
+              Preferred harness
+            </span>
             <Select
               value={draft.routing.default}
               onChange={(e) =>

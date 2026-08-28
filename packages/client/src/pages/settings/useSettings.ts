@@ -40,9 +40,12 @@ export function useSettings() {
     JSON.stringify(settings) !== JSON.stringify(draft);
 
   /** Applies a patch to the draft without touching the last-saved snapshot. */
-  const update = useCallback((updater: (prev: SettingsConfig) => SettingsConfig) => {
-    setDraft((prev) => (prev ? updater(prev) : prev));
-  }, []);
+  const update = useCallback(
+    (updater: (prev: SettingsConfig) => SettingsConfig) => {
+      setDraft((prev) => (prev ? updater(prev) : prev));
+    },
+    [],
+  );
 
   const discard = useCallback(() => {
     setDraft(settings);

@@ -1,9 +1,11 @@
+import fs from "fs";
 import {
   Harness,
   HarnessExecutionResult,
   HarnessOptions,
   HarnessEvent,
 } from "@hive/shared/harness";
+import { inlineForDirectApi } from "./attachments";
 
 interface LMStudioChatRequest {
   model: string;
@@ -57,9 +59,24 @@ export class LMStudioDirectHarness implements Harness {
     const model = options?.model || "local-model";
     const startTime = Date.now();
 
+    // Same situation as ollamaDirect: an HTTP model with no filesystem, so
+    // text is inlined rather than pointed at. Images are decoded but this
+    // request shape carries plain string content, so they are named as
+    // unavailable rather than silently dropped.
+    const attached = inlineForDirectApi(options?.attachments, (p) =>
+      fs.readFileSync(p),
+    );
+    const imageNote = attached.images.length
+      ? `[${attached.images.length} attached image(s) cannot be sent to this harness.]
+
+`
+      : "";
+
     const request: LMStudioChatRequest = {
       model,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        { role: "user", content: `${attached.text}${imageNote}${prompt}` },
+      ],
       temperature: 0.7,
       max_tokens: 4096,
       stream: false,
@@ -79,12 +96,16 @@ export class LMStudioDirectHarness implements Harness {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
-        signal: options?.timeout ? AbortSignal.timeout(options.timeout) : undefined,
+        signal: options?.timeout
+          ? AbortSignal.timeout(options.timeout)
+          : undefined,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        events.push(eventId("error", `LM Studio error: ${response.status} ${errorText}`));
+        events.push(
+          eventId("error", `LM Studio error: ${response.status} ${errorText}`),
+        );
         return {
           success: false,
           exitCode: 1,

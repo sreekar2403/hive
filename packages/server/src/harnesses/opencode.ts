@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { OpenCodeParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { opencodeFileArgs } from "./attachments";
 
 export class OpenCodeHarness implements Harness {
   name = "opencode";
@@ -49,6 +50,10 @@ export class OpenCodeHarness implements Harness {
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
     if (options?.agent) args.push("--agent", options.agent);
+
+    // opencode takes any file type through --file, so nothing has to be
+    // described in the prompt for it to be seen.
+    args.push(...opencodeFileArgs(options?.attachments));
 
     args.push(prompt);
 

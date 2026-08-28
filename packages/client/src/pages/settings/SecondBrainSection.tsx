@@ -30,18 +30,30 @@ export function SecondBrainSection({
   const { catalog } = useModelCatalog();
 
   const setSecondBrain = (patch: Partial<SettingsConfig["secondBrain"]>) =>
-    onChange((prev) => ({ ...prev, secondBrain: { ...prev.secondBrain, ...patch } }));
+    onChange((prev) => ({
+      ...prev,
+      secondBrain: { ...prev.secondBrain, ...patch },
+    }));
 
-  const setLearning = (patch: Partial<SettingsConfig["secondBrain"]["learning"]>) =>
+  const setLearning = (
+    patch: Partial<SettingsConfig["secondBrain"]["learning"]>,
+  ) =>
     setSecondBrain({ learning: { ...draft.secondBrain.learning, ...patch } });
 
-  const setTriggers = (patch: Partial<SettingsConfig["secondBrain"]["learning"]["triggers"]>) =>
-    setLearning({ triggers: { ...draft.secondBrain.learning.triggers, ...patch } });
+  const setTriggers = (
+    patch: Partial<SettingsConfig["secondBrain"]["learning"]["triggers"]>,
+  ) =>
+    setLearning({
+      triggers: { ...draft.secondBrain.learning.triggers, ...patch },
+    });
 
-  const setRouting = (patch: Partial<SettingsConfig["secondBrain"]["routing"]>) =>
-    setSecondBrain({ routing: { ...draft.secondBrain.routing, ...patch } });
+  const setRouting = (
+    patch: Partial<SettingsConfig["secondBrain"]["routing"]>,
+  ) => setSecondBrain({ routing: { ...draft.secondBrain.routing, ...patch } });
 
-  const setRetrieval = (patch: Partial<SettingsConfig["secondBrain"]["retrieval"]>) =>
+  const setRetrieval = (
+    patch: Partial<SettingsConfig["secondBrain"]["retrieval"]>,
+  ) =>
     setSecondBrain({ retrieval: { ...draft.secondBrain.retrieval, ...patch } });
 
   const modelOptions = catalog.options.map((opt) => ({
@@ -98,13 +110,23 @@ export function SecondBrainSection({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[13px] text-muted max-w-[62ch]">
-        The Second Brain is a learning memory layer that observes your preferences
-        and which harnesses win which tasks. It builds a local knowledge graph and
-        a <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">soul.md</code>
-        that agents can reference. Two scopes exist: <strong>Global</strong> (shared
-        across all projects at <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">~/.hive/mem</code>)
-        and <strong>Project</strong> (per-repo at <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">mem/</code>,
-        checked into git). Project scope overrides global when both are enabled.
+        The Second Brain is a learning memory layer that observes your
+        preferences and which harnesses win which tasks. It builds a local
+        knowledge graph and a{" "}
+        <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">
+          soul.md
+        </code>
+        that agents can reference. Two scopes exist: <strong>Global</strong>{" "}
+        (shared across all projects at{" "}
+        <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">
+          ~/.hive/mem
+        </code>
+        ) and <strong>Project</strong> (per-repo at{" "}
+        <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">
+          mem/
+        </code>
+        , checked into git). Project scope overrides global when both are
+        enabled.
       </p>
 
       <Card>
@@ -119,10 +141,14 @@ export function SecondBrainSection({
             />
           }
         />
-        <div className="p-4 grid grid-cols-2 gap-4" style={{ opacity: draft.secondBrain.enabled ? 1 : 0.5 }}>
-
+        <div
+          className="p-4 grid grid-cols-2 gap-4"
+          style={{ opacity: draft.secondBrain.enabled ? 1 : 0.5 }}
+        >
           <div className="col-span-2">
-            <div className="eyebrow mb-2">Global scope (shared across all projects)</div>
+            <div className="eyebrow mb-2">
+              Global scope (shared across all projects)
+            </div>
             <Field
               label="Global store directory"
               hint="Empty = ~/.hive/mem. Relative paths resolve from home."
@@ -133,14 +159,18 @@ export function SecondBrainSection({
                   id={id}
                   className="font-mono text-[12px]"
                   value={draft.secondBrain.globalDir}
-                  onChange={(e) => setSecondBrain({ globalDir: e.target.value })}
+                  onChange={(e) =>
+                    setSecondBrain({ globalDir: e.target.value })
+                  }
                 />
               )}
             </Field>
           </div>
 
           <div className="col-span-2">
-            <div className="eyebrow mb-2 mt-4">Project scope (per-repo, checked into git)</div>
+            <div className="eyebrow mb-2 mt-4">
+              Project scope (per-repo, checked into git)
+            </div>
             <Field
               label="Project store directory"
               hint="Relative to repository root. Empty = disabled for this project."
@@ -156,7 +186,6 @@ export function SecondBrainSection({
               )}
             </Field>
           </div>
-
         </div>
       </Card>
 
@@ -164,7 +193,9 @@ export function SecondBrainSection({
         <CardHeader eyebrow="Second Brain" title="Learning" />
         <div className="p-4 grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-ink">Learn from runs</span>
+            <span className="text-[12px] font-medium text-ink">
+              Learn from runs
+            </span>
             <div className="flex items-center gap-2 h-9">
               <Switch
                 checked={draft.secondBrain.learning.enabled}
@@ -175,11 +206,14 @@ export function SecondBrainSection({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-ink">LLM model for synthesis</span>
+            <span className="text-[12px] font-medium text-ink">
+              LLM model for synthesis
+            </span>
             <div className="flex items-center gap-2 h-9">
               <HelpCircle className="size-4 text-faint" />
               <span className="text-[12px] text-muted">
-                Empty = heuristics only. Use catalog id (e.g. opencode/anthropic/claude-3-5-sonnet).
+                Empty = heuristics only. Use catalog id (e.g.
+                opencode/anthropic/claude-3-5-sonnet).
               </span>
             </div>
           </div>
@@ -219,7 +253,12 @@ export function SecondBrainSection({
                 step={60000}
                 value={draft.secondBrain.learning.batchIntervalMs}
                 onChange={(e) =>
-                  setLearning({ batchIntervalMs: Math.max(60000, Number(e.target.value) || 60000) })
+                  setLearning({
+                    batchIntervalMs: Math.max(
+                      60000,
+                      Number(e.target.value) || 60000,
+                    ),
+                  })
                 }
               />
             )}
@@ -239,7 +278,10 @@ export function SecondBrainSection({
                 step={0.05}
                 value={draft.secondBrain.learning.minConfidence}
                 onChange={(e) => {
-                  const v = Math.max(0, Math.min(1, Number(e.target.value) || 0));
+                  const v = Math.max(
+                    0,
+                    Math.min(1, Number(e.target.value) || 0),
+                  );
                   setLearning({ minConfidence: v });
                 }}
               />
@@ -259,7 +301,12 @@ export function SecondBrainSection({
                 max={20}
                 value={draft.secondBrain.learning.maxSuggestionsPerBatch}
                 onChange={(e) =>
-                  setLearning({ maxSuggestionsPerBatch: Math.max(0, Number(e.target.value) || 0) })
+                  setLearning({
+                    maxSuggestionsPerBatch: Math.max(
+                      0,
+                      Number(e.target.value) || 0,
+                    ),
+                  })
                 }
               />
             )}
@@ -297,7 +344,9 @@ export function SecondBrainSection({
         <CardHeader eyebrow="Second Brain" title="Routing augmentation" />
         <div className="p-4 grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-ink">Augment keyword routing</span>
+            <span className="text-[12px] font-medium text-ink">
+              Augment keyword routing
+            </span>
             <div className="flex items-center gap-2 h-9">
               <Switch
                 checked={draft.secondBrain.routing.augment}
@@ -320,7 +369,9 @@ export function SecondBrainSection({
                 max={50}
                 value={draft.secondBrain.routing.minSamples}
                 onChange={(e) =>
-                  setRouting({ minSamples: Math.max(1, Number(e.target.value) || 1) })
+                  setRouting({
+                    minSamples: Math.max(1, Number(e.target.value) || 1),
+                  })
                 }
               />
             )}
@@ -340,7 +391,10 @@ export function SecondBrainSection({
                 step={0.05}
                 value={draft.secondBrain.routing.minMargin}
                 onChange={(e) => {
-                  const v = Math.max(0, Math.min(1, Number(e.target.value) || 0));
+                  const v = Math.max(
+                    0,
+                    Math.min(1, Number(e.target.value) || 0),
+                  );
                   setRouting({ minMargin: v });
                 }}
               />
@@ -365,7 +419,9 @@ export function SecondBrainSection({
                 max={50}
                 value={draft.secondBrain.retrieval.maxPreferences}
                 onChange={(e) =>
-                  setRetrieval({ maxPreferences: Math.max(0, Number(e.target.value) || 0) })
+                  setRetrieval({
+                    maxPreferences: Math.max(0, Number(e.target.value) || 0),
+                  })
                 }
               />
             )}
@@ -384,7 +440,9 @@ export function SecondBrainSection({
                 max={50}
                 value={draft.secondBrain.retrieval.maxLessons}
                 onChange={(e) =>
-                  setRetrieval({ maxLessons: Math.max(0, Number(e.target.value) || 0) })
+                  setRetrieval({
+                    maxLessons: Math.max(0, Number(e.target.value) || 0),
+                  })
                 }
               />
             )}
@@ -404,7 +462,12 @@ export function SecondBrainSection({
                 step={100}
                 value={draft.secondBrain.retrieval.maxBriefingChars}
                 onChange={(e) =>
-                  setRetrieval({ maxBriefingChars: Math.max(500, Number(e.target.value) || 500) })
+                  setRetrieval({
+                    maxBriefingChars: Math.max(
+                      500,
+                      Number(e.target.value) || 500,
+                    ),
+                  })
                 }
               />
             )}
@@ -419,22 +482,35 @@ export function SecondBrainSection({
         />
         <div className="p-4 flex flex-col gap-4">
           <p className="text-[13px] text-muted max-w-[62ch]">
-            <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">soul.md</code> is where
-            your standing preferences live — and where routing is decided. Its{" "}
-            <strong>Harness preferences</strong> section holds the router model and any
-            {" "}<code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">category → harness</code>
-            {" "}pins; anything not pinned there is decided by the router reading the task. The
-            learning agent proposes entries here too, which you approve on the Memory screen.
+            <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">
+              soul.md
+            </code>{" "}
+            is where your standing preferences live — and where routing is
+            decided. Its <strong>Harness preferences</strong> section holds the
+            router model and any{" "}
+            <code className="font-mono text-[12px] bg-surface-2 border border-line text-ink px-1 rounded">
+              category → harness
+            </code>{" "}
+            pins; anything not pinned there is decided by the router reading the
+            task. The learning agent proposes entries here too, which you
+            approve on the Memory screen.
           </p>
 
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-[12px] font-medium text-ink">soul.md content</span>
+              <span className="text-[12px] font-medium text-ink">
+                soul.md content
+              </span>
               <div className="flex items-center gap-2">
                 <Button size="sm" onClick={fetchSoul} disabled={soulLoading}>
                   {soulLoading ? "Loading…" : "Reload"}
                 </Button>
-                <Button size="sm" variant="primary" onClick={saveSoul} disabled={soulLoading}>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={saveSoul}
+                  disabled={soulLoading}
+                >
                   {soulLoading ? "Saving…" : "Save"}
                 </Button>
               </div>

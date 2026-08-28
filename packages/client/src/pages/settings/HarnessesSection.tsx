@@ -70,7 +70,10 @@ export function HarnessesSection({
     void probe();
   }, []);
 
-  const set = (id: HarnessId, patch: Partial<SettingsConfig["harnesses"][HarnessId]>) =>
+  const set = (
+    id: HarnessId,
+    patch: Partial<SettingsConfig["harnesses"][HarnessId]>,
+  ) =>
     onChange((prev) => ({
       ...prev,
       harnesses: {
@@ -83,8 +86,8 @@ export function HarnessesSection({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-muted max-w-[62ch]">
-          Hive runs work by driving these command-line agents. A harness has to be
-          installed and on your PATH before it can pick up tasks.
+          Hive runs work by driving these command-line agents. A harness has to
+          be installed and on your PATH before it can pick up tasks.
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -160,7 +163,10 @@ export function HarnessesSection({
                   />
                 )}
               </Field>
-              <Field label="Runs at once" hint="Concurrent tasks for this harness.">
+              <Field
+                label="Runs at once"
+                hint="Concurrent tasks for this harness."
+              >
                 {(fid) => (
                   <Input
                     id={fid}
@@ -169,7 +175,9 @@ export function HarnessesSection({
                     max={16}
                     value={cfg.concurrency}
                     onChange={(e) =>
-                      set(id, { concurrency: Math.max(1, Number(e.target.value) || 1) })
+                      set(id, {
+                        concurrency: Math.max(1, Number(e.target.value) || 1),
+                      })
                     }
                   />
                 )}

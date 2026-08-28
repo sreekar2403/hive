@@ -36,6 +36,14 @@ export interface ModelOption {
   ref: string;
   contextLabel: string | null;
   thinking: boolean | null;
+  /**
+   * Whether this model can actually look at an image.
+   *
+   * `null` means nobody could tell us, which is different from `false` —
+   * a picker greys out what it knows cannot work, and leaves the unknown
+   * alone rather than hiding a model that would have been fine.
+   */
+  vision: boolean | null;
 }
 
 export interface CatalogSource {
@@ -241,7 +249,25 @@ function option(
     ref: extra.ref ?? `${provider}/${model}`,
     contextLabel: extra.contextLabel ?? null,
     thinking: extra.thinking ?? null,
+    vision: extra.vision ?? null,
   };
+}
+
+/**
+ * Model families documented to accept images.
+ *
+ * Only consulted when the source could not say for itself. Ollama reports
+ * real capabilities per model and is always believed over this list; these
+ * are the CLIs that publish no capability data at all, where a written-down
+ * answer beats greying out a model that works.
+ */
+const VISION_FAMILIES =
+  // Claude Code's catalogue is aliases — "sonnet", "opus" — not full ids,
+  // so those have to be named as well as the family they belong to.
+  /(claude|^(default|opus|sonnet|haiku)|gpt-5|gpt-4o|gemini|pixtral|llava|qwen.*-vl|minicpm-v|moondream|internvl)/i;
+
+function knownVision(model: string): boolean | null {
+  return VISION_FAMILIES.test(model) ? true : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -428,7 +454,16 @@ async function fromOllama(baseUrl: string): Promise<CatalogSource> {
       if (!entry?.name) continue;
       const size =
         typeof entry.size === "number" ? formatBytes(entry.size) : null;
-      models.push(option("*", "ollama", entry.name, { contextLabel: size }));
+      // Ollama is the one source that states this outright, per model.
+      const capabilities = Array.isArray(entry.capabilities)
+        ? (entry.capabilities as string[])
+        : null;
+      models.push(
+        option("*", "ollama", entry.name, {
+          contextLabel: size,
+          vision: capabilities ? capabilities.includes("vision") : null,
+        }),
+      );
     }
   }
 
@@ -509,11 +544,27 @@ async function build(): Promise<Catalog> {
 
   const sources = await Promise.all(discovered);
 
+  // What each provider says about its own models, so a harness that only
+  // lists names can inherit it. `opencode models` prints
+  // "ollama/ornith-1.5:35b" and nothing else; Ollama itself knows that
+  // model has vision. Joining the two is the only way the picker can tell.
+  const providerVision = new Map<string, boolean>();
+  for (const source of sources) {
+    if (source.kind !== "provider") continue;
+    for (const model of source.models) {
+      if (model.vision !== null) providerVision.set(model.model, model.vision);
+    }
+  }
+
   const options: Catalog["options"] = [];
   for (const source of sources) {
     if (source.kind !== "harness") continue;
     for (const model of source.models) {
-      options.push({ ...model, harness: source.id });
+      const vision =
+        model.vision ??
+        providerVision.get(model.model) ??
+        knownVision(model.model);
+      options.push({ ...model, vision, harness: source.id });
     }
   }
 

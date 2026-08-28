@@ -56,6 +56,17 @@ export interface SettingsConfig {
     ollama: string;
     lmstudio: string;
   };
+  /**
+   * Which model reads an attached image when the model running the task
+   * cannot see one — most local models can't. The image is described in
+   * words and the description goes to the working agent.
+   */
+  vision?: {
+    /** Catalog id (`harness/provider/model`); empty means choose for me. */
+    model: string;
+    /** Describe images even when the working model could see them. */
+    always: boolean;
+  };
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
     default: string;

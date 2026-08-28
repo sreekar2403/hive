@@ -69,6 +69,30 @@ export interface HarnessOptions {
    * guard in packages/server/src/runtimeGuard.ts.
    */
   signal?: HarnessAbortSignal;
+  /**
+   * Files the person attached to their message — a screenshot of the bug, a
+   * spec, a CSV, a design.
+   *
+   * Paths are absolute, and deliberately so: sub-agents run in their own
+   * worktrees, so anything relative would resolve differently for each of
+   * them, or not at all.
+   *
+   * Support is uneven and the adapters paper over it rather than refusing.
+   * opencode takes `--file`, Codex takes `--image` for images only; the
+   * rest have no flag at all but do have a file-reading tool, so their
+   * adapter names the paths in the prompt instead. See attachmentPreamble()
+   * in packages/server/src/harnesses/attachments.ts.
+   */
+  attachments?: HarnessAttachment[];
+}
+
+export interface HarnessAttachment {
+  /** Absolute path on the machine running the harness. */
+  path: string;
+  /** Original filename, for telling the agent what it is looking at. */
+  name: string;
+  /** e.g. "image/png", "text/csv". Empty when it could not be determined. */
+  mimeType: string;
 }
 
 export interface HarnessExecutionResult {

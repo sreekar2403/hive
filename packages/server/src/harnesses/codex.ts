@@ -5,6 +5,7 @@ import {
 } from "@hive/shared/harness";
 import { CodexParser } from "./eventStream";
 import { probeAvailable, runHarness } from "./runner";
+import { attachmentPreamble, splitForCodex } from "./attachments";
 
 /**
  * OpenAI's Codex CLI.
@@ -41,7 +42,13 @@ export class CodexHarness implements Harness {
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
 
-    args.push(prompt);
+    // Codex's --image takes images and nothing else; a CSV handed to it
+    // fails the run. Images go through the flag, everything else is named
+    // in the prompt for Codex to open itself.
+    const { imageArgs, rest } = splitForCodex(options?.attachments);
+    args.push(...imageArgs);
+
+    args.push(`${attachmentPreamble(rest)}${prompt}`);
 
     return runHarness({
       command: this._path,
