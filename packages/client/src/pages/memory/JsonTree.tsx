@@ -4,12 +4,7 @@ import { cn } from "../../lib/cn";
 
 /** Anything JSON.parse can produce. */
 type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 const INDENT_PX = 14;
 
@@ -30,7 +25,9 @@ function JsonPrimitive({ value }: { value: string | number | boolean | null }) {
   return <span className="text-warn">{String(value)}</span>;
 }
 
-function isContainer(value: JsonValue): value is JsonValue[] | { [key: string]: JsonValue } {
+function isContainer(
+  value: JsonValue,
+): value is JsonValue[] | { [key: string]: JsonValue } {
   return value !== null && typeof value === "object";
 }
 
@@ -49,8 +46,13 @@ function JsonNode({
 
   if (!isContainer(value)) {
     return (
-      <div className="flex items-start gap-1.5 py-0.5 text-[13px] font-mono leading-relaxed" style={indent}>
-        {label !== undefined ? <span className="text-muted shrink-0">{label}:</span> : null}
+      <div
+        className="flex items-start gap-1.5 py-0.5 text-[13px] font-mono leading-relaxed"
+        style={indent}
+      >
+        {label !== undefined ? (
+          <span className="text-muted shrink-0">{label}:</span>
+        ) : null}
         <JsonPrimitive value={value} />
       </div>
     );
@@ -74,11 +76,19 @@ function JsonNode({
         aria-expanded={open}
       >
         {open ? (
-          <ChevronDown className="size-3 shrink-0 text-faint" aria-hidden="true" />
+          <ChevronDown
+            className="size-3 shrink-0 text-faint"
+            aria-hidden="true"
+          />
         ) : (
-          <ChevronRight className="size-3 shrink-0 text-faint" aria-hidden="true" />
+          <ChevronRight
+            className="size-3 shrink-0 text-faint"
+            aria-hidden="true"
+          />
         )}
-        {label !== undefined ? <span className="text-muted">{label}:</span> : null}
+        {label !== undefined ? (
+          <span className="text-muted">{label}:</span>
+        ) : null}
         <span className="text-faint">{openBracket}</span>
         {!open ? (
           <>
@@ -108,7 +118,13 @@ function JsonNode({
  * tokens (strings `text-ok`, numbers `text-info`, booleans `text-warn`,
  * null `text-faint`). Top two levels open by default.
  */
-export function JsonTree({ value, className }: { value: unknown; className?: string }) {
+export function JsonTree({
+  value,
+  className,
+}: {
+  value: unknown;
+  className?: string;
+}) {
   return (
     <div className={cn("select-text", className)}>
       <JsonNode value={value as JsonValue} depth={0} />

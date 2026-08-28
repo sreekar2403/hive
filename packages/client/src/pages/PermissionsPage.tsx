@@ -44,7 +44,9 @@ export function PermissionsPage() {
   const [pending, setPending] = useState<PermissionRequest[]>([]);
   const [history, setHistory] = useState<Decision[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]") as Decision[];
+      return JSON.parse(
+        localStorage.getItem(HISTORY_KEY) ?? "[]",
+      ) as Decision[];
     } catch {
       return [];
     }
@@ -126,9 +128,7 @@ export function PermissionsPage() {
         description="Hive pauses an agent before destructive work and waits for your call."
         actions={
           pending.length > 0 ? (
-            <Badge tone="warn">
-              {pending.length} waiting
-            </Badge>
+            <Badge tone="warn">{pending.length} waiting</Badge>
           ) : null
         }
       />
@@ -151,10 +151,7 @@ export function PermissionsPage() {
             const pct = (remaining / total) * 100;
 
             return (
-              <Card
-                key={request.id}
-                className="border-warn/60 overflow-hidden"
-              >
+              <Card key={request.id} className="border-warn/60 overflow-hidden">
                 <CardHeader
                   eyebrow={request.sessionId}
                   title={
@@ -171,7 +168,9 @@ export function PermissionsPage() {
                       )}
                       data-numeric
                     >
-                      {expired ? "Timed out" : `${Math.ceil(remaining / 1000)}s left`}
+                      {expired
+                        ? "Timed out"
+                        : `${Math.ceil(remaining / 1000)}s left`}
                     </span>
                   }
                 />
@@ -189,7 +188,9 @@ export function PermissionsPage() {
                 <div className="p-4 flex flex-col gap-3">
                   <div>
                     <div className="eyebrow mb-1">Task</div>
-                    <p className="text-[13px] text-ink">{request.description}</p>
+                    <p className="text-[13px] text-ink">
+                      {request.description}
+                    </p>
                   </div>
 
                   {matchedWords(request.description, rules).length > 0 ? (
@@ -252,8 +253,13 @@ export function PermissionsPage() {
           ) : (
             <ul className="divide-y divide-line">
               {history.map((d) => (
-                <li key={`${d.id}-${d.at}`} className="flex items-center gap-3 px-4 py-2.5">
-                  <StatusDot tone={d.outcome === "approved" ? "ok" : "danger"} />
+                <li
+                  key={`${d.id}-${d.at}`}
+                  className="flex items-center gap-3 px-4 py-2.5"
+                >
+                  <StatusDot
+                    tone={d.outcome === "approved" ? "ok" : "danger"}
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] text-ink truncate">
                       {d.action}
@@ -266,7 +272,10 @@ export function PermissionsPage() {
                   <Badge tone={d.outcome === "approved" ? "ok" : "danger"}>
                     {d.outcome}
                   </Badge>
-                  <span className="text-[11px] text-faint whitespace-nowrap" data-numeric>
+                  <span
+                    className="text-[11px] text-faint whitespace-nowrap"
+                    data-numeric
+                  >
                     {relativeTime(d.at, now)}
                   </span>
                 </li>
@@ -280,7 +289,10 @@ export function PermissionsPage() {
             eyebrow="Configured"
             title="Words that trigger approval"
             actions={
-              <Link to="/settings" className="text-[12px] text-accent hover:underline">
+              <Link
+                to="/settings"
+                className="text-[12px] text-accent hover:underline"
+              >
                 Edit in Settings
               </Link>
             }
@@ -315,7 +327,9 @@ export function PermissionsPage() {
             <Button onClick={() => setDenying(null)}>Cancel</Button>
             <Button
               variant="danger"
-              onClick={() => denying && void decide(denying, false, denyReason || undefined)}
+              onClick={() =>
+                denying && void decide(denying, false, denyReason || undefined)
+              }
             >
               Deny task
             </Button>

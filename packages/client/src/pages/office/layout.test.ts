@@ -68,9 +68,10 @@ describe("office layout", () => {
     const grid = buildWalkableGrid();
     for (const zone of ZONES) {
       for (const slot of zone.slots) {
-        expect(grid[slot.y][slot.x], `${zone.id} slot ${slot.x},${slot.y}`).toBe(
-          true,
-        );
+        expect(
+          grid[slot.y][slot.x],
+          `${zone.id} slot ${slot.x},${slot.y}`,
+        ).toBe(true);
       }
     }
   });

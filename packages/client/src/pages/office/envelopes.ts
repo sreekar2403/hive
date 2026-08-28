@@ -46,8 +46,14 @@ export function spawnEnvelope(
   const body = new Graphics();
   const w = 14;
   const h = 10;
-  body.rect(-w / 2, -h / 2, w, h).fill({ color: tint }).stroke({ color: INK[900], width: 1 });
-  body.moveTo(-w / 2, -h / 2).lineTo(0, h / 2 - 3).lineTo(w / 2, -h / 2)
+  body
+    .rect(-w / 2, -h / 2, w, h)
+    .fill({ color: tint })
+    .stroke({ color: INK[900], width: 1 });
+  body
+    .moveTo(-w / 2, -h / 2)
+    .lineTo(0, h / 2 - 3)
+    .lineTo(w / 2, -h / 2)
     .stroke({ color: INK[900], width: 1 });
   // A cream corner seal so envelopes read against any floor colour.
   body.rect(w / 2 - 4, -h / 2 + 1, 2, 2).fill(CREAM[50]);

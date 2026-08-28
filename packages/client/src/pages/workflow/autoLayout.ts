@@ -33,7 +33,9 @@ export function autoLayout(nodes: HiveNode[], edges: HiveEdge[]): HiveNode[] {
   const rank = new Map<string, number>();
   for (const n of nodes) rank.set(n.id, 0);
 
-  const queue: string[] = nodes.filter((n) => inDegree.get(n.id) === 0).map((n) => n.id);
+  const queue: string[] = nodes
+    .filter((n) => inDegree.get(n.id) === 0)
+    .map((n) => n.id);
   const visited = new Set<string>();
   let head = 0;
   while (head < queue.length) {
@@ -49,7 +51,10 @@ export function autoLayout(nodes: HiveNode[], edges: HiveEdge[]): HiveNode[] {
   for (const n of nodes) {
     if (!visited.has(n.id)) {
       const preds = incoming.get(n.id) ?? [];
-      const maxPredRank = preds.reduce((m, p) => Math.max(m, rank.get(p) ?? 0), -1);
+      const maxPredRank = preds.reduce(
+        (m, p) => Math.max(m, rank.get(p) ?? 0),
+        -1,
+      );
       rank.set(n.id, maxPredRank + 1);
     }
   }
@@ -70,7 +75,8 @@ export function autoLayout(nodes: HiveNode[], edges: HiveEdge[]): HiveNode[] {
       .map((id, idx) => {
         const preds = (incoming.get(id) ?? []).filter((p) => positions.has(p));
         const meanY = preds.length
-          ? preds.reduce((sum, p) => sum + positions.get(p)!.y, 0) / preds.length
+          ? preds.reduce((sum, p) => sum + positions.get(p)!.y, 0) /
+            preds.length
           : idx * ROW_GAP;
         return { id, meanY };
       })

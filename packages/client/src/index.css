@@ -49,7 +49,8 @@
   --hive-danger: #b23b31;
   --hive-danger-soft: rgb(178 59 49 / 0.11);
 
-  --hive-shadow: 0 1px 2px rgb(21 24 29 / 0.06), 0 4px 12px rgb(21 24 29 / 0.05);
+  --hive-shadow:
+    0 1px 2px rgb(21 24 29 / 0.06), 0 4px 12px rgb(21 24 29 / 0.05);
   --hive-shadow-lg: 0 8px 32px rgb(21 24 29 / 0.14);
 
   /* Agent identity colours — stable per harness, used by Office + charts */
@@ -272,13 +273,29 @@
     line-height: 1.3;
     margin: 0.9em 0 0.4em;
   }
-  .hive-md h1 { font-size: 1.35em; }
-  .hive-md h2 { font-size: 1.2em; }
-  .hive-md h3 { font-size: 1.08em; }
-  .hive-md h4 { font-size: 1em; }
-  .hive-md ul { list-style: disc; padding-left: 1.35em; }
-  .hive-md ol { list-style: decimal; padding-left: 1.35em; }
-  .hive-md li { margin: 0.15em 0; }
+  .hive-md h1 {
+    font-size: 1.35em;
+  }
+  .hive-md h2 {
+    font-size: 1.2em;
+  }
+  .hive-md h3 {
+    font-size: 1.08em;
+  }
+  .hive-md h4 {
+    font-size: 1em;
+  }
+  .hive-md ul {
+    list-style: disc;
+    padding-left: 1.35em;
+  }
+  .hive-md ol {
+    list-style: decimal;
+    padding-left: 1.35em;
+  }
+  .hive-md li {
+    margin: 0.15em 0;
+  }
   /* GFM task lists carry their own bullet — the checkbox. */
   .hive-md li:has(> input[type="checkbox"]) {
     list-style: none;
@@ -297,6 +314,10 @@
     border-top: 1px solid var(--hive-border);
     margin: 1em 0;
   }
-  .hive-md strong { font-weight: 600; }
-  .hive-md em { font-style: italic; }
+  .hive-md strong {
+    font-weight: 600;
+  }
+  .hive-md em {
+    font-style: italic;
+  }
 }

@@ -90,7 +90,9 @@ export function Sidebar() {
                       <Icon
                         className={cn(
                           "size-4 shrink-0 transition-colors",
-                          isActive ? "text-accent" : "text-faint group-hover:text-muted",
+                          isActive
+                            ? "text-accent"
+                            : "text-faint group-hover:text-muted",
                         )}
                         aria-hidden="true"
                       />

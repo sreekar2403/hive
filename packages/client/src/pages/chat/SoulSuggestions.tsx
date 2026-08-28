@@ -22,7 +22,10 @@ export function SoulSuggestions({
   projectId: string | null;
   onRefresh?: () => void;
 }) {
-  const [suggestions, setSuggestions] = useState<{ pending: SoulSuggestion[]; resolved: SoulSuggestion[] }>({
+  const [suggestions, setSuggestions] = useState<{
+    pending: SoulSuggestion[];
+    resolved: SoulSuggestion[];
+  }>({
     pending: [],
     resolved: [],
   });
@@ -34,12 +37,15 @@ export function SoulSuggestions({
     setError(null);
     try {
       const scope = projectId ? "project" : "global";
-      const res = await API.get<{ pending: SoulSuggestion[]; resolved: SoulSuggestion[] }>(
-        `/api/brain/suggestions?scope=${scope}&projectId=${projectId || ""}`,
-      );
+      const res = await API.get<{
+        pending: SoulSuggestion[];
+        resolved: SoulSuggestion[];
+      }>(`/api/brain/suggestions?scope=${scope}&projectId=${projectId || ""}`);
       setSuggestions(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load suggestions");
+      setError(
+        err instanceof Error ? err.message : "Failed to load suggestions",
+      );
     } finally {
       setLoading(false);
     }
@@ -74,7 +80,10 @@ export function SoulSuggestions({
   if (loading) {
     return (
       <Card>
-        <CardHeader title="Soul.md Suggestions" actions={<RefreshCw className="size-3.5 animate-spin" />} />
+        <CardHeader
+          title="Soul.md Suggestions"
+          actions={<RefreshCw className="size-3.5 animate-spin" />}
+        />
         <div className="p-4 text-center text-muted">Loading suggestions…</div>
       </Card>
     );
@@ -112,8 +121,15 @@ export function SoulSuggestions({
         title="Soul.md Suggestions"
         eyebrow="Second Brain"
         actions={
-          <Button size="sm" variant="ghost" onClick={fetchSuggestions} disabled={loading}>
-            <RefreshCw className={loading ? "size-3.5 animate-spin" : "size-3.5"} />
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={fetchSuggestions}
+            disabled={loading}
+          >
+            <RefreshCw
+              className={loading ? "size-3.5 animate-spin" : "size-3.5"}
+            />
             Refresh
           </Button>
         }
@@ -125,7 +141,12 @@ export function SoulSuggestions({
               Pending ({suggestions.pending.length})
             </h3>
             {suggestions.pending.map((s) => (
-              <SuggestionCard key={s.id} suggestion={s} onApprove={approve} onReject={reject} />
+              <SuggestionCard
+                key={s.id}
+                suggestion={s}
+                onApprove={approve}
+                onReject={reject}
+              />
             ))}
           </div>
         )}
@@ -136,7 +157,12 @@ export function SoulSuggestions({
               Resolved ({suggestions.resolved.length})
             </h3>
             {suggestions.resolved.slice(0, 10).map((s) => (
-              <SuggestionCard key={s.id} suggestion={s} onApprove={approve} onReject={reject} />
+              <SuggestionCard
+                key={s.id}
+                suggestion={s}
+                onApprove={approve}
+                onReject={reject}
+              />
             ))}
           </div>
         )}
@@ -157,11 +183,24 @@ function SuggestionCard({
   const isPending = suggestion.status === "pending";
 
   return (
-    <div className={cn("p-3 rounded-lg border bg-surface-2", isPending && "border-accent-line bg-accent-soft")}>
+    <div
+      className={cn(
+        "p-3 rounded-lg border bg-surface-2",
+        isPending && "border-accent-line bg-accent-soft",
+      )}
+    >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <Badge tone={suggestion.status === "approved" ? "ok" : suggestion.status === "rejected" ? "danger" : "accent"}>
+            <Badge
+              tone={
+                suggestion.status === "approved"
+                  ? "ok"
+                  : suggestion.status === "rejected"
+                    ? "danger"
+                    : "accent"
+              }
+            >
               {suggestion.status}
             </Badge>
             <Badge tone="info">{suggestion.section}</Badge>
@@ -174,11 +213,19 @@ function SuggestionCard({
         </div>
         {isPending && (
           <div className="flex items-center gap-2 shrink-0">
-            <Button size="sm" variant="primary" onClick={() => onApprove(suggestion.id)}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onApprove(suggestion.id)}
+            >
               <CheckCircle2 className="size-3.5" />
               Approve
             </Button>
-            <Button size="sm" variant="danger" onClick={() => onReject(suggestion.id)}>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() => onReject(suggestion.id)}
+            >
               <XCircle className="size-3.5" />
               Reject
             </Button>
@@ -186,7 +233,9 @@ function SuggestionCard({
         )}
         {!isPending && (
           <span className="text-[11px] text-muted shrink-0">
-            {suggestion.status === "approved" ? "Added to soul.md" : "Dismissed"}
+            {suggestion.status === "approved"
+              ? "Added to soul.md"
+              : "Dismissed"}
           </span>
         )}
       </div>

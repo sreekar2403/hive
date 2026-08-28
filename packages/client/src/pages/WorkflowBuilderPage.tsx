@@ -64,7 +64,8 @@ import "./workflow/flow.css";
 type SaveState = "idle" | "saving" | "saved";
 
 let nodeSeq = 0;
-const nextNodeId = () => `n${Date.now().toString(36)}${(nodeSeq++).toString(36)}`;
+const nextNodeId = () =>
+  `n${Date.now().toString(36)}${(nodeSeq++).toString(36)}`;
 
 function WorkflowCanvas() {
   const { activeProject, activeProjectId } = useProjects();
@@ -107,7 +108,9 @@ function WorkflowCanvas() {
         if (cancelled) return;
         setWorkflows(list);
         setCurrentId((prev) =>
-          prev && list.some((w) => w.id === prev) ? prev : (list[0]?.id ?? null),
+          prev && list.some((w) => w.id === prev)
+            ? prev
+            : (list[0]?.id ?? null),
         );
       })
       .catch(() => !cancelled && setWorkflows([]))
@@ -162,10 +165,7 @@ function WorkflowCanvas() {
 
   /* ---------------- graph editing ---------------- */
 
-  const snapshot = useCallback(
-    () => ({ nodes, edges }),
-    [nodes, edges],
-  );
+  const snapshot = useCallback(() => ({ nodes, edges }), [nodes, edges]);
 
   const onNodesChange = useCallback((changes: NodeChange<HiveNode>[]) => {
     setNodes((nds) => applyNodeChanges(changes, nds));
@@ -202,16 +202,13 @@ function WorkflowCanvas() {
     [history, snapshot],
   );
 
-  const patchNode = useCallback(
-    (id: string, patch: Partial<HiveNodeData>) => {
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.id === id ? { ...n, data: { ...n.data, ...patch } } : n,
-        ),
-      );
-    },
-    [],
-  );
+  const patchNode = useCallback((id: string, patch: Partial<HiveNodeData>) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, ...patch } } : n,
+      ),
+    );
+  }, []);
 
   const removeNode = useCallback(
     (id: string) => {
@@ -226,7 +223,9 @@ function WorkflowCanvas() {
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      const kind = event.dataTransfer.getData(PALETTE_DRAG_MIME) as HiveNodeKind;
+      const kind = event.dataTransfer.getData(
+        PALETTE_DRAG_MIME,
+      ) as HiveNodeKind;
       if (!kind) return;
       const def = nodeDef(kind);
       const position = screenToFlowPosition({
@@ -384,16 +383,34 @@ function WorkflowCanvas() {
             <Palette />
           </div>
 
-          <div className="flex-1 min-w-0 relative" onDrop={onDrop} onDragOver={onDragOver}>
+          <div
+            className="flex-1 min-w-0 relative"
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+          >
             <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
               <div className="flex items-center gap-0.5 p-0.5 bg-surface border border-line rounded-md shadow-card">
-                <IconButton size="sm" onClick={doUndo} disabled={!history.canUndo} aria-label="Undo">
+                <IconButton
+                  size="sm"
+                  onClick={doUndo}
+                  disabled={!history.canUndo}
+                  aria-label="Undo"
+                >
                   <Undo2 className="size-3.5" />
                 </IconButton>
-                <IconButton size="sm" onClick={doRedo} disabled={!history.canRedo} aria-label="Redo">
+                <IconButton
+                  size="sm"
+                  onClick={doRedo}
+                  disabled={!history.canRedo}
+                  aria-label="Redo"
+                >
                   <Redo2 className="size-3.5" />
                 </IconButton>
-                <IconButton size="sm" onClick={doAutoLayout} aria-label="Tidy layout">
+                <IconButton
+                  size="sm"
+                  onClick={doAutoLayout}
+                  aria-label="Tidy layout"
+                >
                   <LayoutGrid className="size-3.5" />
                 </IconButton>
               </div>
@@ -415,7 +432,10 @@ function WorkflowCanvas() {
                   className="w-full flex items-center gap-2 px-3 py-2 border-b border-line hover:bg-surface-2 transition-colors"
                 >
                   <AlertTriangle
-                    className={cn("size-3.5", errorCount ? "text-danger" : "text-warn")}
+                    className={cn(
+                      "size-3.5",
+                      errorCount ? "text-danger" : "text-warn",
+                    )}
                   />
                   <span className="text-[12px] font-medium text-ink">
                     {errorCount > 0
@@ -430,7 +450,9 @@ function WorkflowCanvas() {
                       key={i}
                       className="px-3 py-1.5 text-[12px] text-muted flex items-start gap-2"
                     >
-                      <Badge tone={issue.severity === "error" ? "danger" : "warn"}>
+                      <Badge
+                        tone={issue.severity === "error" ? "danger" : "warn"}
+                      >
                         {issue.severity}
                       </Badge>
                       <span className="min-w-0">{issue.message}</span>
@@ -446,7 +468,10 @@ function WorkflowCanvas() {
                 className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 bg-surface border border-line rounded-md shadow-card text-[12px] text-muted hover:text-ink"
               >
                 <AlertTriangle
-                  className={cn("size-3.5", errorCount ? "text-danger" : "text-warn")}
+                  className={cn(
+                    "size-3.5",
+                    errorCount ? "text-danger" : "text-warn",
+                  )}
                 />
                 {issues.length}
               </button>
@@ -495,7 +520,11 @@ function WorkflowCanvas() {
           </div>
 
           <div className="w-72 shrink-0 border-l border-line bg-surface overflow-hidden">
-            <Inspector node={selected} onChange={patchNode} onDelete={removeNode} />
+            <Inspector
+              node={selected}
+              onChange={patchNode}
+              onDelete={removeNode}
+            />
           </div>
         </div>
       )}
@@ -508,7 +537,11 @@ function WorkflowCanvas() {
         footer={
           <>
             <Button onClick={() => setCreating(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleCreate} disabled={!newName.trim()}>
+            <Button
+              variant="primary"
+              onClick={handleCreate}
+              disabled={!newName.trim()}
+            >
               Create workflow
             </Button>
           </>

@@ -32,7 +32,8 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
     "bg-accent text-accent-fg border-transparent hover:bg-accent-hover font-medium",
   default:
     "bg-surface text-ink border-line hover:bg-surface-2 hover:border-line-strong",
-  ghost: "bg-transparent text-muted border-transparent hover:bg-surface-2 hover:text-ink",
+  ghost:
+    "bg-transparent text-muted border-transparent hover:bg-surface-2 hover:text-ink",
   danger:
     "bg-transparent text-danger border-line hover:bg-danger-soft hover:border-danger",
 };
@@ -70,7 +71,12 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={cn(BUTTON_BASE, BUTTON_VARIANTS[variant], BUTTON_SIZES[size], className)}
+      className={cn(
+        BUTTON_BASE,
+        BUTTON_VARIANTS[variant],
+        BUTTON_SIZES[size],
+        className,
+      )}
       {...props}
     />
   );
@@ -100,16 +106,10 @@ export function IconButton({
 /* Surfaces                                                            */
 /* ------------------------------------------------------------------ */
 
-export function Card({
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>) {
+export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "bg-surface border border-line rounded-lg",
-        className,
-      )}
+      className={cn("bg-surface border border-line rounded-lg", className)}
       {...props}
     />
   );
@@ -137,7 +137,9 @@ export function CardHeader({
         {eyebrow ? <div className="eyebrow mb-1">{eyebrow}</div> : null}
         <div className="text-sm font-semibold text-ink truncate">{title}</div>
       </div>
-      {actions ? <div className="flex items-center gap-2 shrink-0">{actions}</div> : null}
+      {actions ? (
+        <div className="flex items-center gap-2 shrink-0">{actions}</div>
+      ) : null}
     </div>
   );
 }
@@ -169,7 +171,9 @@ export function PageHeader({
           {title}
         </h1>
         {description ? (
-          <p className="text-[13px] text-muted mt-1.5 max-w-[68ch]">{description}</p>
+          <p className="text-[13px] text-muted mt-1.5 max-w-[68ch]">
+            {description}
+          </p>
         ) : null}
       </div>
       {actions ? (
@@ -184,7 +188,9 @@ export function PageBody({
   className,
   ...props
 }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-6 h-full flex flex-col", className)} {...props} />;
+  return (
+    <div className={cn("p-6 h-full flex flex-col", className)} {...props} />
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -262,8 +268,16 @@ const FIELD_BASE =
   "transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft " +
   "disabled:opacity-50";
 
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(FIELD_BASE, "h-9 px-3 text-sm", className)} {...props} />;
+export function Input({
+  className,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={cn(FIELD_BASE, "h-9 px-3 text-sm", className)}
+      {...props}
+    />
+  );
 }
 
 export function Textarea({
@@ -271,7 +285,10 @@ export function Textarea({
   ...props
 }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
-    <textarea className={cn(FIELD_BASE, "px-3 py-2 text-sm resize-y", className)} {...props} />
+    <textarea
+      className={cn(FIELD_BASE, "px-3 py-2 text-sm resize-y", className)}
+      {...props}
+    />
   );
 }
 
@@ -280,7 +297,10 @@ export function Select({
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={cn(FIELD_BASE, "h-9 px-2.5 text-sm", className)} {...props} />
+    <select
+      className={cn(FIELD_BASE, "h-9 px-2.5 text-sm", className)}
+      {...props}
+    />
   );
 }
 
@@ -394,9 +414,15 @@ export function Switch({
           {/* On/off is carried by more than position, which matters at a
               glance and for anyone who can't separate the two colours. */}
           {checked ? (
-            <Check className={cn(geometry.glyph, "text-accent")} strokeWidth={3.5} />
+            <Check
+              className={cn(geometry.glyph, "text-accent")}
+              strokeWidth={3.5}
+            />
           ) : (
-            <Minus className={cn(geometry.glyph, "text-faint")} strokeWidth={3.5} />
+            <Minus
+              className={cn(geometry.glyph, "text-faint")}
+              strokeWidth={3.5}
+            />
           )}
         </span>
       </button>
@@ -483,7 +509,9 @@ export function EmptyState({
       ) : null}
       <p className="text-sm font-medium text-ink">{title}</p>
       {description ? (
-        <p className="text-[13px] text-muted mt-1 max-w-[46ch]">{description}</p>
+        <p className="text-[13px] text-muted mt-1 max-w-[46ch]">
+          {description}
+        </p>
       ) : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>

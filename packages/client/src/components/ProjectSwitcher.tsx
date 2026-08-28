@@ -80,7 +80,9 @@ export function ProjectSwitcher() {
           ) : activeProject ? (
             <span
               className="size-2 rounded-full shrink-0"
-              style={{ background: activeProject.color ?? "var(--hive-accent)" }}
+              style={{
+                background: activeProject.color ?? "var(--hive-accent)",
+              }}
             />
           ) : (
             <FolderGit2 className="size-3.5 text-faint shrink-0" />
@@ -162,7 +164,11 @@ export function ProjectSwitcher() {
         footer={
           <>
             <Button onClick={() => setAdding(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleAdd} disabled={!path || saving}>
+            <Button
+              variant="primary"
+              onClick={handleAdd}
+              disabled={!path || saving}
+            >
               {saving ? "Adding…" : "Add project"}
             </Button>
           </>

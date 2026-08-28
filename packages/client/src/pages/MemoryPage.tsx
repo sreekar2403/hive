@@ -42,7 +42,9 @@ export function MemoryPage() {
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
-      const data = await API.get<MemorySessionSummary[]>("/api/memory/sessions");
+      const data = await API.get<MemorySessionSummary[]>(
+        "/api/memory/sessions",
+      );
       setSessions(data);
       setSessionId((current) =>
         current && data.some((s) => s.sessionId === current)
@@ -56,49 +58,55 @@ export function MemoryPage() {
     }
   }, [setSessionId]);
 
-  const loadEntries = useCallback(async (id: string | null) => {
-    if (!id) {
-      setEntries([]);
-      setEntryKey(null);
-      return;
-    }
-    setLoadingEntries(true);
-    try {
-      const data = await API.get<MemoryEntrySummary[]>(
-        `/api/memory/${encodeURIComponent(id)}`,
-      );
-      setEntries(data);
-      setEntryKey((current) =>
-        current && data.some((e) => e.key === current)
-          ? current
-          : (data[0]?.key ?? null),
-      );
-    } catch {
-      setEntries([]);
-      setEntryKey(null);
-    } finally {
-      setLoadingEntries(false);
-    }
-  }, [setEntryKey]);
+  const loadEntries = useCallback(
+    async (id: string | null) => {
+      if (!id) {
+        setEntries([]);
+        setEntryKey(null);
+        return;
+      }
+      setLoadingEntries(true);
+      try {
+        const data = await API.get<MemoryEntrySummary[]>(
+          `/api/memory/${encodeURIComponent(id)}`,
+        );
+        setEntries(data);
+        setEntryKey((current) =>
+          current && data.some((e) => e.key === current)
+            ? current
+            : (data[0]?.key ?? null),
+        );
+      } catch {
+        setEntries([]);
+        setEntryKey(null);
+      } finally {
+        setLoadingEntries(false);
+      }
+    },
+    [setEntryKey],
+  );
 
-  const loadValue = useCallback(async (id: string | null, key: string | null) => {
-    if (!id || !key) {
-      setEntry(null);
-      return;
-    }
-    setLoadingValue(true);
-    try {
-      setEntry(
-        await API.get<MemoryEntry>(
-          `/api/memory/${encodeURIComponent(id)}/${encodeURIComponent(key)}`,
-        ),
-      );
-    } catch {
-      setEntry(null);
-    } finally {
-      setLoadingValue(false);
-    }
-  }, []);
+  const loadValue = useCallback(
+    async (id: string | null, key: string | null) => {
+      if (!id || !key) {
+        setEntry(null);
+        return;
+      }
+      setLoadingValue(true);
+      try {
+        setEntry(
+          await API.get<MemoryEntry>(
+            `/api/memory/${encodeURIComponent(id)}/${encodeURIComponent(key)}`,
+          ),
+        );
+      } catch {
+        setEntry(null);
+      } finally {
+        setLoadingValue(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -122,7 +130,10 @@ export function MemoryPage() {
         `/api/memory/${encodeURIComponent(sessionId)}/${encodeURIComponent(entryKey)}`,
         { value },
       );
-      await Promise.all([loadEntries(sessionId), loadValue(sessionId, entryKey)]);
+      await Promise.all([
+        loadEntries(sessionId),
+        loadValue(sessionId, entryKey),
+      ]);
     },
     [sessionId, entryKey, loadEntries, loadValue],
   );
@@ -159,7 +170,8 @@ export function MemoryPage() {
             <div className="flex items-center gap-3">
               {sessions.length > 0 ? (
                 <span className="text-[12px] text-muted" data-numeric>
-                  {sessions.length} {sessions.length === 1 ? "session" : "sessions"} ·{" "}
+                  {sessions.length}{" "}
+                  {sessions.length === 1 ? "session" : "sessions"} ·{" "}
                   {formatBytes(totalSize)}
                 </span>
               ) : null}
@@ -224,7 +236,6 @@ export function MemoryPage() {
           removed from disk.
         </p>
       </Modal>
-
     </div>
   );
 }

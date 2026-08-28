@@ -24,8 +24,10 @@ import capacityRoutes from "./routes/capacity";
 import harnessRoutes from "./routes/harnesses";
 import messageRoutes from "./routes/messages";
 import { resolveModelRef } from "./models/catalog";
+import { pruneAttachments, resolveAttachments } from "./attachments";
 import { createKanbanCard, finishKanbanCard } from "./kanban";
 import taskRoutes from "./routes/tasks";
+import attachmentRoutes from "./routes/attachments";
 import { startCronRunner } from "./scheduler/cronRunner";
 import eventsRouter, { broadcast } from "./routes/events";
 import {
@@ -61,15 +63,38 @@ class HiveServer {
   async start(): Promise<void> {
     const app = this.app;
 
+    // Attachments live in temp and are never referenced again once their
+    // run is over, but nothing else would ever delete them — a daily
+    // screenshot habit would quietly fill a disk.
+    try {
+      const removed = pruneAttachments();
+      if (removed > 0) {
+        console.log(`Removed ${removed} expired attachment(s)`);
+      }
+    } catch {
+      // A reaper that cannot delete is not a reason to refuse to boot.
+    }
+
     app.use(cors(corsOptions(this.config)));
-    app.use(express.json());
+    // Attachments arrive as base64 in a JSON body, so the default 100kb
+    // limit would reject every screenshot. The ceiling is the per-file limit
+    // plus room for base64's ~33% overhead and the rest of the envelope.
+    app.use(express.json({ limit: "32mb" }));
     // Gates /api/* whenever a token is configured; /health stays open.
     app.use(authMiddleware(this.config));
     app.use(express.static(publicDir));
 
     // Chat endpoint
     app.post("/api/chat", async (req, res) => {
-      const { message, sessionId, projectId, harness, model, agent } = req.body;
+      const {
+        message,
+        sessionId,
+        projectId,
+        harness,
+        model,
+        agent,
+        attachments: attachmentIds,
+      } = req.body;
 
       if (!message) {
         return res.status(400).json({ error: "Message is required" });
@@ -114,6 +139,10 @@ class HiveServer {
           {
             model: picked?.ref ?? null,
             agent: typeof agent === "string" && agent ? agent : null,
+            // Ids, resolved to real paths here. One that has aged out is
+            // skipped rather than failing the message — the person's text
+            // is still worth running.
+            attachments: resolveAttachments(attachmentIds),
             // Pass conversation history for context. The turn just
             // recorded is dropped — it is the prompt itself, and repeating
             // it as "history" made every message look like a reply to
@@ -264,6 +293,7 @@ class HiveServer {
 
     // Messages between agents working the same session
     app.use("/api/messages", messageRoutes);
+    app.use("/api/attachments", attachmentRoutes);
 
     // Shared memory browsing/editing
     setSharedMemory(this.sharedMemory);

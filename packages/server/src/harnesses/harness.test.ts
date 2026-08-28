@@ -19,8 +19,7 @@ describe("Harness interface contract", () => {
         const isAvailable = await result;
         expect(typeof isAvailable).toBe("boolean");
       }
-    }, // Spawns three real CLIs sequentially to probe availability; each can
-    // take a few seconds on a cold Windows shell, so the default 5s budget
+    }, // take a few seconds on a cold Windows shell, so the default 5s budget // Spawns three real CLIs sequentially to probe availability; each can
     // is too tight.
     20000);
 

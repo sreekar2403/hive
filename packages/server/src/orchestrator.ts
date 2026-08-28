@@ -6,6 +6,8 @@ import { RuntimeGuard } from "./runtimeGuard";
 import { SharedMemory } from "./sharedMemory";
 import { Config } from "./config";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
+import type { HarnessAttachment } from "@hive/shared/harness";
+import { describeImagesFor } from "./visionBridge";
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import { getDb } from "./db/database";
@@ -75,6 +77,8 @@ export interface AgentTask {
   events: HarnessEvent[];
   /** Previous messages in this conversation for context. */
   conversationHistory?: Array<{ role: string; content: string }>;
+  /** Files the person attached to the message that started this run. */
+  attachments?: HarnessAttachment[];
   /** Iterations the loop actually used, mirrored from LoopEngine state. */
   iteration?: number;
   /** Why the loop gave up, when it did. */
@@ -289,6 +293,7 @@ export class Orchestrator {
       model?: string | null;
       agent?: string | null;
       conversationHistory?: Array<{ role: string; content: string }>;
+      attachments?: HarnessAttachment[];
     },
   ): Promise<AgentTask> {
     const taskId = this.generateId();
@@ -312,6 +317,7 @@ export class Orchestrator {
       agent: selection?.agent ?? null,
       events: [],
       conversationHistory: selection?.conversationHistory ?? [],
+      attachments: selection?.attachments ?? [],
     };
 
     this.tasks.set(taskId, task);
@@ -460,6 +466,10 @@ export class Orchestrator {
         // different model on the actual work would be a surprise.
         model: parent.model,
         agent: parent.agent,
+        // Every sub-agent gets what was attached to the request. Which of
+        // them needs the screenshot is not knowable here, and an agent that
+        // does not need it simply does not open it.
+        attachments: parent.attachments,
       })),
       parent.projectId,
     );
@@ -917,15 +927,37 @@ ${mail}`
     // so the agent can finish the job it was stopped in the middle of.
     const guardEnabled = this.config.permission.enabled && gateOn !== "prompt";
     const approvedCommands = new Set<string>();
+
+    // An image attached to a task running on a model that cannot see one is
+    // described in words first, by a model that can. What comes back joins
+    // the briefing, and the images it covered are dropped from the
+    // attachment list — sending both would hand a blind model a file it
+    // still cannot open, next to a description of it.
+    const seen = await describeImagesFor(task.attachments, {
+      harnesses: this.harnesses,
+      harness: decision.harness,
+      model: task.model,
+      preferred: this.config.vision?.model,
+      always: this.config.vision?.always,
+    });
+    const attachments = (task.attachments ?? []).filter(
+      (attachment) => !seen.described.includes(attachment),
+    );
+    const preamble = seen.preamble
+      ? `${seen.preamble}
+${briefing.text}`
+      : briefing.text;
+
     const runOptions = {
       cwd,
       harness: pinned ?? undefined,
       model: task.model ?? undefined,
       agent: task.agent ?? undefined,
-      preamble: briefing.text,
+      preamble,
       hints: brain.getRoutingHints(task.prompt),
       soul: brain.getRoutingGuidance(),
       conversationHistory: task.conversationHistory,
+      attachments,
     };
 
     let result!: Awaited<ReturnType<typeof loopEngine.run>>;
@@ -1306,6 +1338,7 @@ ${mail}`
       /** Model in the CLI's own notation; see models/catalog.ts. */
       model?: string | null;
       agent?: string | null;
+      attachments?: HarnessAttachment[];
     }>,
     projectId: string | null = null,
   ): Promise<AgentTask[]> {
@@ -1323,7 +1356,11 @@ ${mail}`
         taskDef.prompt,
         taskDef.harness,
         projectId,
-        { model: taskDef.model ?? null, agent: taskDef.agent ?? null },
+        {
+          model: taskDef.model ?? null,
+          agent: taskDef.agent ?? null,
+          attachments: taskDef.attachments,
+        },
       );
 
       let branch = branchNameFor(task.id, taskDef.prompt);

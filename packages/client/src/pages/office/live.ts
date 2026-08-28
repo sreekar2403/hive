@@ -13,7 +13,8 @@
  * here; packages/server/src/orchestrator.ts broadcasts the real thing.
  */
 export interface HarnessEventLike {
-  type: "status" | "text" | "thinking" | "tool" | "tool-result" | "usage" | "error";
+  type:
+    "status" | "text" | "thinking" | "tool" | "tool-result" | "usage" | "error";
   text?: string;
   tool?: string;
   callId?: string;
@@ -71,7 +72,10 @@ export function mapHarnessEvent(e: HarnessEventLike): FloorVisual | null {
 }
 
 function lastLine(text: string): string {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   return lines.length ? lines[lines.length - 1] : "";
 }
 

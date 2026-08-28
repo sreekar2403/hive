@@ -63,10 +63,7 @@ export class ApprovalsStore {
     return this.settle(id, "deny");
   }
 
-  private async settle(
-    id: string,
-    verb: "approve" | "deny",
-  ): Promise<boolean> {
+  private async settle(id: string, verb: "approve" | "deny"): Promise<boolean> {
     const before = this.pending;
     // Optimistic removal: the dialog should close instantly.
     this.pending = before.filter((r) => r.id !== id);
@@ -148,7 +145,10 @@ export function PermissionDialog(props: {
           <span className="rp-title text-[11px]" style={{ color: "#ff6b6b" }}>
             Needs you
           </span>
-          <button className="rp-btn rp-btn--ghost h-6 px-2 rp-small" onClick={onClose}>
+          <button
+            className="rp-btn rp-btn--ghost h-6 px-2 rp-small"
+            onClick={onClose}
+          >
             close
           </button>
         </div>

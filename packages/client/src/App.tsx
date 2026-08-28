@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { HashRouter, Routes, Route, Outlet } from "react-router-dom";import { Sidebar } from "./components/Sidebar";
+import { HashRouter, Routes, Route, Outlet } from "react-router-dom";
+import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { SetupDialog } from "./components/SetupDialog";
 import { ThemeContext, type Theme } from "./components/ui";
@@ -49,7 +50,9 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   const value = useMemo(() => ({ theme, setTheme }), [theme]);
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  );
 }
 
 function Layout() {

@@ -40,7 +40,13 @@ interface BrainRecord {
 
 interface GraphFile {
   nodes: Array<{ id: string; type: string; label: string }>;
-  edges: Array<{ id: string; type: string; from: string; to: string; strength: number }>;
+  edges: Array<{
+    id: string;
+    type: string;
+    from: string;
+    to: string;
+    strength: number;
+  }>;
 }
 
 const TABS = [
@@ -94,7 +100,9 @@ export function BrainPage() {
       setSoulPath(data.path ?? null);
       setSoulDirty(false);
     } catch (err) {
-      setSoulError(err instanceof Error ? err.message : "Could not load soul.md");
+      setSoulError(
+        err instanceof Error ? err.message : "Could not load soul.md",
+      );
     } finally {
       setSoulBusy(false);
     }
@@ -110,7 +118,9 @@ export function BrainPage() {
       );
       setSoulDirty(false);
     } catch (err) {
-      setSoulError(err instanceof Error ? err.message : "Could not save soul.md");
+      setSoulError(
+        err instanceof Error ? err.message : "Could not save soul.md",
+      );
     } finally {
       setSoulBusy(false);
     }
@@ -143,7 +153,9 @@ export function BrainPage() {
       const data = await API.get<BrainRecord[]>(`/api/brain/records?${params}`);
       setRecords(data);
     } catch (err) {
-      setRecordsError(err instanceof Error ? err.message : "Could not load records");
+      setRecordsError(
+        err instanceof Error ? err.message : "Could not load records",
+      );
     } finally {
       setRecordsLoading(false);
     }
@@ -171,7 +183,9 @@ export function BrainPage() {
       if (activeProjectId) params.set("projectId", activeProjectId);
       setGraph(await API.get<GraphFile>(`/api/brain/graph?${params}`));
     } catch (err) {
-      setGraphError(err instanceof Error ? err.message : "Could not load the graph");
+      setGraphError(
+        err instanceof Error ? err.message : "Could not load the graph",
+      );
     } finally {
       setGraphLoading(false);
     }
@@ -189,7 +203,10 @@ export function BrainPage() {
     try {
       // Insights are a traversal from the best-matching seed node; search
       // first for the seed, then traverse one hop from each hit.
-      const params = new URLSearchParams({ q: insightQuery.trim(), limit: "5" });
+      const params = new URLSearchParams({
+        q: insightQuery.trim(),
+        limit: "5",
+      });
       if (activeProjectId) params.set("projectId", activeProjectId);
       const hits = await API.get<{ nodes: GraphFile["nodes"] }>(
         `/api/brain/insights?${params}`,
@@ -257,8 +274,14 @@ export function BrainPage() {
                 eyebrow={soulPath ?? undefined}
                 actions={
                   <div className="flex items-center gap-2">
-                    <Button size="sm" onClick={() => void loadSoul()} disabled={soulBusy}>
-                      <RefreshCw className={cn("size-3.5", soulBusy && "animate-spin")} />
+                    <Button
+                      size="sm"
+                      onClick={() => void loadSoul()}
+                      disabled={soulBusy}
+                    >
+                      <RefreshCw
+                        className={cn("size-3.5", soulBusy && "animate-spin")}
+                      />
                       Reload
                     </Button>
                     <Button
@@ -308,7 +331,9 @@ export function BrainPage() {
                     >
                       <option value="">All</option>
                       {STORES.map((s) => (
-                        <option key={s} value={s}>{s}</option>
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
                       ))}
                     </Select>
                   )}
@@ -322,7 +347,9 @@ export function BrainPage() {
                     >
                       <option value="">All</option>
                       {SHELVES.map((s) => (
-                        <option key={s} value={s}>{s}</option>
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
                       ))}
                     </Select>
                   )}
@@ -337,7 +364,11 @@ export function BrainPage() {
                     />
                   )}
                 </Field>
-                <Button size="md" onClick={() => void loadRecords()} disabled={recordsLoading}>
+                <Button
+                  size="md"
+                  onClick={() => void loadRecords()}
+                  disabled={recordsLoading}
+                >
                   <Search className="size-4" />
                   {recordsLoading ? "Loading…" : "Apply"}
                 </Button>
@@ -365,12 +396,21 @@ export function BrainPage() {
                         <div className="min-w-0">
                           <p className="text-[13px] text-ink">{r.title}</p>
                           <div className="flex items-center gap-2 mt-1 flex-wrap">
-                            <Badge>{r.store}/{r.shelf}</Badge>
-                            {r.category ? <Badge tone="info">{r.category}</Badge> : null}
-                            {r.harness ? <Badge tone="neutral">{r.harness}</Badge> : null}
+                            <Badge>
+                              {r.store}/{r.shelf}
+                            </Badge>
+                            {r.category ? (
+                              <Badge tone="info">{r.category}</Badge>
+                            ) : null}
+                            {r.harness ? (
+                              <Badge tone="neutral">{r.harness}</Badge>
+                            ) : null}
                           </div>
                         </div>
-                        <div className="shrink-0 text-right font-mono text-[11px] text-faint" data-numeric>
+                        <div
+                          className="shrink-0 text-right font-mono text-[11px] text-faint"
+                          data-numeric
+                        >
                           <div>conf {r.confidence.toFixed(2)}</div>
                           <div>{r.samples} obs</div>
                         </div>
@@ -390,8 +430,16 @@ export function BrainPage() {
                     ? `${graph.nodes.length} nodes · ${graph.edges.length} edges`
                     : "Loading…"}
                 </span>
-                <Button size="sm" onClick={() => { setGraph(null); }} disabled={graphLoading}>
-                  <RefreshCw className={cn("size-3.5", graphLoading && "animate-spin")} />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setGraph(null);
+                  }}
+                  disabled={graphLoading}
+                >
+                  <RefreshCw
+                    className={cn("size-3.5", graphLoading && "animate-spin")}
+                  />
                   Refresh
                 </Button>
               </div>
@@ -418,7 +466,9 @@ export function BrainPage() {
                   <Card key={n.id} className="p-3">
                     <div className="flex items-center gap-2">
                       <Badge tone="info">{n.type}</Badge>
-                      <span className="text-[13px] text-ink truncate">{n.label}</span>
+                      <span className="text-[13px] text-ink truncate">
+                        {n.label}
+                      </span>
                       <span className="ml-auto font-mono text-[10px] text-faint shrink-0">
                         {out.length} edge{out.length === 1 ? "" : "s"}
                       </span>
@@ -428,9 +478,15 @@ export function BrainPage() {
                         {out.slice(0, 5).map((e) => {
                           const target = graph.nodes.find((t) => t.id === e.to);
                           return (
-                            <li key={e.id} className="font-mono text-[11px] text-muted truncate">
+                            <li
+                              key={e.id}
+                              className="font-mono text-[11px] text-muted truncate"
+                            >
                               → {target?.label ?? e.to}
-                              <span className="text-faint"> ({e.strength.toFixed(2)})</span>
+                              <span className="text-faint">
+                                {" "}
+                                ({e.strength.toFixed(2)})
+                              </span>
                             </li>
                           );
                         })}
@@ -445,18 +501,27 @@ export function BrainPage() {
           {tab === "insights" ? (
             <div className="flex flex-col gap-4">
               <div className="flex items-end gap-2">
-                <Field label="Seed concept" hint="Traverses the graph from matching nodes." className="flex-1 max-w-md">
+                <Field
+                  label="Seed concept"
+                  hint="Traverses the graph from matching nodes."
+                  className="flex-1 max-w-md"
+                >
                   {(id) => (
                     <Input
                       id={id}
                       value={insightQuery}
                       onChange={(e) => setInsightQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && void loadInsights()}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && void loadInsights()
+                      }
                       placeholder="testing, refactors, commit style…"
                     />
                   )}
                 </Field>
-                <Button onClick={() => void loadInsights()} disabled={insightsBusy || !insightQuery.trim()}>
+                <Button
+                  onClick={() => void loadInsights()}
+                  disabled={insightsBusy || !insightQuery.trim()}
+                >
                   <Lightbulb className="size-4" />
                   {insightsBusy ? "Searching…" : "Find insights"}
                 </Button>

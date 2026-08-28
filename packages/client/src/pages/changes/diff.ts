@@ -77,9 +77,19 @@ export function parsePatch(patch: string): DiffLine[] {
       continue;
     }
     if (raw.startsWith("+")) {
-      out.push({ kind: "add", text: raw.slice(1), oldNo: null, newNo: newNo++ });
+      out.push({
+        kind: "add",
+        text: raw.slice(1),
+        oldNo: null,
+        newNo: newNo++,
+      });
     } else if (raw.startsWith("-")) {
-      out.push({ kind: "remove", text: raw.slice(1), oldNo: oldNo++, newNo: null });
+      out.push({
+        kind: "remove",
+        text: raw.slice(1),
+        oldNo: oldNo++,
+        newNo: null,
+      });
     } else if (raw.startsWith("\\")) {
       // "\ No newline at end of file"
       out.push({ kind: "meta", text: raw, oldNo: null, newNo: null });
@@ -94,7 +104,11 @@ export function parsePatch(patch: string): DiffLine[] {
   }
 
   // Drop a trailing blank produced by the final newline.
-  if (out.length && out[out.length - 1].text === "" && out[out.length - 1].kind === "context") {
+  if (
+    out.length &&
+    out[out.length - 1].text === "" &&
+    out[out.length - 1].kind === "context"
+  ) {
     out.pop();
   }
   return out;

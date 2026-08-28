@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FolderGit2, GitCommitHorizontal, GitCompare, RefreshCw } from "lucide-react";
+import {
+  FolderGit2,
+  GitCommitHorizontal,
+  GitCompare,
+  RefreshCw,
+} from "lucide-react";
 import {
   Badge,
   EmptyState,
@@ -148,8 +153,12 @@ export function GitDiffPage() {
               {status ? (
                 <span className="flex items-center gap-2 text-[12px] text-muted">
                   <span className="font-mono">{status.branch}</span>
-                  {status.ahead > 0 ? <Badge tone="info">↑{status.ahead}</Badge> : null}
-                  {status.behind > 0 ? <Badge tone="warn">↓{status.behind}</Badge> : null}
+                  {status.ahead > 0 ? (
+                    <Badge tone="info">↑{status.ahead}</Badge>
+                  ) : null}
+                  {status.behind > 0 ? (
+                    <Badge tone="warn">↓{status.behind}</Badge>
+                  ) : null}
                 </span>
               ) : null}
               <SegmentedControl<View>
@@ -162,7 +171,9 @@ export function GitDiffPage() {
                 ]}
               />
               <IconButton onClick={() => void load()} aria-label="Refresh">
-                <RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />
+                <RefreshCw
+                  className={loading ? "size-4 animate-spin" : "size-4"}
+                />
               </IconButton>
             </div>
           }
@@ -179,7 +190,9 @@ export function GitDiffPage() {
               className="w-80 shrink-0 border-r border-line overflow-y-auto"
             >
               {loading ? (
-                <p className="px-4 py-4 text-[13px] text-muted">Reading the tree…</p>
+                <p className="px-4 py-4 text-[13px] text-muted">
+                  Reading the tree…
+                </p>
               ) : files.length === 0 ? (
                 <EmptyState
                   icon={<GitCompare />}
@@ -206,7 +219,11 @@ export function GitDiffPage() {
             </div>
 
             <div className="flex-1 min-w-0 overflow-auto">
-              <DiffView diff={diff} loading={loadingDiff} hasFiles={files.length > 0} />
+              <DiffView
+                diff={diff}
+                loading={loadingDiff}
+                hasFiles={files.length > 0}
+              />
             </div>
           </div>
         )}
@@ -250,9 +267,14 @@ function FileRow({
         {file.binary ? (
           <span className="font-mono text-[10px] text-faint">bin</span>
         ) : (
-          <span className="font-mono text-[10px] whitespace-nowrap" data-numeric>
+          <span
+            className="font-mono text-[10px] whitespace-nowrap"
+            data-numeric
+          >
             {file.added ? <span className="text-ok">+{file.added}</span> : null}
-            {file.removed ? <span className="text-danger ml-1">−{file.removed}</span> : null}
+            {file.removed ? (
+              <span className="text-danger ml-1">−{file.removed}</span>
+            ) : null}
           </span>
         )}
       </button>
@@ -276,7 +298,11 @@ function DiffView({
   }
   if (!hasFiles) return null;
   if (!diff) {
-    return <p className="px-4 py-4 text-[13px] text-muted">Select a file to see its diff.</p>;
+    return (
+      <p className="px-4 py-4 text-[13px] text-muted">
+        Select a file to see its diff.
+      </p>
+    );
   }
   if (diff.binary) {
     return (
@@ -300,8 +326,13 @@ function DiffView({
   return (
     <div>
       <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-surface border-b border-line">
-        <span className="font-mono text-[12px] text-ink truncate">{diff.path}</span>
-        <span className="font-mono text-[11px] ml-auto whitespace-nowrap" data-numeric>
+        <span className="font-mono text-[12px] text-ink truncate">
+          {diff.path}
+        </span>
+        <span
+          className="font-mono text-[11px] ml-auto whitespace-nowrap"
+          data-numeric
+        >
           <span className="text-ok">+{diff.added}</span>
           <span className="text-danger ml-1.5">−{diff.removed}</span>
         </span>
@@ -318,10 +349,16 @@ function DiffView({
                 line.kind === "hunk" && "bg-surface-2",
               )}
             >
-              <td className="w-12 px-2 text-right text-faint select-none align-top" data-numeric>
+              <td
+                className="w-12 px-2 text-right text-faint select-none align-top"
+                data-numeric
+              >
                 {line.oldNo ?? ""}
               </td>
-              <td className="w-12 px-2 text-right text-faint select-none align-top" data-numeric>
+              <td
+                className="w-12 px-2 text-right text-faint select-none align-top"
+                data-numeric
+              >
                 {line.newNo ?? ""}
               </td>
               <td
@@ -349,7 +386,13 @@ function DiffView({
   );
 }
 
-function CommitList({ commits, loading }: { commits: Commit[]; loading: boolean }) {
+function CommitList({
+  commits,
+  loading,
+}: {
+  commits: Commit[];
+  loading: boolean;
+}) {
   if (loading) {
     return <p className="px-6 py-4 text-[13px] text-muted">Reading history…</p>;
   }
@@ -375,10 +418,17 @@ function CommitList({ commits, loading }: { commits: Commit[]; loading: boolean 
               {c.author} · {c.date}
             </span>
           </span>
-          <span className="font-mono text-[11px] whitespace-nowrap pt-0.5" data-numeric>
+          <span
+            className="font-mono text-[11px] whitespace-nowrap pt-0.5"
+            data-numeric
+          >
             <span className="text-muted">{c.filesChanged}f</span>
-            {c.insertions ? <span className="text-ok ml-1.5">+{c.insertions}</span> : null}
-            {c.deletions ? <span className="text-danger ml-1">−{c.deletions}</span> : null}
+            {c.insertions ? (
+              <span className="text-ok ml-1.5">+{c.insertions}</span>
+            ) : null}
+            {c.deletions ? (
+              <span className="text-danger ml-1">−{c.deletions}</span>
+            ) : null}
           </span>
         </li>
       ))}

@@ -1,13 +1,22 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  FileText,
   FolderGit2,
   Globe,
   MessageSquare,
+  Paperclip,
   Plus,
   RotateCcw,
   Send,
   Trash2,
+  X,
   Waypoints,
 } from "lucide-react";
 import {
@@ -24,8 +33,10 @@ import { useProjects } from "../state/ProjectContext";
 import { ModelPicker } from "./chat/ModelPicker";
 import { ActivityTrail } from "./chat/ActivityTrail";
 import { SoulSuggestions } from "./chat/SoulSuggestions";
+import { useAttachments } from "./chat/useAttachments";
 import { Markdown } from "../components/Markdown";
 import { cn } from "../lib/cn";
+import { API } from "../lib/api";
 
 /*
   Openers differ by scope. Pointed at a repository the useful suggestion
@@ -78,6 +89,9 @@ export function ChatPage() {
   const [input, setInput] = useState(() =>
     activeId ? (drafts.get(activeId) ?? "") : "",
   );
+  const files = useAttachments();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastSessionRef = useRef<string | null>(activeId);
 
@@ -112,22 +126,31 @@ export function ChatPage() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     if (nearBottom) el.scrollTo({ top: el.scrollHeight });
   }, [messageCount, run?.progress]);
 
   const submit = useCallback(() => {
-    if (!input.trim() || sending) return;
+    // An image on its own is a message — "what is wrong here?" with a
+    // screenshot needs no accompanying sentence.
+    if ((!input.trim() && files.attachments.length === 0) || sending) return;
     const text = input;
+    const sent = files.attachments.map(({ id, name, mimeType, size }) => ({
+      id,
+      name,
+      mimeType,
+      size,
+    }));
     updateInput("");
-    void send(text, activeId ?? undefined);
-  }, [input, sending, updateInput, send, activeId]);
+    files.clear();
+    void send(text, activeId ?? undefined, sent);
+  }, [input, sending, updateInput, send, activeId, files]);
 
   const retry = useCallback(
     (index: number) => {
       const prior = activeSession?.messages[index - 1];
-      if (prior?.role === "user") void send(prior.content, activeId ?? undefined);
+      if (prior?.role === "user")
+        void send(prior.content, activeId ?? undefined);
     },
     [activeSession, send, activeId],
   );
@@ -145,7 +168,11 @@ export function ChatPage() {
       {/* Sessions */}
       <aside className="w-64 shrink-0 border-r border-line bg-surface flex flex-col">
         <div className="p-2 border-b border-line flex flex-col gap-2">
-          <Button variant="primary" className="w-full" onClick={() => newSession()}>
+          <Button
+            variant="primary"
+            className="w-full"
+            onClick={() => newSession()}
+          >
             <Plus className="size-4" />
             New chat
           </Button>
@@ -236,7 +263,8 @@ export function ChatPage() {
         <div
           ref={scrollRef}
           onScroll={(e) => {
-            if (activeId) scrollOffsets.set(activeId, e.currentTarget.scrollTop);
+            if (activeId)
+              scrollOffsets.set(activeId, e.currentTarget.scrollTop);
           }}
           className="flex-1 overflow-y-auto"
         >
@@ -295,25 +323,120 @@ export function ChatPage() {
         {/* Composer */}
         <div className="border-t border-line bg-surface px-6 py-3">
           <div className="max-w-3xl mx-auto flex flex-col gap-2">
-            <div className="flex items-end gap-2">
+            {files.attachments.length > 0 || files.uploading > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {files.attachments.map((file) => (
+                  <span
+                    key={file.id}
+                    className="group inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 py-1 pl-1 pr-1.5"
+                  >
+                    {file.previewUrl ? (
+                      <img
+                        src={file.previewUrl}
+                        alt=""
+                        className="size-7 rounded object-cover"
+                      />
+                    ) : (
+                      <FileText className="size-4 ml-1 text-faint" />
+                    )}
+                    <span className="max-w-[14rem] truncate text-[12px] text-ink">
+                      {file.name}
+                    </span>
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => files.remove(file.id)}
+                      aria-label={`Remove ${file.name}`}
+                      className="hover:text-danger"
+                    >
+                      <X className="size-3" />
+                    </IconButton>
+                  </span>
+                ))}
+                {files.uploading > 0 ? (
+                  <span className="text-[12px] text-muted">
+                    Uploading {files.uploading}…
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {files.error ? (
+              <p className="text-[12px] text-danger">{files.error}</p>
+            ) : null}
+
+            <div
+              className={cn(
+                "flex items-end gap-2 rounded-md transition-colors",
+                dragging && "outline outline-2 outline-accent",
+              )}
+              onDragOver={(e) => {
+                // Only claim the drop when it is actually files; dragging
+                // selected text over the box must not look droppable.
+                if (!e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                if (!e.dataTransfer.files.length) return;
+                e.preventDefault();
+                setDragging(false);
+                void files.add(e.dataTransfer.files);
+              }}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.length) void files.add(e.target.files);
+                  // Cleared so picking the same file twice still fires.
+                  e.target.value = "";
+                }}
+              />
+              <IconButton
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending}
+                aria-label="Attach a file"
+                title="Attach a file or image"
+                className="h-9 w-9 shrink-0"
+              >
+                <Paperclip className="size-4" />
+              </IconButton>
               <Textarea
                 rows={2}
                 value={input}
                 onChange={(e) => updateInput(e.target.value)}
+                onPaste={(e) => {
+                  // A pasted screenshot is the single most common way an
+                  // image gets attached, and it arrives as a clipboard file.
+                  const pasted = Array.from(e.clipboardData.files);
+                  if (pasted.length === 0) return;
+                  e.preventDefault();
+                  void files.add(pasted);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     submit();
                   }
                 }}
-                placeholder="Describe the change you want…"
+                placeholder={
+                  dragging
+                    ? "Drop to attach…"
+                    : "Describe the change you want, or paste a screenshot…"
+                }
                 disabled={sending}
                 className="flex-1"
               />
               <Button
                 variant="primary"
                 onClick={submit}
-                disabled={!input.trim() || sending}
+                disabled={
+                  (!input.trim() && files.attachments.length === 0) || sending
+                }
                 aria-label="Send"
                 className="h-9"
               >
@@ -352,10 +475,39 @@ function Message({
 
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] px-3.5 py-2 rounded-lg bg-accent text-accent-fg text-[13px] whitespace-pre-wrap">
-          {message.content}
-        </div>
+      <div className="flex flex-col items-end gap-1">
+        {message.attachments?.length ? (
+          /* What was sent, kept on the message so it survives a reload —
+             the object URLs behind the composer's thumbnails do not. */
+          <div className="flex flex-wrap justify-end gap-1.5 max-w-[85%]">
+            {message.attachments.map((file) => (
+              <a
+                key={file.id}
+                href={API.url(`/api/attachments/${file.id}`)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px] text-ink hover:border-line-strong"
+                title={`${file.name} · ${formatBytes(file.size)}`}
+              >
+                {file.mimeType.startsWith("image/") ? (
+                  <img
+                    src={API.url(`/api/attachments/${file.id}`)}
+                    alt=""
+                    className="size-6 rounded object-cover"
+                  />
+                ) : (
+                  <FileText className="size-3.5 text-faint" />
+                )}
+                <span className="max-w-[12rem] truncate">{file.name}</span>
+              </a>
+            ))}
+          </div>
+        ) : null}
+        {message.content ? (
+          <div className="max-w-[85%] px-3.5 py-2 rounded-lg bg-accent text-accent-fg text-[13px] whitespace-pre-wrap">
+            {message.content}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -367,7 +519,9 @@ function Message({
           {failed ? "Failed" : (message.harness ?? "assistant")}
         </Badge>
         {message.model ? (
-          <span className="font-mono text-[10px] text-faint">{message.model}</span>
+          <span className="font-mono text-[10px] text-faint">
+            {message.model}
+          </span>
         ) : null}
         {failed ? (
           <IconButton size="sm" onClick={onRetry} aria-label="Try again">
@@ -403,3 +557,9 @@ function Message({
 
 /** Terminal-ish output reads better monospaced. */
 
+/** Byte counts on an attachment chip, at a glance rather than exactly. */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}

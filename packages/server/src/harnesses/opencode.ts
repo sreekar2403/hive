@@ -51,11 +51,18 @@ export class OpenCodeHarness implements Harness {
     if (model) args.push("--model", model);
     if (options?.agent) args.push("--agent", options.agent);
 
-    // opencode takes any file type through --file, so nothing has to be
-    // described in the prompt for it to be seen.
-    args.push(...opencodeFileArgs(options?.attachments));
-
+    // The prompt goes first, and the order is not cosmetic: `--file` is
+    // declared variadic (`[array]`), so yargs keeps consuming positionals
+    // after it. With the flag first, the prompt is swallowed as a second
+    // filename and the run dies with
+    //   Error: File not found: <the entire prompt>
+    // which then feeds the retry loop a prompt containing its own error,
+    // growing it each attempt until spawn fails with ENAMETOOLONG.
     args.push(prompt);
+
+    // opencode takes any file type here, so nothing needs describing in
+    // the prompt for it to be seen.
+    args.push(...opencodeFileArgs(options?.attachments));
 
     return runHarness({
       command: this._path,

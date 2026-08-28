@@ -20,7 +20,9 @@
   background: var(--hive-surface);
   border: 2px solid var(--hive-border-strong);
   border-radius: 999px;
-  transition: border-color 100ms, background-color 100ms;
+  transition:
+    border-color 100ms,
+    background-color 100ms;
 }
 
 .react-flow__handle.hive-handle:hover,

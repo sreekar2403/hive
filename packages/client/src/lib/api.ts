@@ -68,7 +68,10 @@ async function request<T>(
     // caller that passes its own `headers` alongside a signal.
     ...init,
     method,
-    headers: { ...headers, ...((init?.headers as Record<string, string>) ?? {}) },
+    headers: {
+      ...headers,
+      ...((init?.headers as Record<string, string>) ?? {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
@@ -93,6 +96,12 @@ export const API = {
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   del: <T>(path: string) => request<T>("DELETE", path),
+  /**
+   * An absolute URL for something the browser fetches itself — an <img> or
+   * a download link, which cannot carry an Authorization header, so the
+   * token rides as a query param the same way /api/events does.
+   */
+  url: (path: string) => withToken(`${API_BASE}${path}`),
 };
 
 /* ------------------------------------------------------------------ */

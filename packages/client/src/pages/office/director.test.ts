@@ -46,7 +46,10 @@ describe("decide", () => {
     r = decide({ ...base, state: r.state, arrived: true, rng: () => 0.99 });
     expect(r.state.phase).toBe("toMachine");
     expect(r.actions).toContainEqual({ type: "carry", kind: "mug" });
-    expect(r.actions).toContainEqual({ type: "walkTo", target: COFFEE.machine });
+    expect(r.actions).toContainEqual({
+      type: "walkTo",
+      target: COFFEE.machine,
+    });
 
     r = decide({ ...base, state: r.state, arrived: true, rng: () => 0.99 });
     expect(r.state.phase).toBe("brewing");
@@ -78,7 +81,9 @@ describe("decide", () => {
 
     r = decide({ ...base, state: r.state, arrived: true });
     expect(r.state.phase).toBe("doing");
-    expect((r.actions.find((a) => a.type === "say") as { text: string }).text.length).toBeGreaterThan(0);
+    expect(
+      (r.actions.find((a) => a.type === "say") as { text: string }).text.length,
+    ).toBeGreaterThan(0);
 
     const until = (r.state as { until: number }).until;
     r = decide({ ...base, state: r.state, now: until + 1 });

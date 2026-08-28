@@ -36,7 +36,10 @@ export function SessionsPane({
           </span>
         </div>
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-faint" aria-hidden="true" />
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-faint"
+            aria-hidden="true"
+          />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -49,7 +52,9 @@ export function SessionsPane({
 
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
-          <div className="px-3 py-6 text-center text-[13px] text-muted">Loading…</div>
+          <div className="px-3 py-6 text-center text-[13px] text-muted">
+            Loading…
+          </div>
         ) : sessions.length === 0 ? (
           <EmptyState
             icon={<Database />}
@@ -58,7 +63,9 @@ export function SessionsPane({
             className="py-10 px-4"
           />
         ) : filtered.length === 0 ? (
-          <div className="px-3 py-6 text-center text-[13px] text-muted">No matching sessions</div>
+          <div className="px-3 py-6 text-center text-[13px] text-muted">
+            No matching sessions
+          </div>
         ) : (
           <ul className="p-1.5 space-y-0.5">
             {filtered.map((session) => {
@@ -76,10 +83,13 @@ export function SessionsPane({
                         : "border-transparent hover:bg-surface-2",
                     )}
                   >
-                    <div className="font-mono text-xs text-ink truncate">{session.sessionId}</div>
+                    <div className="font-mono text-xs text-ink truncate">
+                      {session.sessionId}
+                    </div>
                     <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
                       <span data-numeric>
-                        {session.entryCount} {session.entryCount === 1 ? "key" : "keys"} ·{" "}
+                        {session.entryCount}{" "}
+                        {session.entryCount === 1 ? "key" : "keys"} ·{" "}
                         {formatBytes(session.totalSize)}
                       </span>
                       <span>{formatRelativeTime(session.lastModified)}</span>

@@ -47,7 +47,9 @@ export function Palette() {
 
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
         {groups.length === 0 ? (
-          <p className="text-[12px] text-muted px-1">No nodes match "{search}".</p>
+          <p className="text-[12px] text-muted px-1">
+            No nodes match "{search}".
+          </p>
         ) : (
           groups.map(({ category, defs }) => (
             <div key={category}>
@@ -69,8 +71,12 @@ export function Palette() {
                       <def.icon className="size-3.5" aria-hidden="true" />
                     </span>
                     <div className="min-w-0">
-                      <div className="text-[12.5px] font-medium text-ink">{def.label}</div>
-                      <div className="text-[11px] text-muted truncate">{def.description}</div>
+                      <div className="text-[12.5px] font-medium text-ink">
+                        {def.label}
+                      </div>
+                      <div className="text-[11px] text-muted truncate">
+                        {def.description}
+                      </div>
                     </div>
                   </div>
                 ))}

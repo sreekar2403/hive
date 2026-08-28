@@ -244,7 +244,10 @@ export function pxToTile(pos: { x: number; y: number }): TilePoint {
  */
 export function buildWalkableGrid(): boolean[][] {
   const grid: boolean[][] = Array.from({ length: ROWS }, (_, y) =>
-    Array.from({ length: COLS }, (_, x) => x >= 1 && x <= COLS - 2 && y >= 1 && y <= ROWS - 2),
+    Array.from(
+      { length: COLS },
+      (_, x) => x >= 1 && x <= COLS - 2 && y >= 1 && y <= ROWS - 2,
+    ),
   );
 
   const setCell = (x: number, y: number, value: boolean) => {
