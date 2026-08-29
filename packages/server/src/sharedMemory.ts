@@ -24,7 +24,9 @@ export interface SharedMemorySessionSummary {
 const SAFE_ID = /^[A-Za-z0-9._-]+$/;
 
 function isSafeId(id: string): boolean {
-  return typeof id === "string" && SAFE_ID.test(id) && id !== "." && id !== "..";
+  return (
+    typeof id === "string" && SAFE_ID.test(id) && id !== "." && id !== ".."
+  );
 }
 
 function assertSafeId(id: string, label: string): void {

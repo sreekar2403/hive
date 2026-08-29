@@ -31,13 +31,17 @@ describe("RuntimeGuard", () => {
     expect(guard.inspect(toolEvent("bash", "npm test"))).toBeNull();
     expect(guard.inspect(toolEvent("shell", "git status"))).toBeNull();
     // "rm" inside a word must not fire — the old substring gate did.
-    expect(guard.inspect(toolEvent("bash", "npm run build:platform"))).toBeNull();
+    expect(
+      guard.inspect(toolEvent("bash", "npm run build:platform")),
+    ).toBeNull();
   });
 
   it("ignores non-shell tools", () => {
     // A file edit whose content mentions a destructive word is not a
     // destructive command; only shell tools are gated.
-    expect(guard.inspect(toolEvent("read", "remove the console.log"))).toBeNull();
+    expect(
+      guard.inspect(toolEvent("read", "remove the console.log")),
+    ).toBeNull();
     expect(guard.inspect(toolEvent("edit", "delete this line"))).toBeNull();
   });
 
@@ -46,7 +50,11 @@ describe("RuntimeGuard", () => {
       guard.inspect({ type: "text", text: "rm -rf /", at: Date.now() }),
     ).toBeNull();
     expect(
-      guard.inspect({ type: "thinking", text: "maybe git clean -fd", at: Date.now() }),
+      guard.inspect({
+        type: "thinking",
+        text: "maybe git clean -fd",
+        at: Date.now(),
+      }),
     ).toBeNull();
   });
 
@@ -62,7 +70,9 @@ describe("RuntimeGuard", () => {
     const allowing = new RuntimeGuard(permissions, ["git reset --hard"]);
     expect(allowing.inspect(toolEvent("bash", "git reset --hard"))).toBeNull();
     // A *different* destructive command still trips.
-    expect(allowing.inspect(toolEvent("bash", "rm -rf node_modules"))).not.toBeNull();
+    expect(
+      allowing.inspect(toolEvent("bash", "rm -rf node_modules")),
+    ).not.toBeNull();
   });
 
   it("respects the configured pattern list", () => {
@@ -70,7 +80,9 @@ describe("RuntimeGuard", () => {
     config.permission.destructiveActions = ["dd"];
     const custom = new RuntimeGuard(new PermissionManager(config));
     expect(custom.inspect(toolEvent("bash", "git reset --hard"))).toBeNull();
-    expect(custom.inspect(toolEvent("bash", "dd if=/dev/zero of=x"))).not.toBeNull();
+    expect(
+      custom.inspect(toolEvent("bash", "dd if=/dev/zero of=x")),
+    ).not.toBeNull();
   });
 });
 

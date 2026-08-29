@@ -99,7 +99,7 @@ function eventForStatus(status: TaskStatus): string {
   return "task:progress";
 }
 
-// GET /api/tasks?projectId=&status=&harness=
+// GET /api/tasks?projectId=&status=&harness=&limit=&offset=
 router.get("/", (req: Request, res: Response) => {
   ensureTable();
   const db = getDb();
@@ -126,13 +126,28 @@ router.get("/", (req: Request, res: Response) => {
     params.push(harness);
   }
 
+  const rawLimit = Number(req.query.limit);
+  const rawOffset = Number(req.query.offset);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(1, Math.floor(rawLimit)), 100)
+    : 50;
+  const offset = Number.isFinite(rawOffset)
+    ? Math.max(0, Math.floor(rawOffset))
+    : 0;
+  const where = clauses.join(" AND ");
+
+  const totalRow = db
+    .prepare(`SELECT COUNT(*) as c FROM kanban_tasks WHERE ${where}`)
+    .get(...params) as { c: number };
+  const total = totalRow?.c ?? 0;
+
   const rows = db
     .prepare(
-      `SELECT * FROM kanban_tasks WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC`,
+      `SELECT * FROM kanban_tasks WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     )
-    .all(...params) as KanbanTask[];
+    .all(...params, limit, offset) as KanbanTask[];
 
-  res.json({ tasks: rows, total: rows.length });
+  res.json({ tasks: rows, total, limit, offset });
 });
 
 // GET /api/tasks/:id

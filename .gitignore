@@ -57,7 +57,7 @@ pnpm-debug.log*
 .tmp/
 tmp/
 
-# Agent/skill related directories and files - EXCLUDE ALL
+# Agent/skill related directories and files - keep docs/ tracked for OSS, ignore only ephemeral agent state
 .hive/
 .superpowers/
 .docs/
@@ -66,12 +66,11 @@ tmp/
 .claude/prompts/
 .claude/settings/
 CLAUDE.md
-docs/
 
 # Wayfinder research/tickets (entire directory)
 .hive/wayfinder/
 
-# Superpowers specs/plans (entire directory)
+# Superpowers specs/plans (entire directory) — keep top-level docs/ tracked
 docs/superpowers/
 
 # Agent skills and prompts directories
@@ -94,3 +93,5 @@ docs/superpowers/
 # Second Brain memory, written by agent runs against this repo as a project.
 # Per-machine learning state, not source — and it changes on every run.
 mem/
+docs/ToDo.md
+hive.config.json

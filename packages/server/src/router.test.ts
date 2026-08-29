@@ -60,10 +60,10 @@ describe("Router", () => {
     });
 
     it("routes devops queries to opencode", async () => {
-      const result = await router.route("set up kubernetes cluster for deployment", [
-        "opencode",
-        "claude-code",
-      ]);
+      const result = await router.route(
+        "set up kubernetes cluster for deployment",
+        ["opencode", "claude-code"],
+      );
       expect(result.harness).toBe("opencode");
       expect(result.reasoning).toContain("DevOps");
     });
@@ -75,7 +75,10 @@ describe("Router", () => {
     });
 
     it("returns a valid model for the selected harness", async () => {
-      const result = await router.route("any query", ["opencode", "claude-code"]);
+      const result = await router.route("any query", [
+        "opencode",
+        "claude-code",
+      ]);
       expect(result.model).toBeDefined();
       expect(result.model.length).toBeGreaterThan(0);
     });

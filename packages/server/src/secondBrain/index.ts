@@ -133,19 +133,21 @@ export class SecondBrain {
   getLessons(context: TaskContext): BrainRecord[] {
     if (!this.enabled) return [];
     const category = context.category ?? this.categorize(context.prompt);
-    return this.records
-      .list({
-        store: "task",
-        category,
-        harness: context.harness ?? null,
-        tags: keywords(context.prompt),
-        minConfidence: this.brainConfig.learning.minConfidence,
-        limit: this.brainConfig.retrieval.maxLessons * 3,
-      })
-      // Routing records are bookkeeping for the router, not advice an agent
-      // can act on — they'd only take up room in the briefing.
-      .filter((r) => r.shelf !== "routing")
-      .slice(0, this.brainConfig.retrieval.maxLessons);
+    return (
+      this.records
+        .list({
+          store: "task",
+          category,
+          harness: context.harness ?? null,
+          tags: keywords(context.prompt),
+          minConfidence: this.brainConfig.learning.minConfidence,
+          limit: this.brainConfig.retrieval.maxLessons * 3,
+        })
+        // Routing records are bookkeeping for the router, not advice an agent
+        // can act on — they'd only take up room in the briefing.
+        .filter((r) => r.shelf !== "routing")
+        .slice(0, this.brainConfig.retrieval.maxLessons)
+    );
   }
 
   /** One scope's soul.md, or both merged when no scope is named. */
@@ -216,7 +218,9 @@ export class SecondBrain {
         const sectionMatches =
           always.has(section.slug) ||
           Array.from(terms).some(
-            (t) => section.slug.includes(t) || section.heading.toLowerCase().includes(t),
+            (t) =>
+              section.slug.includes(t) ||
+              section.heading.toLowerCase().includes(t),
           );
 
         for (const entry of section.entries) {
@@ -256,7 +260,11 @@ export class SecondBrain {
   /** An explicit "remember this" from the user. */
   note(
     text: string,
-    options: { scope?: BrainScope; category?: string | null; tags?: string[] } = {},
+    options: {
+      scope?: BrainScope;
+      category?: string | null;
+      tags?: string[];
+    } = {},
   ): BrainRecord | null {
     return this.learning.note(text, options);
   }

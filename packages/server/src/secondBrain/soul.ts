@@ -133,7 +133,10 @@ export class SoulStore {
    * turned down is the fastest way to make them stop reading the queue.
    */
   suggest(
-    suggestion: Omit<SoulSuggestion, "id" | "status" | "createdAt" | "resolvedAt">,
+    suggestion: Omit<
+      SoulSuggestion,
+      "id" | "status" | "createdAt" | "resolvedAt"
+    >,
     scope: BrainScope = "global",
   ): SoulSuggestion | null {
     const existing = this.listSuggestions(scope);
@@ -280,7 +283,9 @@ export function slugifyHeading(heading: string): string {
  * blank line separating it from the next heading above the new entry.
  */
 function endOfSection(lines: string[], heading: string): number {
-  const start = lines.findIndex((l) => l.match(/^##\s+(.*\S)\s*$/)?.[1] === heading);
+  const start = lines.findIndex(
+    (l) => l.match(/^##\s+(.*\S)\s*$/)?.[1] === heading,
+  );
   if (start === -1) return lines.length;
 
   let end = lines.length;

@@ -1,0 +1,15 @@
+{
+  "name": "Hive",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.12.0 --activate && pnpm install",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  },
+  "forwardPorts": [3001, 3000],
+  "remoteEnv": { "PNPM_HOME": "/usr/local/bin" }
+}

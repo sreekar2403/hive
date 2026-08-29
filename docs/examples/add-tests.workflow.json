@@ -1,0 +1,65 @@
+{
+  "name": "Add Tests for a Module",
+  "description": "Create a workflow that adds comprehensive tests for a module using the test harness",
+  "nodes": [
+    {
+      "id": "1",
+      "type": "trigger",
+      "position": { "x": 100, "y": 100 },
+      "data": {
+        "label": "New Feature Request",
+        "triggerType": "manual",
+        "config": {}
+      }
+    },
+    {
+      "id": "2",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 250 },
+      "data": {
+        "label": "Analyze Module",
+        "prompt": "Analyze the module at {{input.modulePath}} and create a test plan covering all exported functions, edge cases, and error handling.",
+        "harness": "opencode",
+        "model": ""
+      }
+    },
+    {
+      "id": "3",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 400 },
+      "data": {
+        "label": "Write Tests",
+        "prompt": "Write comprehensive tests for {{input.modulePath}} based on the test plan. Include unit tests, integration tests, and edge case tests. Use the project's existing test framework.",
+        "harness": "opencode",
+        "model": ""
+      }
+    },
+    {
+      "id": "4",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 550 },
+      "data": {
+        "label": "Run Tests",
+        "prompt": "Run the test suite to verify all tests pass. Fix any failures.",
+        "harness": "opencode",
+        "model": ""
+      }
+    },
+    {
+      "id": "5",
+      "type": "output",
+      "position": { "x": 100, "y": 700 },
+      "data": {
+        "label": "Test Report",
+        "outputType": "summary",
+        "config": {}
+      }
+    }
+  ],
+  "edges": [
+    { "source": "1", "target": "2" },
+    { "source": "2", "target": "3" },
+    { "source": "3", "target": "4" },
+    { "source": "4", "target": "5" }
+  ]
+}

@@ -46,9 +46,13 @@ describe("categorize", () => {
     expect(categorize("Write tests for the router", testRules)).toBe("test");
     expect(categorize("Add a spec for the login flow", testRules)).toBe("test");
     expect(categorize("Refactor the auth module", testRules)).toBe("refactor");
-    expect(categorize("Rename the function to be clearer", testRules)).toBe("refactor");
+    expect(categorize("Rename the function to be clearer", testRules)).toBe(
+      "refactor",
+    );
     expect(categorize("Document the API endpoints", testRules)).toBe("docs");
-    expect(categorize("Write a readme for the project", testRules)).toBe("docs");
+    expect(categorize("Write a readme for the project", testRules)).toBe(
+      "docs",
+    );
   });
 
   it("is case insensitive", () => {
@@ -58,7 +62,9 @@ describe("categorize", () => {
 
   it("returns 'general' when no rule matches", () => {
     expect(categorize("Hello world", testRules)).toBe("general");
-    expect(categorize("What is the meaning of life?", testRules)).toBe("general");
+    expect(categorize("What is the meaning of life?", testRules)).toBe(
+      "general",
+    );
   });
 
   it("skips disabled rules", () => {
@@ -68,7 +74,9 @@ describe("categorize", () => {
   });
 
   it("skips the default rule during matching", () => {
-    expect(categorize("This doesn't match any pattern", testRules)).toBe("general");
+    expect(categorize("This doesn't match any pattern", testRules)).toBe(
+      "general",
+    );
   });
 
   it("handles malformed regex patterns gracefully", () => {
@@ -99,7 +107,10 @@ describe("categorize", () => {
 
 describe("keywords", () => {
   it("extracts meaningful words from a prompt", () => {
-    const result = keywords("Add tests for the router authentication module", 10);
+    const result = keywords(
+      "Add tests for the router authentication module",
+      10,
+    );
     expect(result).toContain("tests");
     expect(result).toContain("router");
     expect(result).toContain("authentication");

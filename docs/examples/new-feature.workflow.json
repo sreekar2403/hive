@@ -1,0 +1,134 @@
+{
+  "name": "New Feature Development",
+  "description": "End-to-end workflow for developing a new feature with design, implementation, and review",
+  "nodes": [
+    {
+      "id": "1",
+      "type": "trigger",
+      "position": { "x": 100, "y": 100 },
+      "data": {
+        "label": "Feature Request",
+        "triggerType": "manual",
+        "config": {}
+      }
+    },
+    {
+      "id": "2",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 250 },
+      "data": {
+        "label": "Design Spec",
+        "prompt": "Create a detailed design specification for the feature: {{input.featureDescription}}. Include: 1) API design, 2) Data models, 3) UI/UX considerations, 4) Error handling, 5) Testing strategy, 6) Migration plan (if applicable).",
+        "harness": "claude-code",
+        "model": ""
+      }
+    },
+    {
+      "id": "3",
+      "type": "gate",
+      "position": { "x": 100, "y": 400 },
+      "data": {
+        "label": "Design Review",
+        "gateType": "approval",
+        "config": {
+          "message": "Review and approve the design spec before implementation"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "type": "parallel",
+      "position": { "x": 100, "y": 550 },
+      "data": {
+        "label": "Implementation",
+        "branches": [
+          {
+            "id": "4a",
+            "nodes": [
+              {
+                "id": "4a1",
+                "type": "agentTask",
+                "position": { "x": 0, "y": 0 },
+                "data": {
+                  "label": "Backend Implementation",
+                  "prompt": "Implement the backend logic for {{input.featureDescription}} following the design spec. Include API endpoints, database changes, and business logic.",
+                  "harness": "opencode",
+                  "model": ""
+                }
+              }
+            ]
+          },
+          {
+            "id": "4b",
+            "nodes": [
+              {
+                "id": "4b1",
+                "type": "agentTask",
+                "position": { "x": 0, "y": 0 },
+                "data": {
+                  "label": "Frontend Implementation",
+                  "prompt": "Implement the frontend components for {{input.featureDescription}} following the design spec. Include UI components, state management, and API integration.",
+                  "harness": "claude-code",
+                  "model": ""
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "5",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 750 },
+      "data": {
+        "label": "Integration Tests",
+        "prompt": "Write and run integration tests for the complete feature. Test API contracts, UI flows, and error scenarios.",
+        "harness": "opencode",
+        "model": ""
+      }
+    },
+    {
+      "id": "6",
+      "type": "gate",
+      "position": { "x": 100, "y": 900 },
+      "data": {
+        "label": "Code Review",
+        "gateType": "approval",
+        "config": {
+          "message": "Review the implementation before merging"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 1050 },
+      "data": {
+        "label": "Documentation",
+        "prompt": "Update documentation for the new feature: API docs, user guide, and any migration notes.",
+        "harness": "claude-code",
+        "model": ""
+      }
+    },
+    {
+      "id": "8",
+      "type": "output",
+      "position": { "x": 100, "y": 1200 },
+      "data": {
+        "label": "Feature Complete",
+        "outputType": "summary",
+        "config": {}
+      }
+    }
+  ],
+  "edges": [
+    { "source": "1", "target": "2" },
+    { "source": "2", "target": "3" },
+    { "source": "3", "target": "4" },
+    { "source": "4", "target": "5" },
+    { "source": "5", "target": "6" },
+    { "source": "6", "target": "7" },
+    { "source": "7", "target": "8" }
+  ]
+}

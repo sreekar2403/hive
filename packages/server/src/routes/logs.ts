@@ -67,7 +67,9 @@ router.get("/", (req: Request, res: Response) => {
   const params: unknown[] = [];
 
   const str = (k: string) =>
-    typeof req.query[k] === "string" && req.query[k] ? (req.query[k] as string) : null;
+    typeof req.query[k] === "string" && req.query[k]
+      ? (req.query[k] as string)
+      : null;
 
   const level = str("level");
   if (level) {
@@ -231,7 +233,9 @@ router.get("/conversations", (req: Request, res: Response) => {
     }>;
 
     const roots = getDb()
-      .prepare("SELECT * FROM spans WHERE parent_id IS NULL AND session_id IS NOT NULL")
+      .prepare(
+        "SELECT * FROM spans WHERE parent_id IS NULL AND session_id IS NOT NULL",
+      )
       .all() as SpanDbRow[];
 
     const conversations = rows

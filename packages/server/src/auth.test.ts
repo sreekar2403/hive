@@ -8,7 +8,9 @@ import {
 } from "./auth";
 import { createDefaultConfig } from "./config";
 
-function configWith(server: Partial<ReturnType<typeof createDefaultConfig>["server"]>) {
+function configWith(
+  server: Partial<ReturnType<typeof createDefaultConfig>["server"]>,
+) {
   const config = createDefaultConfig();
   config.server = { ...config.server, ...server };
   return config;
@@ -37,9 +39,15 @@ describe("binding safety", () => {
   });
 
   it("allows loopback without a token", () => {
-    expect(() => assertBindingIsSafe(configWith({ host: "127.0.0.1" }))).not.toThrow();
-    expect(() => assertBindingIsSafe(configWith({ host: "::1" }))).not.toThrow();
-    expect(() => assertBindingIsSafe(configWith({ host: "localhost" }))).not.toThrow();
+    expect(() =>
+      assertBindingIsSafe(configWith({ host: "127.0.0.1" })),
+    ).not.toThrow();
+    expect(() =>
+      assertBindingIsSafe(configWith({ host: "::1" })),
+    ).not.toThrow();
+    expect(() =>
+      assertBindingIsSafe(configWith({ host: "localhost" })),
+    ).not.toThrow();
   });
 
   it("refuses a public bind with no token", () => {
@@ -117,13 +125,15 @@ describe("authMiddleware", () => {
 
 describe("tokenFromRequest", () => {
   it("reads the Authorization header", () => {
-    expect(
-      tokenFromRequest({ headers: { authorization: "Bearer abc" } }),
-    ).toBe("abc");
+    expect(tokenFromRequest({ headers: { authorization: "Bearer abc" } })).toBe(
+      "abc",
+    );
   });
 
   it("reads the query string, which is all EventSource can send", () => {
-    expect(tokenFromRequest({ headers: {}, query: { token: "abc" } })).toBe("abc");
+    expect(tokenFromRequest({ headers: {}, query: { token: "abc" } })).toBe(
+      "abc",
+    );
   });
 
   it("returns null when there is nothing to read", () => {
@@ -132,13 +142,18 @@ describe("tokenFromRequest", () => {
 });
 
 describe("corsOptions", () => {
-  const check = (config: ReturnType<typeof createDefaultConfig>, origin?: string) =>
+  const check = (
+    config: ReturnType<typeof createDefaultConfig>,
+    origin?: string,
+  ) =>
     new Promise<boolean>((resolve, reject) => {
       const opts = corsOptions(config);
-      (opts.origin as (o: string | undefined, cb: (e: Error | null, ok?: boolean) => void) => void)(
-        origin,
-        (err, ok) => (err ? reject(err) : resolve(Boolean(ok))),
-      );
+      (
+        opts.origin as (
+          o: string | undefined,
+          cb: (e: Error | null, ok?: boolean) => void,
+        ) => void
+      )(origin, (err, ok) => (err ? reject(err) : resolve(Boolean(ok))));
     });
 
   it("allows any localhost origin by default", async () => {
@@ -149,7 +164,9 @@ describe("corsOptions", () => {
   });
 
   it("rejects a remote origin by default", async () => {
-    await expect(check(configWith({}), "https://evil.example")).resolves.toBe(false);
+    await expect(check(configWith({}), "https://evil.example")).resolves.toBe(
+      false,
+    );
   });
 
   it("allows requests with no Origin at all", async () => {

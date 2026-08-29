@@ -1,0 +1,120 @@
+{
+  "name": "Refactor Legacy Code",
+  "description": "Modernize legacy code with better patterns, types, and tests",
+  "nodes": [
+    {
+      "id": "1",
+      "type": "trigger",
+      "position": { "x": 100, "y": 100 },
+      "data": {
+        "label": "Refactor Request",
+        "triggerType": "manual",
+        "config": {}
+      }
+    },
+    {
+      "id": "2",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 250 },
+      "data": {
+        "label": "Code Analysis",
+        "prompt": "Analyze the legacy code at {{input.filePath}}. Identify: 1) Code smells and anti-patterns, 2) Missing type annotations, 3) Test coverage gaps, 4) Performance bottlenecks.",
+        "harness": "claude-code",
+        "model": ""
+      }
+    },
+    {
+      "id": "3",
+      "type": "gate",
+      "position": { "x": 100, "y": 400 },
+      "data": {
+        "label": "Review Plan",
+        "gateType": "approval",
+        "config": {
+          "message": "Review the refactoring plan before proceeding"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "type": "parallel",
+      "position": { "x": 100, "y": 550 },
+      "data": {
+        "label": "Parallel Refactoring",
+        "branches": [
+          {
+            "id": "4a",
+            "nodes": [
+              {
+                "id": "4a1",
+                "type": "agentTask",
+                "position": { "x": 0, "y": 0 },
+                "data": {
+                  "label": "Add Types",
+                  "prompt": "Add comprehensive TypeScript types to {{input.filePath}}. Replace any types with proper interfaces, add generics where appropriate, and ensure strict mode compliance.",
+                  "harness": "claude-code",
+                  "model": ""
+                }
+              },
+              {
+                "id": "4a2",
+                "type": "agentTask",
+                "position": { "x": 0, "y": 150 },
+                "data": {
+                  "label": "Extract Functions",
+                  "prompt": "Extract large functions into smaller, single-purpose functions in {{input.filePath}}. Apply DRY principles and improve readability.",
+                  "harness": "claude-code",
+                  "model": ""
+                }
+              }
+            ]
+          },
+          {
+            "id": "4b",
+            "nodes": [
+              {
+                "id": "4b1",
+                "type": "agentTask",
+                "position": { "x": 0, "y": 0 },
+                "data": {
+                  "label": "Add Tests",
+                  "prompt": "Write tests for the refactored code in {{input.filePath}}. Ensure existing behavior is preserved.",
+                  "harness": "opencode",
+                  "model": ""
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "5",
+      "type": "agentTask",
+      "position": { "x": 100, "y": 750 },
+      "data": {
+        "label": "Verify & Run Tests",
+        "prompt": "Run the full test suite to verify the refactoring didn't break anything. Check for any lint or type errors.",
+        "harness": "opencode",
+        "model": ""
+      }
+    },
+    {
+      "id": "6",
+      "type": "output",
+      "position": { "x": 100, "y": 900 },
+      "data": {
+        "label": "Refactoring Complete",
+        "outputType": "summary",
+        "config": {}
+      }
+    }
+  ],
+  "edges": [
+    { "source": "1", "target": "2" },
+    { "source": "2", "target": "3" },
+    { "source": "3", "target": "4" },
+    { "source": "4", "target": "5" },
+    { "source": "5", "target": "6" }
+  ]
+}

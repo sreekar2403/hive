@@ -30,7 +30,7 @@ describe("branchNameFor", () => {
   it("drops characters git will not accept", () => {
     const name = branchNameFor("abcdef1234", "fix: the ~thing~ (again)!");
     expect(name).toBe("hive/fix-the-thing-again-cdef1234");
-    expect(name).not.toMatch(/[~^:?*[\]\ ]/);
+    expect(name).not.toMatch(/[~^:?*[\] ]/);
   });
 
   it("falls back to the task id when there is nothing to slug", () => {

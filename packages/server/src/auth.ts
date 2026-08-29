@@ -19,12 +19,7 @@ import type { Config } from "./config";
  * is silent and total.
  */
 
-const LOOPBACK = new Set([
-  "127.0.0.1",
-  "::1",
-  "::ffff:127.0.0.1",
-  "localhost",
-]);
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"]);
 
 export function isLoopbackHost(host: string): boolean {
   return LOOPBACK.has(host.trim().toLowerCase());

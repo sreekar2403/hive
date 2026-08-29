@@ -105,5 +105,4 @@ export class ResourceManager {
 
     return false;
   }
-
 }

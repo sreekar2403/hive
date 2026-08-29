@@ -67,7 +67,9 @@ describe("RecordStore", () => {
       "npm-install-fails-offline.json",
     );
     expect(fs.existsSync(filePath)).toBe(true);
-    expect(JSON.parse(fs.readFileSync(filePath, "utf-8")).shelf).toBe("failures");
+    expect(JSON.parse(fs.readFileSync(filePath, "utf-8")).shelf).toBe(
+      "failures",
+    );
   });
 
   describe("scope precedence", () => {
@@ -131,7 +133,9 @@ describe("RecordStore", () => {
     it("keeps an approved record approved through later observations", () => {
       const ref = { store: "user", shelf: "rules" } as const;
       store.put("project", ref, { id: "r", title: "t", approved: true });
-      expect(store.put("project", ref, { id: "r", title: "t" }).approved).toBe(true);
+      expect(store.put("project", ref, { id: "r", title: "t" }).approved).toBe(
+        true,
+      );
     });
 
     it("clears approval when asked explicitly", () => {
@@ -174,7 +178,12 @@ describe("RecordStore", () => {
       store.put(
         "project",
         { store: "task", shelf: "strategies" },
-        { id: "s3", title: "applies anywhere", category: null, confidence: 0.5 },
+        {
+          id: "s3",
+          title: "applies anywhere",
+          category: null,
+          confidence: 0.5,
+        },
       );
     });
 
@@ -187,7 +196,9 @@ describe("RecordStore", () => {
     it("keeps category-less records in every category's results", () => {
       // A record with no category means "applies everywhere" — dropping it
       // would silently lose the user's most general preferences.
-      expect(store.list({ category: "refactor" }).map((r) => r.id)).toContain("s3");
+      expect(store.list({ category: "refactor" }).map((r) => r.id)).toContain(
+        "s3",
+      );
     });
 
     it("filters by minimum confidence", () => {
@@ -238,7 +249,9 @@ describe("RecordStore", () => {
       { id: "../../escape", title: "Escape attempt" },
     );
     expect(unsafe.id).toBe("escape-attempt");
-    expect(fs.existsSync(path.join(tmp, "project", "user", "rules"))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, "project", "user", "rules"))).toBe(
+      true,
+    );
   });
 });
 

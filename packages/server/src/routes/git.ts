@@ -2,19 +2,19 @@ import { Router, Request, Response } from "express";
 import * as fs from "fs";
 import * as path from "path";
 import { getDb } from "../db/database";
-import { currentBranch, gitArgs, isGitRepo, isPathWithinRepo } from "../gitUtils";
+import {
+  currentBranch,
+  gitArgs,
+  isGitRepo,
+  isPathWithinRepo,
+} from "../gitUtils";
 import { ensureRootDirectory, isGeneralProject } from "../generalWorkspace";
 
 const router: Router = Router();
 
 /** A file's line-change kind, shared by the status and diff responses. */
 type ChangeType =
-  | "added"
-  | "modified"
-  | "deleted"
-  | "renamed"
-  | "copied"
-  | "conflicted";
+  "added" | "modified" | "deleted" | "renamed" | "copied" | "conflicted";
 
 interface GitFileEntry {
   path: string;
@@ -102,11 +102,17 @@ interface NumstatEntry {
  * any of those to the final (new) path plus an optional old path, which
  * is what a rename's line counts need to be keyed by.
  */
-function resolveNumstatPath(pathspec: string): { path: string; oldPath?: string } {
+function resolveNumstatPath(pathspec: string): {
+  path: string;
+  oldPath?: string;
+} {
   const braceMatch = pathspec.match(/^(.*)\{(.*) => (.*)\}(.*)$/);
   if (braceMatch) {
     const [, prefix, oldPart, newPart, suffix] = braceMatch;
-    return { path: `${prefix}${newPart}${suffix}`, oldPath: `${prefix}${oldPart}${suffix}` };
+    return {
+      path: `${prefix}${newPart}${suffix}`,
+      oldPath: `${prefix}${oldPart}${suffix}`,
+    };
   }
   const arrowIdx = pathspec.indexOf(" => ");
   if (arrowIdx !== -1) {
@@ -142,7 +148,10 @@ function numstatMap(cwd: string, cached: boolean): Map<string, NumstatEntry> {
 }
 
 /** Reads a small untracked file to report a line count, without invoking git. */
-function untrackedStats(cwd: string, relPath: string): { added: number | null; binary: boolean } {
+function untrackedStats(
+  cwd: string,
+  relPath: string,
+): { added: number | null; binary: boolean } {
   try {
     const abs = path.join(cwd, relPath);
     const stat = fs.statSync(abs);
@@ -173,8 +182,13 @@ router.get("/status", (req: Request, res: Response) => {
   let behind = 0;
   let upstream: string | null = null;
 
-  const stagedEntries: Array<{ path: string; oldPath?: string; code: string }> = [];
-  const unstagedEntries: Array<{ path: string; oldPath?: string; code: string }> = [];
+  const stagedEntries: Array<{ path: string; oldPath?: string; code: string }> =
+    [];
+  const unstagedEntries: Array<{
+    path: string;
+    oldPath?: string;
+    code: string;
+  }> = [];
   const untrackedPaths: string[] = [];
 
   for (const line of raw.split("\n")) {
@@ -250,7 +264,8 @@ router.get("/status", (req: Request, res: Response) => {
     staged,
     unstaged,
     untracked,
-    clean: staged.length === 0 && unstaged.length === 0 && untracked.length === 0,
+    clean:
+      staged.length === 0 && unstaged.length === 0 && untracked.length === 0,
   });
 });
 
@@ -262,7 +277,10 @@ function extractHunks(patch: string): string {
   return lines.slice(start).join("\n");
 }
 
-function buildUntrackedPatch(cwd: string, relPath: string): { patch: string; added: number } | null {
+function buildUntrackedPatch(
+  cwd: string,
+  relPath: string,
+): { patch: string; added: number } | null {
   const abs = path.join(cwd, relPath);
   const text = fs.readFileSync(abs, "utf8");
   const lines = text.length === 0 ? [] : text.split("\n");
@@ -284,7 +302,9 @@ router.get("/diff", (req: Request, res: Response) => {
     return res.status(400).json({ error: "A file path is required" });
   }
   if (!isPathWithinRepo(cwd, file)) {
-    return res.status(400).json({ error: "File path escapes the project folder" });
+    return res
+      .status(400)
+      .json({ error: "File path escapes the project folder" });
   }
 
   const staged = req.query.staged === "true";
@@ -296,7 +316,8 @@ router.get("/diff", (req: Request, res: Response) => {
 
   // Untracked files never show up in `git diff` output at all — they need
   // a synthetic all-added patch built by reading the file directly.
-  const statusLine = gitArgs(["status", "--porcelain=v2", "--", file], cwd) ?? "";
+  const statusLine =
+    gitArgs(["status", "--porcelain=v2", "--", file], cwd) ?? "";
   const isUntracked = statusLine.trimStart().startsWith("?");
 
   if (isUntracked) {
@@ -427,7 +448,8 @@ router.get("/branches", (req: Request, res: Response) => {
   if (!project) return;
   const cwd = project.path;
 
-  const out = gitArgs(["branch", "--format=%(refname:short)%09%(HEAD)"], cwd) ?? "";
+  const out =
+    gitArgs(["branch", "--format=%(refname:short)%09%(HEAD)"], cwd) ?? "";
   const branches = out
     .split("\n")
     .filter((l) => l.trim())
@@ -468,7 +490,8 @@ router.get("/log", (req: Request, res: Response) => {
     .filter(Boolean)
     .map((chunk) => {
       const firstNewline = chunk.indexOf("\n");
-      const headerLine = firstNewline === -1 ? chunk : chunk.slice(0, firstNewline);
+      const headerLine =
+        firstNewline === -1 ? chunk : chunk.slice(0, firstNewline);
       const rest = firstNewline === -1 ? "" : chunk.slice(firstNewline);
       const [hash, shortHash, author, date, subject] = headerLine.split("\x1f");
 

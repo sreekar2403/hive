@@ -40,7 +40,10 @@ export function createHarnessSynthesizer(
       if (!(await harness.isAvailable())) return [];
 
       const result = await harness.execute(
-        buildPrompt(records.slice(0, MAX_RECORDS), soul.slice(0, MAX_SOUL_ENTRIES)),
+        buildPrompt(
+          records.slice(0, MAX_RECORDS),
+          soul.slice(0, MAX_SOUL_ENTRIES),
+        ),
         {
           cwd,
           model: resolved.ref,
@@ -101,9 +104,12 @@ Reply with ONLY a JSON array, no prose and no code fence:
  * yields no suggestions rather than an error, since a failed synthesis
  * should cost the batch nothing.
  */
-export function parseProposals(
-  output: string,
-): Array<{ section: string; entry: string; rationale: string; confidence: number }> {
+export function parseProposals(output: string): Array<{
+  section: string;
+  entry: string;
+  rationale: string;
+  confidence: number;
+}> {
   if (!output) return [];
 
   const fenced = output.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -154,7 +160,9 @@ export function parseProposals(
       section,
       entry,
       rationale:
-        typeof row.rationale === "string" ? row.rationale.trim() : "Synthesised from observations.",
+        typeof row.rationale === "string"
+          ? row.rationale.trim()
+          : "Synthesised from observations.",
       confidence: Number.isFinite(confidence)
         ? Math.min(1, Math.max(0, confidence))
         : 0.5,
