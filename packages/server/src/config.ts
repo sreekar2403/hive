@@ -234,6 +234,26 @@ export interface Config {
     /** Per-task execution timeout, in milliseconds. */
     timeoutMs: number;
     /**
+     * How long a harness may print nothing before the run is abandoned as
+     * stuck, in milliseconds. 0 turns the check off.
+     *
+     * Well under `timeoutMs` on purpose. A CLI that has said nothing for two
+     * minutes is not thinking, and waiting out the full run budget to find
+     * that out costs the budget and teaches the loop nothing.
+     */
+    idleTimeoutMs: number;
+    /**
+     * When a harness answers with silence, hand the same work to a different
+     * harness instead of asking that one again.
+     *
+     * On by default. The failure this exists for is not the CLI's fault and
+     * not the prompt's: a provider went quiet, a local model never loaded,
+     * a CLI is waiting on an interactive prompt nobody can answer. None of
+     * those get better on the second attempt against the same binary, and
+     * every other installed harness is a live alternative sitting idle.
+     */
+    harnessFallback: boolean;
+    /**
      * How many harness runs may execute at once. 0 hands the decision to
      * capacity.ts, which sizes it against the machine.
      */
@@ -640,6 +660,8 @@ export function createDefaultConfig(): Config {
     loop: {
       maxIterations: 10,
       timeoutMs: 300000,
+      idleTimeoutMs: 120000,
+      harnessFallback: true,
       maxConcurrentAgents: 0,
       pipeline: {
         enabled: false,

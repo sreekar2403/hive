@@ -84,6 +84,38 @@ export function ExecutionSection({
             )}
           </Field>
           <Field
+            label="Give up on silence after"
+            hint="Seconds a harness may print nothing before the task is handed to a different one. 0 waits out the full task timeout."
+          >
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                step={10}
+                value={Math.round((draft.loop.idleTimeoutMs ?? 120000) / 1000)}
+                onChange={(e) =>
+                  setLoop({
+                    idleTimeoutMs:
+                      Math.max(0, Number(e.target.value) || 0) * 1000,
+                  })
+                }
+              />
+            )}
+          </Field>
+          <Field
+            label="Switch harness on silence"
+            hint="A CLI that answers with nothing gets the task taken away rather than asked again. Off retries the same one."
+          >
+            {() => (
+              <Switch
+                checked={draft.loop.harnessFallback !== false}
+                onChange={(v) => setLoop({ harnessFallback: v })}
+                label="Switch on silence"
+              />
+            )}
+          </Field>
+          <Field
             label="Agents at once"
             hint={
               capacity

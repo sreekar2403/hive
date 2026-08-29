@@ -106,16 +106,48 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
         : null;
     deadline?.unref?.();
 
+    // The silence watchdog.
+    //
+    // The run deadline above only catches a CLI that is slow. It does not
+    // catch one that is *stuck*, and the difference matters: a stuck CLI
+    // burns the entire run budget before the loop learns anything, and then
+    // the loop's only move is to ask the same stuck CLI again with a
+    // slightly different prompt.
+    //
+    // The observed case: `pi --model ollama/<a model that never loads>`
+    // prints its session header, `agent_start`, `turn_start` — and then
+    // nothing, forever. Every one of these CLIs prints *something* every few
+    // seconds while it is genuinely working, so a long gap with no byte on
+    // either stream is a reliable signal that nobody is coming. Report it as
+    // `silent` and let the caller take the work elsewhere.
+    let wentSilent = false;
+    let lastOutputAt = Date.now();
+    const idleBudget = options?.idleTimeout ?? 0;
+    const watchdog =
+      idleBudget > 0
+        ? setInterval(
+            () => {
+              if (Date.now() - lastOutputAt < idleBudget) return;
+              wentSilent = true;
+              onAbort();
+            },
+            Math.min(idleBudget, 5000),
+          )
+        : null;
+    watchdog?.unref?.();
+
     // These CLIs wait on stdin when they think a session is interactive.
     proc.stdin?.end();
 
     proc.stdout?.on("data", (data: Buffer) => {
+      lastOutputAt = Date.now();
       const text = stripAnsi(data.toString());
       stdout += text;
       emit(parser.push(text));
     });
 
     proc.stderr?.on("data", (data: Buffer) => {
+      lastOutputAt = Date.now();
       stderr += data.toString();
     });
 
@@ -126,11 +158,19 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
       if (settled) return;
       settled = true;
       if (deadline) clearTimeout(deadline);
+      if (watchdog) clearInterval(watchdog);
       signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
 
-    proc.on("close", (code) => {
+    // 'close' is the good signal — it means the child exited *and* its stdio
+    // pipes drained. It is not a guaranteed one. On Windows a killed shim
+    // can leave a grandchild holding the write end of the pipe, in which
+    // case 'exit' fires and 'close' never does, and the run hangs forever
+    // holding a slot in ConcurrencyGate. So 'exit' arms a short grace period
+    // for the last of the output to arrive, and then finishes regardless.
+    const finish = (code: number | null) => {
+      if (settled) return;
       emit(parser.finish());
 
       const cleanStdout = stripAnsi(stdout);
@@ -150,31 +190,68 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
         console.warn(hint);
       }
 
+      // What the CLI said went wrong, lifted out of its event stream.
+      //
+      // Several of these report a failure as an `error` event on *stdout*
+      // and exit non-zero with stderr empty — opencode answering a dead
+      // model with an "Unexpected server error" event is the case that
+      // prompted this. Left in the events alone, the message reached the
+      // activity trail and nowhere else: the loop's retry check reads
+      // stderr and the chat window reads output, and both were blank. The
+      // run failed and said why, and nobody was listening.
+      const errorText = collected
+        .filter((e) => e.type === "error" && e.text)
+        .map((e) => e.text as string)
+        .join("\n");
+
+      // Whether the CLI actually answered. An error event is it telling us
+      // it could not, which is the opposite of an answer; a status line is
+      // bookkeeping. Anything else — text, thinking, a tool call — means it
+      // did work we can judge.
+      const answered =
+        parsed.trim().length > 0 ||
+        collected.some((e) => e.type !== "error" && e.type !== "status");
+
       // A timeout has to say so. Left to speak for itself a killed child
       // reports an empty stream and a non-zero exit, which reads as "the
       // CLI failed for no reason" — the one diagnosis that sends whoever
       // is reading it looking in the wrong place.
-      const timeoutNote = timedOut
-        ? `${command} did not finish within ${Math.round(budget / 1000)}s and was stopped.`
-        : "";
+      const timeoutNote = wentSilent
+        ? `${command} produced no output for ${Math.round(idleBudget / 1000)}s and was stopped.`
+        : timedOut
+          ? `${command} did not finish within ${Math.round(budget / 1000)}s and was stopped.`
+          : "";
 
       settle({
         success: code === 0 && !aborted,
         exitCode: code ?? 1,
         stdout: cleanStdout,
-        stderr: timeoutNote
-          ? [timeoutNote, cleanStderr].filter(Boolean).join("\n")
-          : cleanStderr,
+        stderr: [timeoutNote, errorText, cleanStderr]
+          .filter(Boolean)
+          .join("\n"),
         // Parsed text first: the raw stream is a JSON envelope, and that
         // envelope reaching the chat window was a long-standing bug.
-        output: parsed || timeoutNote || cleanStderr || cleanStdout,
+        output:
+          parsed || timeoutNote || errorText || cleanStderr || cleanStdout,
         filesChanged: detectFilesChanged(cwd),
         duration: Date.now() - startTime,
         events: collected,
         usage: parser.usage(),
-        aborted: aborted && !timedOut,
+        aborted: aborted && !timedOut && !wentSilent,
         timedOut,
+        // Either the watchdog tripped, or the CLI came and went without
+        // answering — it printed nothing, or all it printed was its own
+        // error. Both mean the same thing to the caller: this harness has
+        // not attempted the task, so try the work somewhere else.
+        silent: wentSilent || (!aborted && !answered),
       });
+    };
+
+    proc.on("close", (code) => finish(code));
+
+    proc.on("exit", (code) => {
+      const grace = setTimeout(() => finish(code), 2000);
+      grace.unref?.();
     });
 
     // A CLI that isn't installed is a normal condition here, not an

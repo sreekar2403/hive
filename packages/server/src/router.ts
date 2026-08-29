@@ -897,6 +897,18 @@ export class Router {
     return harnessConfig?.defaultModel || "sonnet";
   }
 
+  /**
+   * The harnesses this router would consider, i.e. registered *and* enabled.
+   *
+   * Public because LoopEngine needs to subtract from it: a harness that
+   * answered with silence is taken out of the set for the rest of the run
+   * and the route is asked again over what remains. Routing over the full
+   * set and discarding the answer would just re-pick the stuck one.
+   */
+  availableHarnesses(): string[] {
+    return this.getAvailableHarnesses();
+  }
+
   private getAvailableHarnesses(): string[] {
     const available: string[] = [];
     for (const name of this.harnesses.keys()) {
