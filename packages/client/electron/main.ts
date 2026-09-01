@@ -3,6 +3,13 @@ import * as path from "path";
 
 let mainWindow: BrowserWindow | null = null;
 
+// Must match `build.appId` in package.json. Without it Windows falls back to
+// Electron's own AppUserModelID, so the shell groups the window under Electron
+// and a pinned shortcut shows the default Electron icon rather than ours.
+const APP_ID = "com.hive.desktop";
+
+const ICON_FILE = process.platform === "win32" ? "icon.ico" : "icon.png";
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -18,8 +25,10 @@ function createWindow() {
     // renderer paints.
     backgroundColor: "#0e1013",
     // Window + taskbar icon (the bundle/installer icon comes from
-    // electron-builder via electron/icons/icon.ico).
-    icon: path.join(__dirname, "..", "icons", "icon.png"),
+    // electron-builder via electron/icons/icon.ico). Windows wants the .ico:
+    // it carries every size from 16px up, so the taskbar and Alt-Tab pick a
+    // crisp one instead of downscaling the 512px png.
+    icon: path.join(__dirname, "..", "icons", ICON_FILE),
     show: false,
   });
 
@@ -40,6 +49,10 @@ function createWindow() {
   if (process.env.HIVE_DEVTOOLS === "1") {
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
+}
+
+if (process.platform === "win32") {
+  app.setAppUserModelId(APP_ID);
 }
 
 app.whenReady().then(() => {
