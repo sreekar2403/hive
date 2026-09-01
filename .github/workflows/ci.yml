@@ -35,8 +35,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 22 and 24 only. package.json declares `engines.node: >=22`, and the
+        # test environment enforces it whether we like it or not: jsdom 30
+        # pulls undici 8, which calls `webidl.util.markAsUncloneable` — absent
+        # on Node 20, so every client (jsdom) worker died at startup and the
+        # run failed on coverage rather than on anything real.
         os: [ubuntu-latest, windows-latest]
-        node: [20, 22]
+        node: [22, 24]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +52,19 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
+      # better-sqlite3 has no prebuild for this platform and compiles from
+      # source, using whatever node-gyp pnpm vendors. The windows runner image
+      # now ships Visual Studio 18, which node-gyp 10 does not recognise —
+      # it reports `unknown version "undefined"` and then that it cannot find
+      # any VS at all, and `pnpm install` fails before a single test runs.
+      # A current node-gyp knows the new layout.
+      - name: Use a node-gyp that knows this runner's Visual Studio
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm install -g node-gyp@latest
+          $gyp = Join-Path (npm root -g) "node-gyp/bin/node-gyp.js"
+          "npm_config_node_gyp=$gyp" >> $env:GITHUB_ENV
       - run: pnpm install --frozen-lockfile
       # vitest reads CI=true and runs once; pinned explicitly for local `act` runs.
       - name: Test
