@@ -342,6 +342,10 @@ Studio — whose base URLs live under `localModels`.
 and `HIVE_AUTH_TOKEN` environment variables win over both. Everything in it is editable from the
 Settings screen, which writes the same file — so the UI and the file never drift.
 
+The file is local machine state and is gitignored; `hive.config.example.json` is the tracked copy.
+It is optional — without it the built-in defaults apply — but you can start from the example:
+`cp hive.config.example.json hive.config.json`.
+
 ```jsonc
 {
   "localModels": {

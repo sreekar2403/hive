@@ -89,10 +89,22 @@ export function KanbanPage() {
       return;
     }
     try {
-      const data = await API.get<{ tasks: KanbanTask[] }>(
-        `/api/tasks?projectId=${encodeURIComponent(activeProjectId)}`,
-      );
-      setTasks(data.tasks);
+      // The endpoint pages (server caps `limit` at 100), and the board draws
+      // every card, so walk the pages until we have `total` of them rather
+      // than silently dropping everything past the first page.
+      const project = encodeURIComponent(activeProjectId);
+      const pageSize = 100;
+      const all: KanbanTask[] = [];
+      let total = 0;
+      do {
+        const data = await API.get<{ tasks: KanbanTask[]; total: number }>(
+          `/api/tasks?projectId=${project}&limit=${pageSize}&offset=${all.length}`,
+        );
+        total = data.total;
+        if (data.tasks.length === 0) break;
+        all.push(...data.tasks);
+      } while (all.length < total);
+      setTasks(all);
     } catch {
       setTasks([]);
     } finally {
