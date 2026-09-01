@@ -86,9 +86,10 @@ docs/superpowers/
 # tsc output from a stray root build — the root tsconfig has no rootDir, so
 # `tsc` here drops .js/.d.ts/.map next to the sources it compiled.
 /vitest.config.js
-/vitest.config.js.map
+/vitest.config.mjs
 /vitest.config.d.ts
-/vitest.config.d.ts.map
+/vitest.config.d.mts
+/vitest.config.*.map
 
 # Second Brain memory, written by agent runs against this repo as a project.
 # Per-machine learning state, not source — and it changes on every run.
