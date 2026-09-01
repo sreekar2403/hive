@@ -204,14 +204,28 @@ describe("runHarness silence detection", () => {
     expect(result.stdout).toContain("done");
   }, 20000);
 
-  it("reports a child that exits having said nothing at all as silent", async () => {
+  it("reports a child that fails having said nothing at all as silent", async () => {
+    const result = await runHarness({
+      command: process.execPath,
+      args: ["-e", "process.exit(1)"],
+      parser: new LineTextParser(),
+    });
+
+    expect(result.silent).toBe(true);
+  }, 15000);
+
+  it("does not call a quiet but successful run silent", async () => {
+    // Exit 0 means it did the work. Some of these CLIs say almost nothing
+    // while doing it, and treating that as a dead provider would throw
+    // away a succeeded run and hand the task to somebody else to redo.
     const result = await runHarness({
       command: process.execPath,
       args: ["-e", "process.exit(0)"],
       parser: new LineTextParser(),
     });
 
-    expect(result.silent).toBe(true);
+    expect(result.success).toBe(true);
+    expect(result.silent).toBe(false);
   }, 15000);
 
   it("does not call a cancelled run silent", async () => {

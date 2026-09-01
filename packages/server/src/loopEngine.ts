@@ -285,8 +285,12 @@ export class LoopEngine {
       // The prompt is deliberately left exactly as it was. The next harness
       // gets the original request, not a request with a note about somebody
       // else's failure attached to it.
+      //
+      // A successful run is never rerouted, however quiet it was. `silent`
+      // is a diagnosis of a failure, not a verdict on one that worked.
       if (
         result.silent &&
+        !result.success &&
         !result.aborted &&
         this.config.loop.harnessFallback !== false
       ) {

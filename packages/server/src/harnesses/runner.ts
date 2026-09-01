@@ -164,11 +164,13 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
     };
 
     // 'close' is the good signal — it means the child exited *and* its stdio
-    // pipes drained. It is not a guaranteed one. On Windows a killed shim
-    // can leave a grandchild holding the write end of the pipe, in which
-    // case 'exit' fires and 'close' never does, and the run hangs forever
-    // holding a slot in ConcurrencyGate. So 'exit' arms a short grace period
-    // for the last of the output to arrive, and then finishes regardless.
+    // pipes drained, so nothing the CLI wrote is lost. It is not a
+    // guaranteed one: on Windows a killed shim can leave a grandchild
+    // holding the write end of the pipe, in which case 'exit' fires and
+    // 'close' never does, and the run would hang forever holding a slot in
+    // ConcurrencyGate. 'exit' therefore arms a fallback below — but only
+    // for the runs we killed, which is where that hang happens. A child
+    // exiting on its own is always allowed to finish draining.
     const finish = (code: number | null) => {
       if (settled) return;
       emit(parser.finish());
@@ -243,13 +245,26 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
         // answering — it printed nothing, or all it printed was its own
         // error. Both mean the same thing to the caller: this harness has
         // not attempted the task, so try the work somewhere else.
-        silent: wentSilent || (!aborted && !answered),
+        //
+        // A clean exit is never silent, however quiet it was. A CLI that
+        // exited 0 did the work; some of them say almost nothing while
+        // doing it, and calling that a dead provider would throw away a
+        // succeeded run and hand the task to somebody else to redo.
+        silent: code === 0 ? false : wentSilent || (!aborted && !answered),
       });
     };
 
     proc.on("close", (code) => finish(code));
 
+    // The kill-path fallback. Scoped to aborted runs on purpose: arming it
+    // for every run would race a healthy child still draining a large
+    // stream, and whatever arrived after the timer fired would be dropped
+    // by `settled`. Here there is no such trade — the child is already
+    // dead, and the alternative is hanging forever. Anything still in
+    // flight after the grace period is lost, which for a killed CLI is the
+    // tail of output we stopped it in the middle of.
     proc.on("exit", (code) => {
+      if (!aborted) return;
       const grace = setTimeout(() => finish(code), 2000);
       grace.unref?.();
     });
