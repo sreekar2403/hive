@@ -197,6 +197,21 @@ function validatePartialConfig(body: any): void {
     ) {
       throw new Error("loop.timeoutMs must be at least 1000ms");
     }
+    // 0 is meaningful here too: it turns the silence watchdog off and
+    // leaves a stuck CLI to the full run budget.
+    if (
+      "idleTimeoutMs" in l &&
+      (typeof l.idleTimeoutMs !== "number" ||
+        l.idleTimeoutMs < 0 ||
+        !Number.isFinite(l.idleTimeoutMs))
+    ) {
+      throw new Error(
+        "loop.idleTimeoutMs must be 0 (off) or a positive number",
+      );
+    }
+    if ("harnessFallback" in l && typeof l.harnessFallback !== "boolean") {
+      throw new Error("loop.harnessFallback must be a boolean");
+    }
     if ("pipeline" in l && l.pipeline !== undefined) {
       const pl = l.pipeline as Record<string, unknown>;
       if (typeof pl !== "object" || Array.isArray(pl)) {

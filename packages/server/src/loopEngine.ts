@@ -50,6 +50,15 @@ export class LoopEngine {
   private soul: SoulRoutingGuidance | undefined;
   /** Conversation history for context, prepended to the initial prompt. */
   private conversationHistory: Array<{ role: string; content: string }> = [];
+  /**
+   * Harnesses that answered this run with silence, and are therefore out of
+   * the running for the rest of it.
+   *
+   * Per-run, not global: a CLI that is stuck now because a local model never
+   * loaded is fine again once it has, and a permanent blacklist would slowly
+   * starve the router of choices over a long-lived server.
+   */
+  private silentHarnesses = new Set<string>();
 
   constructor(
     config: Config,
@@ -74,6 +83,7 @@ export class LoopEngine {
     conversationHistory?: Array<{ role: string; content: string }>,
   ): LoopState {
     this.conversationHistory = conversationHistory ?? [];
+    this.silentHarnesses.clear();
     this.state = {
       ...this.state,
       currentPrompt: initialPrompt,
@@ -138,6 +148,17 @@ export class LoopEngine {
 
     this.start(this.state.currentPrompt, options?.conversationHistory);
 
+    // A pin is a preference, not a contract. If the pinned harness answers
+    // with silence there is nothing to honour — it isn't running the work —
+    // so the fallback below drops the pin and lets the router choose again.
+    //
+    // The model pin goes with it, and has to: a model id is written in its
+    // CLI's own notation and names a provider that harness knows. Carrying
+    // `ollama/qwen2.5-coder:7b` from pi over to Claude Code would replace a
+    // silent run with an immediate flag error.
+    let pinnedHarness = options?.harness;
+    let pinnedModel = options?.model;
+
     while (this.state.iteration < this.state.maxIterations) {
       if (options?.signal?.aborted) break;
       this.state.iteration++;
@@ -146,7 +167,7 @@ export class LoopEngine {
       const prompt = this.buildPrompt();
 
       // Route to harness
-      const decision = await this.route(options?.harness);
+      const decision = await this.route(pinnedHarness);
       const harness = this.harnesses.get(decision.harness);
 
       const iterationSpan =
@@ -177,7 +198,7 @@ export class LoopEngine {
       // to run it — every task would fall back to the harness default.
       const result = await harness.execute(prompt, {
         cwd: options?.cwd ?? process.cwd(),
-        model: options?.model || decision.model,
+        model: pinnedModel || decision.model,
         agent: options?.agent || decision.agent,
         onEvent: options?.onEvent,
         signal: options?.signal,
@@ -187,6 +208,9 @@ export class LoopEngine {
         // iteration, not per task: each attempt gets the full budget,
         // which is what "how long may one harness run take" means.
         timeout: this.config.loop.timeoutMs,
+        // How long this CLI may say nothing before we stop waiting on it
+        // and take the work elsewhere. See the silence branch below.
+        idleTimeout: this.config.loop.idleTimeoutMs,
       });
       if (traced && taskId) {
         recordSpan(
@@ -248,6 +272,76 @@ export class LoopEngine {
         result.success,
         result.filesChanged,
       );
+
+      // ---- Silence: try a different provider ---------------------------
+      //
+      // The harness ran and told us nothing — no event, no text, no error.
+      // That is not a failed attempt at the task, it is a CLI that never
+      // attempted it, so none of the machinery below applies: there is no
+      // error to feed into a retry prompt, and re-running the same binary
+      // with a better-worded request cannot help. What can help is the
+      // other three CLIs sitting installed and idle.
+      //
+      // The prompt is deliberately left exactly as it was. The next harness
+      // gets the original request, not a request with a note about somebody
+      // else's failure attached to it.
+      //
+      // A successful run is never rerouted, however quiet it was. `silent`
+      // is a diagnosis of a failure, not a verdict on one that worked.
+      if (
+        result.silent &&
+        !result.success &&
+        !result.aborted &&
+        this.config.loop.harnessFallback !== false
+      ) {
+        this.silentHarnesses.add(decision.harness);
+        const alternatives = this.routableHarnesses();
+
+        if (iterationSpan) {
+          endSpan(iterationSpan, "failed", {
+            silent: true,
+            switched: alternatives.length > 0,
+          });
+        }
+
+        if (alternatives.length > 0) {
+          if (taskId) {
+            log(
+              "warn",
+              "loop",
+              `${decision.harness} produced no output — handing the task to ${alternatives.join(" or ")}`,
+              {
+                taskId,
+                projectId,
+                context: { model: pinnedModel || decision.model },
+              },
+            );
+          }
+          // Both pins go: see where they are declared.
+          pinnedHarness = undefined;
+          pinnedModel = undefined;
+          // Not previousOutput — there was no output. Recording the silence
+          // as a previous attempt would paste "" into the next prompt.
+          this.state.error =
+            result.stderr || `${decision.harness} never responded`;
+          if (this.state.iteration >= this.state.maxIterations) break;
+          continue;
+        }
+
+        // Nothing left to fall back to. Stop and say so plainly, rather
+        // than spending the remaining iterations on harnesses already
+        // known to be silent.
+        this.state.error =
+          result.stderr ||
+          "Every available harness stopped responding without producing output";
+        if (taskId) {
+          log("error", "loop", "No harness left to fall back to", {
+            taskId,
+            projectId,
+          });
+        }
+        break;
+      }
 
       // A run that ran out of time is a failure, and a retryable one: the
       // next attempt may be the one that finishes. It must not fall into
@@ -335,17 +429,40 @@ export class LoopEngine {
     return parts.join("\n");
   }
 
+  /**
+   * Harnesses still worth routing to: registered, enabled, and not already
+   * known to be silent this run.
+   */
+  private routableHarnesses(): string[] {
+    return this.router
+      .availableHarnesses()
+      .filter((name) => !this.silentHarnesses.has(name));
+  }
+
   private async route(pinned?: string): Promise<RoutingResult> {
-    if (pinned && this.harnesses.has(pinned)) {
+    if (
+      pinned &&
+      this.harnesses.has(pinned) &&
+      !this.silentHarnesses.has(pinned)
+    ) {
       return {
         harness: pinned,
         model: "",
         reasoning: "Harness pinned for this run",
       };
     }
+
+    // The router is asked over the surviving set rather than over all of
+    // them, because it picks by fit and a silent harness can still be the
+    // best fit on paper. Given the full list it would hand back the one we
+    // just took the work away from, every iteration.
+    const routable = this.routableHarnesses();
     return this.router.route(this.state.currentPrompt, {
       hints: this.hints,
       soul: this.soul,
+      ...(this.silentHarnesses.size > 0
+        ? { availableHarnesses: routable }
+        : {}),
     });
   }
 

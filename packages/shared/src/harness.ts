@@ -60,6 +60,22 @@ export interface HarnessOptions {
   model?: string;
   /** Agent/persona to run under, where the CLI supports one. */
   agent?: string;
+  /**
+   * How long the run may produce *nothing at all* before it is treated as a
+   * dead CLI, in milliseconds. 0 disables the check.
+   *
+   * Separate from `timeout`, which bounds the whole run. A CLI that is
+   * working prints something — a thinking token, a tool call, a status
+   * line — every few seconds. One that has printed nothing for minutes is
+   * not slow, it is stuck: a local model that never loaded, a provider
+   * that accepted the request and went quiet, an interactive prompt nobody
+   * can answer. Waiting out the full run budget for that wastes the whole
+   * budget and tells the loop nothing it can act on, so silence is
+   * detected early and reported as its own condition (`silent`) — which is
+   * what lets LoopEngine give the work to a different provider instead of
+   * asking the same stuck one again.
+   */
+  idleTimeout?: number;
   /** Called as the run happens, so the UI can show work in progress. */
   onEvent?: (event: HarnessEvent) => void;
   /**
@@ -118,6 +134,16 @@ export interface HarnessExecutionResult {
    * report and possibly retry.
    */
   timedOut?: boolean;
+  /**
+   * The CLI never answered: it either printed nothing for `idleTimeout`, or
+   * it exited having produced no parseable event and no text.
+   *
+   * Distinct from `timedOut` (it ran, slowly, and the deadline caught it)
+   * and from a plain non-zero exit (it ran and failed, and said why). A
+   * silent harness has told us nothing about the task, so retrying it with
+   * a better prompt is pointless — the answer is a different provider.
+   */
+  silent?: boolean;
 }
 
 export interface Harness {

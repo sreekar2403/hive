@@ -19,7 +19,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "pnpm --filter @hive/shared exec tsc --noEmit && pnpm --filter @hive/server exec tsc --noEmit && pnpm --filter @hive/client exec tsc --noEmit",
+    "typecheck": "pnpm --filter @hive/shared exec tsc --build && pnpm --filter @hive/server exec tsc --noEmit && pnpm --filter @hive/client exec tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui"
   },

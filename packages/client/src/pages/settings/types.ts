@@ -84,6 +84,14 @@ export interface SettingsConfig {
   loop: {
     maxIterations: number;
     timeoutMs: number;
+    /**
+     * How long a harness may print nothing before it is abandoned as stuck.
+     * Absent in configs written before it existed, so reads tolerate
+     * undefined.
+     */
+    idleTimeoutMs?: number;
+    /** Hand the work to a different harness when one goes silent. */
+    harnessFallback?: boolean;
     maxConcurrentAgents: number;
     retry: {
       enabled: boolean;
