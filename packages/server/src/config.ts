@@ -339,6 +339,21 @@ export interface Config {
     /** Bumped when setup starts asking something new. */
     version: number;
   };
+  /**
+   * Hive checking whether a newer Hive exists. Not about the projects Hive
+   * works on — this is the app telling you to update itself. See updates.ts.
+   */
+  updates: {
+    /** Off means never reach GitHub, and the UI never shows a notice. */
+    enabled: boolean;
+    /**
+     * `owner/repo` to check. Empty reads it from the `origin` remote, so a
+     * fork checks itself rather than upstream.
+     */
+    repo: string;
+    /** How often the background watcher looks, and the cache TTL. */
+    checkIntervalHours: number;
+  };
   general: {
     defaultProjectId: string;
     /**
@@ -711,6 +726,11 @@ export function createDefaultConfig(): Config {
       completed: false,
       completedAt: 0,
       version: 0,
+    },
+    updates: {
+      enabled: true,
+      repo: "",
+      checkIntervalHours: 6,
     },
     general: {
       defaultProjectId: "",

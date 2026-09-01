@@ -41,6 +41,7 @@ import { resolveModelRef } from "./models/catalog";
 import { pruneAttachments, resolveAttachments } from "./attachments";
 import { createKanbanCard, finishKanbanCard } from "./kanban";
 import taskRoutes from "./routes/tasks";
+import updateRoutes, { startUpdateWatcher } from "./routes/updates";
 import attachmentRoutes from "./routes/attachments";
 import { startCronRunner } from "./scheduler/cronRunner";
 import eventsRouter, { broadcast } from "./routes/events";
@@ -354,6 +355,9 @@ class HiveServer {
     // Kanban task board
     app.use("/api/tasks", taskRoutes);
 
+    // Is there a newer Hive? (the app updating itself, not the projects)
+    app.use("/api/updates", updateRoutes);
+
     // Permission request endpoints
     const permissionManager = this.orchestrator.getPermissionManager();
 
@@ -418,10 +422,15 @@ class HiveServer {
         : "no token — loopback only";
       console.log(`Hive server running on http://${host}:${port} (${scope})`);
       startCronRunner();
+      this.stopUpdateWatcher = startUpdateWatcher();
     });
   }
 
+  private stopUpdateWatcher: (() => void) | null = null;
+
   stop(): void {
+    this.stopUpdateWatcher?.();
+    this.stopUpdateWatcher = null;
     this.server?.close();
   }
 

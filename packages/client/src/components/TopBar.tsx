@@ -2,6 +2,7 @@ import { Moon, Sun, Wifi, WifiOff } from "lucide-react";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { IconButton, StatusDot, useTheme } from "./ui";
 import { useServerStatus } from "../state/useServerStatus";
+import { UpdateNotice } from "./UpdateNotice";
 
 /**
  * Global bar: which project you are scoped to, whether the swarm is
@@ -17,6 +18,8 @@ export function TopBar() {
       <ProjectSwitcher />
 
       <div className="flex items-center gap-3">
+        <UpdateNotice />
+
         {activeTasks > 0 ? (
           <span className="flex items-center gap-1.5 text-[12px] text-muted">
             <StatusDot tone="accent" pulse />
