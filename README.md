@@ -1,5 +1,7 @@
 # Hive
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/sreekar2403/hive)
+
 **Hive drives CLI coding agents the way a manager drives a team.** You describe a change; Hive
 decides which agent — and which model, on which provider — is right for it, runs it against a real
 git working tree, retries when it fails, and shows you what it did: tool calls, thinking, token
@@ -73,24 +75,64 @@ Then either use the window Hive opened, or visit <http://localhost:3000>.
 `hive doctor` checks the whole setup — Node version, ports, which agent CLIs it can find — and is
 the first thing to run when something doesn't come up.
 
+**No local install? Click the badge above** to open this repo in GitHub Codespaces — `pnpm install`
+runs automatically (see `.devcontainer/devcontainer.json`). Once it's ready, run `hive doctor` to see
+what CLIs it found, then `hive web` — a Codespace has no display, so the Electron window (plain
+`hive`) has nothing to open; `hive web` forwards port 3000 the same way any other Codespaces port
+does.
+
 ### The `hive` command
 
-| Command              | What it starts                                                           |
-| -------------------- | ------------------------------------------------------------------------ |
-| `hive`               | API server, Vite dev server, and the Electron window, as one process     |
-| `hive web`           | API server + UI; open <http://localhost:3000> yourself                   |
-| `hive server`        | API server only, on :3001                                                |
-| `hive stop`          | Frees Hive's ports, whatever is holding them                             |
-| `hive doctor`        | Checks this machine can run all of the above                             |
-| `hive doctor --deep` | Also runs one real prompt per CLI to prove its event stream still parses |
+| Command               | What it starts                                                           |
+| --------------------- | ------------------------------------------------------------------------ |
+| `hive`                | API server, Vite dev server, and the Electron window, as one process     |
+| `hive web`            | API server + UI; open <http://localhost:3000> yourself                   |
+| `hive server`         | API server only, on :3001                                                |
+| `hive run "<prompt>"` | Runs one task headlessly against your current repo, no server or window |
+| `hive mcp`            | Speaks MCP over stdio, for Claude Desktop, Claude Code, or any MCP client |
+| `hive stop`           | Frees Hive's ports, whatever is holding them                             |
+| `hive doctor`         | Checks this machine can run all of the above                             |
+| `hive doctor --deep`  | Also runs one real prompt per CLI to prove its event stream still parses |
 
 Useful flags: `-p/--port` (API port), `--ui-port`, `--devtools`, `--no-window`, and for the doctor
-`--deep` / `--json`. `hive --help` has the full list.
+`--deep` / `--json`. `hive --help` has the full list; `hive run --help` covers `run`'s own flags.
 
-Every child process runs with the repo root as its working directory. That matters: the server
-resolves `hive.config.json` against `process.cwd()`, so starting the pieces by hand from elsewhere
-loads different configuration. `hive` guarantees the right cwd; if you start things manually, do it
-from the repo root.
+Every child process runs with the repo root as its working directory — except `run` and `mcp`, which
+run from wherever you invoke them, since both operate on *your* current git working tree rather than
+the Hive checkout. Elsewhere it matters: the server resolves `hive.config.json` against
+`process.cwd()`, so starting the pieces by hand from elsewhere loads different configuration. `hive`
+guarantees the right cwd; if you start things manually, do it from the repo root.
+
+### Scripting and CI: `hive run`
+
+```bash
+hive run "fix the failing test"
+hive run "add input validation" --harness claude-code --model claude-code/claude-opus-4-6
+hive run "clean up dead code" --yes   # skip the destructive-command approval gate — no one to ask headlessly
+```
+
+Prints exactly one JSON object to stdout (`status`, `output`, `harness`, `model`, `filesChanged`,
+`error`) and nothing else; exit code is 0 on success, 1 otherwise. No server, no UI, no Electron —
+this is the same Orchestrator the app uses, driven directly, for scripts, CI, and evaluation.
+
+### Using Hive from an MCP client
+
+`hive mcp` exposes `hive_run` and `hive_list_harnesses` as MCP tools over stdio, so Claude Desktop,
+Claude Code, or any MCP-speaking IDE can dispatch a Hive task without touching the chat UI. Point a
+client at it the way you would any local MCP server, e.g. in Claude Code:
+
+```bash
+claude mcp add hive -- hive mcp
+```
+
+or in a JSON-based MCP client config:
+
+```json
+{ "mcpServers": { "hive": { "command": "hive", "args": ["mcp"] } } }
+```
+
+`hive_run` gives the agent it's driving genuine shell and git access to whatever repo it's pointed at
+— the same trust model as running `hive` itself, just reachable from somewhere else.
 
 ---
 
