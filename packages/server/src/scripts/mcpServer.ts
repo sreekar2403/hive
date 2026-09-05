@@ -62,7 +62,9 @@ function runHeadlessTask(
     let stderr = "";
     child.stdout.on("data", (c) => (stdout += c.toString()));
     child.stderr.on("data", (c) => (stderr += c.toString()));
-    child.on("error", (err) => resolve({ code: 1, stdout: "", stderr: err.message }));
+    child.on("error", (err) =>
+      resolve({ code: 1, stdout: "", stderr: err.message }),
+    );
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
 }
@@ -98,7 +100,10 @@ async function main(): Promise<void> {
         "(may take minutes) and returns the final result as JSON: status, " +
         "output, harness used, filesChanged, and error if any.",
       inputSchema: {
-        prompt: z.string().min(1).describe("The task to run, in plain language."),
+        prompt: z
+          .string()
+          .min(1)
+          .describe("The task to run, in plain language."),
         cwd: z
           .string()
           .optional()
@@ -176,7 +181,9 @@ async function main(): Promise<void> {
       const harnesses = await registerHarnesses(config);
       const rows = Array.from(harnesses.keys()).map((id) => ({
         id,
-        enabled: config.harnesses[id as keyof typeof config.harnesses]?.enabled ?? true,
+        enabled:
+          config.harnesses[id as keyof typeof config.harnesses]?.enabled ??
+          true,
       }));
       return textResult(JSON.stringify(rows));
     },

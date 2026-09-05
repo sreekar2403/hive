@@ -83,22 +83,22 @@ does.
 
 ### The `hive` command
 
-| Command               | What it starts                                                           |
-| --------------------- | ------------------------------------------------------------------------ |
-| `hive`                | API server, Vite dev server, and the Electron window, as one process     |
-| `hive web`            | API server + UI; open <http://localhost:3000> yourself                   |
-| `hive server`         | API server only, on :3001                                                |
-| `hive run "<prompt>"` | Runs one task headlessly against your current repo, no server or window |
+| Command               | What it starts                                                            |
+| --------------------- | ------------------------------------------------------------------------- |
+| `hive`                | API server, Vite dev server, and the Electron window, as one process      |
+| `hive web`            | API server + UI; open <http://localhost:3000> yourself                    |
+| `hive server`         | API server only, on :3001                                                 |
+| `hive run "<prompt>"` | Runs one task headlessly against your current repo, no server or window   |
 | `hive mcp`            | Speaks MCP over stdio, for Claude Desktop, Claude Code, or any MCP client |
-| `hive stop`           | Frees Hive's ports, whatever is holding them                             |
-| `hive doctor`         | Checks this machine can run all of the above                             |
-| `hive doctor --deep`  | Also runs one real prompt per CLI to prove its event stream still parses |
+| `hive stop`           | Frees Hive's ports, whatever is holding them                              |
+| `hive doctor`         | Checks this machine can run all of the above                              |
+| `hive doctor --deep`  | Also runs one real prompt per CLI to prove its event stream still parses  |
 
 Useful flags: `-p/--port` (API port), `--ui-port`, `--devtools`, `--no-window`, and for the doctor
 `--deep` / `--json`. `hive --help` has the full list; `hive run --help` covers `run`'s own flags.
 
 Every child process runs with the repo root as its working directory — except `run` and `mcp`, which
-run from wherever you invoke them, since both operate on *your* current git working tree rather than
+run from wherever you invoke them, since both operate on _your_ current git working tree rather than
 the Hive checkout. Elsewhere it matters: the server resolves `hive.config.json` against
 `process.cwd()`, so starting the pieces by hand from elsewhere loads different configuration. `hive`
 guarantees the right cwd; if you start things manually, do it from the repo root.
