@@ -4,12 +4,17 @@
   "features": {
     "ghcr.io/devcontainers/features/git:1": {}
   },
-  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.12.0 --activate && pnpm install",
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.12.0 --activate && pnpm install && pnpm --filter hive exec npm link",
+  "postAttachCommand": "echo 'Hive is installed. No display here, so use: hive doctor   then   hive web   (not plain `hive` — that opens an Electron window).'",
   "customizations": {
     "vscode": {
       "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
     }
   },
   "forwardPorts": [3001, 3000],
+  "portsAttributes": {
+    "3001": { "label": "Hive API", "onAutoForward": "silent" },
+    "3000": { "label": "Hive UI", "onAutoForward": "openPreview" }
+  },
   "remoteEnv": { "PNPM_HOME": "/usr/local/bin" }
 }

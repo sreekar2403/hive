@@ -92,6 +92,8 @@ ${bold("hive")} — start the Hive desktop app
   ${bold("hive")}                 API server + UI + desktop window
   ${bold("hive web")}             API server + UI only; open ${dim("http://localhost:3000")} yourself
   ${bold("hive server")}          API server only
+  ${bold("hive run")} "<prompt>"  run one task headlessly, no server or window ${dim("(see `hive run --help`)")}
+  ${bold("hive mcp")}             speak MCP over stdio ${dim("(for Claude Desktop, Claude Code, ...)")}
   ${bold("hive stop")}            stop whatever is already listening on Hive's ports
   ${bold("hive doctor")}          check this machine can run all of the above
   ${bold("hive doctor --deep")}   also run one real prompt per CLI ${dim("(costs tokens)")}
@@ -107,6 +109,26 @@ Options
   -v, --version        print the version
 
 Ctrl+C stops everything. Closing the window does too.
+`;
+
+const RUN_HELP = `
+${bold("hive run")} "<prompt>" — run one task against this repo, print JSON, exit
+
+  ${bold('hive run "fix the failing test"')}
+  ${bold('hive run "add input validation" --harness claude-code')}
+  ${bold('hive run "..." --model claude-code/claude-opus-4-6 --yes')}
+
+Runs from wherever you invoke it — the task operates on your current git
+working tree, not the Hive checkout. Prints exactly one JSON object to
+stdout (nothing else); exit code is 0 on success, 1 otherwise. Meant for
+scripts, CI and evaluation — no server, no UI, no Electron window.
+
+Options
+      --harness <id>   pin the harness ${dim("(claude-code, opencode, codex, ...)")}
+      --model <ref>    pin the model, catalog id or CLI-native ${dim("(harness/provider/model)")}
+      --agent <name>   agent/persona, where the harness supports one
+  -y, --yes            skip the destructive-command approval gate ${dim("(no one to ask headlessly)")}
+  -h, --help           this message
 `;
 
 function parseArgs(argv) {
@@ -781,8 +803,96 @@ function runDeepProbe() {
   });
 }
 
+/**
+ * `hive run` takes a free-text prompt rather than flag-shaped argv, so it is
+ * parsed and dispatched before the generic switch in `parseArgs` ever sees
+ * it — `parseArgs` would reject the prompt text as an unknown argument.
+ */
+async function runCommand(argv) {
+  if (argv.includes("-h") || argv.includes("--help")) {
+    console.log(RUN_HELP);
+    return;
+  }
+
+  if (!fs.existsSync(path.join(ROOT, "node_modules"))) {
+    fail("Dependencies are not installed.", INSTALL_HINT);
+  }
+
+  const tsx = requireTool("tsx", INSTALL_HINT);
+  const script = path.join(
+    ROOT,
+    "packages",
+    "server",
+    "src",
+    "scripts",
+    "runHeadless.ts",
+  );
+
+  // Deliberately cwd: process.cwd(), not ROOT — the task runs against
+  // whatever repo the person invoked `hive run` from. runHeadless.ts finds
+  // hive.config.json via its own file location instead.
+  const child = spawn(process.execPath, [tsx, script, ...argv], {
+    cwd: process.cwd(),
+    stdio: "inherit",
+    windowsHide: true,
+  });
+
+  const code = await new Promise((resolve) => {
+    child.on("error", (err) => {
+      console.error(`${red("hive")} Could not start the task: ${err.message}`);
+      resolve(1);
+    });
+    child.on("close", (code) => resolve(code ?? 1));
+  });
+  process.exitCode = code;
+}
+
+/**
+ * `hive mcp` — a long-lived MCP server over stdio, so an MCP client (Claude
+ * Desktop, Claude Code, an IDE) can drive Hive without the chat UI. Every
+ * stdout byte from here on is JSON-RPC that belongs to the client, not to a
+ * human — this process never prints anything of its own.
+ */
+async function mcpCommand() {
+  if (!fs.existsSync(path.join(ROOT, "node_modules"))) {
+    fail("Dependencies are not installed.", INSTALL_HINT);
+  }
+
+  const tsx = requireTool("tsx", INSTALL_HINT);
+  const script = path.join(
+    ROOT,
+    "packages",
+    "server",
+    "src",
+    "scripts",
+    "mcpServer.ts",
+  );
+
+  // cwd: process.cwd(), matching `hive run` — hive_run's default target is
+  // wherever this server was launched, same as any other MCP server that
+  // operates on "the current project".
+  const child = spawn(process.execPath, [tsx, script], {
+    cwd: process.cwd(),
+    stdio: "inherit",
+    windowsHide: true,
+  });
+
+  const code = await new Promise((resolve) => {
+    child.on("error", (err) => {
+      console.error(`hive mcp could not start: ${err.message}`);
+      resolve(1);
+    });
+    child.on("close", (code) => resolve(code ?? 1));
+  });
+  process.exitCode = code;
+}
+
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === "run") return await runCommand(argv.slice(1));
+  if (argv[0] === "mcp") return await mcpCommand();
+
+  const options = parseArgs(argv);
 
   if (options.mode === "stop") return stopCommand(options);
   if (options.mode === "doctor") return await doctorCommand(options);

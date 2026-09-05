@@ -119,7 +119,8 @@ export type HiveEventType =
   | "log"
   | "agent:activity"
   | "permission:request"
-  | "permission:resolved";
+  | "permission:resolved"
+  | "update:available";
 
 const EVENT_TYPES: HiveEventType[] = [
   "task:started",
@@ -134,6 +135,8 @@ const EVENT_TYPES: HiveEventType[] = [
   // Permission escalations, consumed by the Conference Room approvals UI.
   "permission:request",
   "permission:resolved",
+  // A newer Hive was published, consumed by the top bar's update notice.
+  "update:available",
 ];
 
 export type StreamStatus = "connecting" | "open" | "offline";

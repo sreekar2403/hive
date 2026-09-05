@@ -305,9 +305,41 @@ export function probeAvailable(command: string): Promise<boolean> {
       const exe = resolveWindowsShim(command);
       const proc = spawn(exe.command, [...exe.prefixArgs, "--version"], {
         timeout: 3000,
+        // stdin must be closed, not left as an open, silent pipe: a CLI
+        // that can't tell it has no real TTY (GitHub Copilot CLI's shim
+        // does this) reads stdin looking for input and blocks forever on
+        // a pipe nobody ever writes to or closes. That hang is invisible
+        // whenever this process's own stdin happens to be inherited from
+        // a real console — which is most manual runs — and only shows up
+        // when Hive itself is spawned with piped stdio, e.g. under
+        // `hive mcp`. `timeout` above is a second line of defense; it
+        // does not reliably kill a child that has grandchildren of its
+        // own still holding the stdio pipes open.
+        stdio: ["ignore", "ignore", "ignore"],
       });
-      proc.on("error", () => resolve(false));
-      proc.on("close", (code) => resolve(code === 0));
+      let settled = false;
+      const done = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(hardTimeout);
+        resolve(ok);
+      };
+      proc.on("error", () => done(false));
+      proc.on("close", (code) => done(code === 0));
+      // Belt and suspenders: if the child still hasn't closed shortly
+      // after the spawn-level timeout should have killed it, force it and
+      // stop waiting rather than hang this probe (and everything awaiting
+      // it) indefinitely. Unref'd so a still-pending probe can never hold
+      // the process open on its own.
+      const hardTimeout = setTimeout(() => {
+        if (settled) return;
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // Already gone.
+        }
+        done(false);
+      }, 4000).unref();
     } catch {
       resolve(false);
     }
