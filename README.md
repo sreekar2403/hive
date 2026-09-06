@@ -132,7 +132,13 @@ or in a JSON-based MCP client config:
 ```
 
 `hive_run` gives the agent it's driving genuine shell and git access to whatever repo it's pointed at
-— the same trust model as running `hive` itself, just reachable from somewhere else.
+— the same trust model as running `hive` itself, just reachable from somewhere else. A run is killed
+if it doesn't finish within `timeout` (defaults to 20 minutes) or if the MCP client disconnects mid-run,
+and calls that target the same working tree are queued rather than run concurrently. Because an MCP
+client is itself an LLM — and one reading repo content can be prompt-injected into calling `hive_run`
+with `yes: true` (which disables the destructive-command approval gate) against an arbitrary `cwd` —
+set `mcp.allowedRoots` in `hive.config.json` to the repos you actually want reachable this way; it's
+empty (unrestricted) by default. See `hive.config.example.json` for every setting and its default.
 
 ---
 

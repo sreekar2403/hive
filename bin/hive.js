@@ -557,10 +557,10 @@ async function doctorCommand(options) {
   );
   const major = Number(process.versions.node.split(".")[0]);
   add(
-    major >= 20 ? "ok" : "miss",
+    major >= 22 ? "ok" : "miss",
     "node",
-    `${process.version} (need >= 20)`,
-    "Install Node 20 or newer: https://nodejs.org",
+    `${process.version} (need >= 22)`,
+    "Install Node 22 or newer: https://nodejs.org",
   );
   add(
     fs.existsSync(path.join(ROOT, "node_modules")) ? "ok" : "miss",

@@ -26,6 +26,14 @@ interface RunArgs {
   yes: boolean;
 }
 
+/** Thrown for a `--flag` this parser doesn't recognize, so it fails loudly
+ * instead of silently folding the typo into the prompt text. */
+export class UnknownFlagError extends Error {
+  constructor(public readonly flag: string) {
+    super(`Unknown flag: ${flag}`);
+  }
+}
+
 function parseArgs(argv: string[]): RunArgs {
   const promptParts: string[] = [];
   const args: RunArgs = { prompt: "", yes: false };
@@ -47,6 +55,11 @@ function parseArgs(argv: string[]): RunArgs {
         args.yes = true;
         break;
       default:
+        // A typo'd flag (`--harnes claude-code`) must not be silently folded
+        // into the prompt — the run would then quietly ask the agent to
+        // interpret "--harnes claude-code" as part of its task, with no
+        // sign anything went wrong.
+        if (arg.startsWith("-")) throw new UnknownFlagError(arg);
         promptParts.push(arg);
     }
   }
@@ -56,7 +69,23 @@ function parseArgs(argv: string[]): RunArgs {
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  let args: RunArgs;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    process.stdout.write(
+      JSON.stringify({
+        status: "failed",
+        error:
+          err instanceof UnknownFlagError
+            ? `${err.message}. Supported flags: --harness, --model, --agent, --yes/-y.`
+            : err instanceof Error
+              ? err.message
+              : String(err),
+      }) + "\n",
+    );
+    process.exit(1);
+  }
 
   if (!args.prompt) {
     process.stdout.write(

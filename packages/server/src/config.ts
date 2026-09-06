@@ -363,6 +363,21 @@ export interface Config {
      */
     rootDirectory: string;
   };
+  mcp: {
+    /**
+     * Absolute paths `hive mcp`'s `hive_run` tool may target, each also
+     * covering its subdirectories. Empty means unrestricted, for backward
+     * compatibility with existing setups.
+     *
+     * This is the only guard between an MCP client and every git repo on
+     * the machine: the client is itself an LLM, and one that reads
+     * prompt-injected repo content can be talked into calling `hive_run`
+     * with an arbitrary `cwd` and `yes: true` (which disables the
+     * destructive-command approval gate). Set this once `hive mcp` is
+     * exposed to a client you don't fully trust.
+     */
+    allowedRoots: string[];
+  };
 }
 
 let cachedConfig: Config | null = null;
@@ -735,6 +750,9 @@ export function createDefaultConfig(): Config {
     general: {
       defaultProjectId: "",
       rootDirectory: "",
+    },
+    mcp: {
+      allowedRoots: [],
     },
   };
 }
