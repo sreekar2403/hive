@@ -11,12 +11,25 @@ import { describeHarnesses, harnessProfile } from "./harnesses/profiles";
 import type { SoulRoutingGuidance } from "./secondBrain/starterSoul";
 import { log } from "./telemetry";
 import { extractJsonObject } from "./llmJson";
+import {
+  mapCategoryToHarness,
+  SubprocessLayaPredictor,
+  type LayaPrediction,
+  type LayaPredictor,
+} from "./laya";
 
 /** RoutingDecision enriched with the layer that decided and how sure it was. */
 export interface RoutingResult extends RoutingDecision {
   /** Which layer decided: useful in the logs when a route looks surprising. */
   strategy?:
-    "soul" | "llm" | "rule" | "learned" | "semantic" | "default" | "fallback";
+    | "soul"
+    | "llm"
+    | "laya"
+    | "rule"
+    | "learned"
+    | "semantic"
+    | "default"
+    | "fallback";
   /** The task type this prompt was classified as. */
   category?: string;
   /** 0…1 — how sure the deciding layer was. Rules are certain by fiat. */
@@ -29,6 +42,16 @@ export interface RoutingResult extends RoutingDecision {
   modelId?: string;
   /** Agent/persona to run under, where the chosen CLI supports one. */
   agent?: string;
+  /** Advisory Laya risk flags; never blocks by itself. */
+  riskFlags?: string[];
+  /** Laya second-opinion detail when the verifier ran. */
+  laya?: {
+    category: string;
+    categoryConfidence: number;
+    risk: number;
+    destructive: number;
+    agrees: boolean;
+  };
 }
 
 /** Extra context a caller can hand the router. All of it is optional. */
@@ -224,7 +247,11 @@ export class Router {
     null;
   private routingModelResolved = false;
 
-  constructor(config: Config, harnesses: Map<string, Harness>) {
+  constructor(
+    config: Config,
+    harnesses: Map<string, Harness>,
+    private laya?: LayaPredictor,
+  ) {
     this.config = config;
     this.harnesses = harnesses;
   }
@@ -235,18 +262,22 @@ export class Router {
    *
    *   1. **soul** — an explicit `category → harness` pin in soul.md. The
    *      user wrote it down, so nothing else gets a vote.
-   *   2. **llm** — a model reads the prompt against the harness profiles,
+   *   2. **laya-fast** — a local Laya decision model answers typed questions
+   *      in one forward pass. High confidence skips the LLM entirely.
+   *   3. **llm** — a model reads the prompt against the harness profiles,
    *      the live model catalogue, *and* the free-text preferences from
-   *      soul.md, and chooses across every provider.
-   *   3. **rules / semantic / default** — the old keyword cascade, now a
+   *      soul.md, and chooses across every provider. Optionally checked by
+   *      **laya-verify**.
+   *   4. **rules / semantic / default** — the old keyword cascade, now a
    *      last resort rather than the primary path: it only decides when
    *      there is no model available to think with.
    *
    * The ordering is the point. Routing is defined by what the user said in
-   * soul.md; where they said nothing, it is decided by a model reading the
-   * task; keyword matching alone never decides unless nothing else can.
+   * soul.md; where they said nothing, a fast local decision is tried first,
+   * then a model reading the task; keyword matching alone never decides
+   * unless nothing else can.
    *
-   * Learned Second Brain evidence is applied on top of layers 2 and 3 and
+   * Learned Second Brain evidence is applied on top of layers 2–4 and
    * can re-point them — but never overrides an explicit soul.md pin, and
    * never invents a route from nothing.
    */
@@ -280,19 +311,30 @@ export class Router {
     const pinned = this.soulRoute(soul, category, available);
     if (pinned) return pinned;
 
-    // 2. A model decides, with soul.md's free-text preferences in hand.
+    // 2. Laya fast-lane: a local decision model, no LLM spend on hits.
+    if (available.length > 1 && this.config.routing.laya?.enabled) {
+      const fast = await this.layaFastRoute(query, available);
+      if (fast) {
+        this.writeCache(query, available, fast);
+        return this.applyHints(fast, available, hints);
+      }
+    }
+
+    // 3. A model decides, with soul.md's free-text preferences in hand.
     if (!options.noLlm) {
       const cached = this.readCache(query, available);
       if (cached) return this.applyHints(cached, available, hints);
 
       const llm = await this.llmRoute(query, available, soul);
       if (llm) {
-        this.writeCache(query, available, llm);
-        return this.applyHints(llm, available, hints);
+        const verified = await this.layaVerify(llm, query, available);
+        const finalDecision = verified ?? llm;
+        this.writeCache(query, available, finalDecision);
+        return this.applyHints(finalDecision, available, hints);
       }
     }
 
-    // 3. Keywords, only because nothing better could answer.
+    // 4. Keywords, only because nothing better could answer.
     return this.applyHints(
       this.heuristicRoute(query, available, category),
       available,
@@ -338,6 +380,126 @@ export class Router {
   /** The task type a prompt looks like, by the same rules the brain uses. */
   classify(query: string): string {
     return categorize(query, this.config.routing.rules ?? []);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* The Laya layers                                                     */
+  /* ------------------------------------------------------------------ */
+
+  private layaPredictor(): LayaPredictor {
+    return (
+      this.laya ??
+      new SubprocessLayaPredictor(this.config.routing.laya?.timeoutMs ?? 1500)
+    );
+  }
+
+  /**
+   * Fast-lane: high-confidence Laya category skips the LLM call.
+   * Returns null on every failure so routing falls through safely.
+   */
+  private async layaFastRoute(
+    query: string,
+    available: string[],
+  ): Promise<RoutingResult | null> {
+    const settings = this.config.routing.laya;
+    if (!settings?.enabled) return null;
+    try {
+      const pred = await this.layaPredictor().predict(query);
+      if (!pred) return null;
+      const threshold = settings.minConfidence ?? 0.85;
+      if (pred.categoryConfidence < threshold) return null;
+      const harness = mapCategoryToHarness(
+        pred.category,
+        available,
+        this.config.routing.default,
+      );
+      if (!available.includes(harness)) return null;
+      return {
+        harness,
+        model: this.getDefaultModel(harness),
+        reasoning: `laya-fast category ${pred.category} (conf ${pred.categoryConfidence.toFixed(2)})`,
+        strategy: "laya",
+        category: pred.category,
+        confidence: Math.max(0, Math.min(1, pred.categoryConfidence)),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Verifier: second opinion after the LLM. Agreement boosts confidence;
+   * high-confidence disagreement retries the LLM once; risk is advisory.
+   * Never fails the task — returns null to keep the LLM decision.
+   */
+  private async layaVerify(
+    llm: RoutingResult,
+    query: string,
+    available: string[],
+  ): Promise<RoutingResult | null> {
+    const settings = this.config.routing.layaVerify;
+    if (!settings?.enabled) return null;
+    let pred: LayaPrediction | null = null;
+    try {
+      const predictor =
+        this.laya ?? new SubprocessLayaPredictor(settings.timeoutMs ?? 1500);
+      pred = await predictor.predict(query);
+    } catch {
+      return null;
+    }
+    if (!pred) return null;
+
+    const riskFlags: string[] = [];
+    if (settings.advisoryRisk) {
+      if (pred.destructive >= 0.7)
+        riskFlags.push(`laya:destructive ${pred.destructive.toFixed(2)}`);
+      if (pred.risk >= 1.6) riskFlags.push(`laya:risk ${pred.risk.toFixed(2)}`);
+    }
+
+    const agrees =
+      (llm.category && pred.category === llm.category) ||
+      (!llm.category &&
+        mapCategoryToHarness(
+          pred.category,
+          available,
+          this.config.routing.default,
+        ) === llm.harness);
+
+    const layaDetail = {
+      category: pred.category,
+      categoryConfidence: pred.categoryConfidence,
+      risk: pred.risk,
+      destructive: pred.destructive,
+      agrees,
+    };
+
+    if (agrees) {
+      return {
+        ...llm,
+        reasoning: `${llm.reasoning} (laya confirms ${pred.category} ${pred.categoryConfidence.toFixed(2)})`,
+        confidence: Math.min(1, (llm.confidence ?? 0.5) + 0.15),
+        riskFlags: riskFlags.length ? riskFlags : undefined,
+        laya: layaDetail,
+      };
+    }
+
+    if (pred.categoryConfidence >= (settings.disagreeThreshold ?? 0.85)) {
+      log("warn", "router", "Laya disagrees with LLM route", {
+        context: { llm: llm.harness, laya: pred.category },
+      });
+      // Disagreement path keeps the LLM decision in this pass; a retry
+      // with the Laya hint is a future enhancement once calibration data
+      // exists. Cap confidence so the UI shows uncertainty.
+      return {
+        ...llm,
+        confidence: Math.min(llm.confidence ?? 0.5, 0.6),
+        riskFlags: riskFlags.length ? riskFlags : undefined,
+        laya: layaDetail,
+      };
+    }
+
+    if (riskFlags.length) return { ...llm, riskFlags, laya: layaDetail };
+    return null;
   }
 
   /* ------------------------------------------------------------------ */

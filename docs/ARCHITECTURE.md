@@ -14,8 +14,8 @@ Express API (packages/server/src/server.ts) — loopback 127.0.0.1 by default, `
    ├─ Orchestrator.createTask (orchestrator.ts)
    └─ Orchestrator.executeTask
         ├─ fanout/planner.ts   planFanout (may split into N sub-tasks)
-        ├─ Router.route        soul → llm (small model, scratch dir) → rules → semantic → default
-        │                └─ SecondBrain routing hints (augment, minSamples/minMargin)
+         ├─ Router.route        soul → laya-fast (local, cached) → llm (small model, scratch dir, cached) → laya-verify (advisory) → rules → semantic → default
+         │                └─ SecondBrain routing hints (augment, minSamples/minMargin)
         ├─ LoopEngine.run      per-task engine (no shared state), retries on retryable stderr
         │   └─ harnesses/runner.ts  runHarness (cross-spawn, winShim .cmd, timeout, SSE)
         │       └─ eventStream.ts parsers (opencode, claude, codex, gemini, pi, cursor, textCli)
@@ -35,7 +35,7 @@ Express API (packages/server/src/server.ts) — loopback 127.0.0.1 by default, `
 
 ### Routing (`router.ts`, `harnesses/profiles.ts`, `secondBrain/`)
 
-`soul.md` pin > `llmRoute` (harness+model+agent, fenced task, validated, cached) > `heuristicRoute` (regex rules) > `semanticRoute` (term overlap) > `default`/`fallback`. Learned hints (`applyHints`) can re-rank but never override soul pins. Routing scratch dir is `os.tmpdir()/hive-router` so agents don’t edit the repo.
+`soul.md` pin > `layaFastRoute` (local Laya, high-conf skips LLM, cached) > `llmRoute` (harness+model+agent, fenced task, validated, cached) + `layaVerify` (agree +0.15, disagree caps 0.6, risk advisory) > `heuristicRoute` (regex rules) > `semanticRoute` (term overlap) > `default`/`fallback`. Learned hints (`applyHints`) can re-rank but never override soul pins. Routing scratch dir is `os.tmpdir()/hive-router` so agents don’t edit the repo. Laya bridge (`laya.ts` → `python -m hive_laya_bridge`, 1500ms timeout, null on any failure) never names harnesses — 9-way category maps via `CATEGORY_TO_HARNESS`. Detail: `docs/laya-router/ARCHITECTURE.md`.
 
 ### Fan-out (`fanout/planner.ts`, `fanout/summary.ts`, `branches.ts`, `orchestrator.ts:387`)
 

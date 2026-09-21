@@ -72,6 +72,8 @@ CLAUDE.md
 
 # Superpowers specs/plans (entire directory) — keep top-level docs/ tracked
 docs/superpowers/
+docs/laya-router/
+
 
 # Agent skills and prompts directories
 .agent/

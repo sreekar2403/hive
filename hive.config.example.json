@@ -169,6 +169,19 @@
       "timeoutMs": 20000,
       "minConfidence": 0.5,
       "cacheTtlMs": 300000
+    },
+    "laya": {
+      "enabled": false,
+      "minConfidence": 0.85,
+      "timeoutMs": 1500,
+      "model": "english"
+    },
+    "layaVerify": {
+      "enabled": false,
+      "disagreeThreshold": 0.85,
+      "retryOnce": true,
+      "advisoryRisk": true,
+      "timeoutMs": 1500
     }
   },
   "permission": {
