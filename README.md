@@ -52,7 +52,9 @@ instead of eight terminals.
 
 ## What it looks like
 
-![The Hive dashboard: who is working, what is uncommitted, which harnesses are online](sample.png)
+<video controls poster="docs/assets/brag.jpg" src="docs/assets/brag.mp4" width="100%">
+  Your browser does not support the video tag. Watch <a href="docs/assets/brag.mp4">docs/assets/brag.mp4</a>.
+</video>
 
 > **Demo:** 30s capture of fan-out (one message → 3 sub-agents), attachments drag/drop, and Office floor live — coming in `docs/demo.gif`. Tracked in `CHANGELOG.md` Unreleased.
 
