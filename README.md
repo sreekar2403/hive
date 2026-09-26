@@ -132,7 +132,13 @@ or in a JSON-based MCP client config:
 ```
 
 `hive_run` gives the agent it's driving genuine shell and git access to whatever repo it's pointed at
-— the same trust model as running `hive` itself, just reachable from somewhere else.
+— the same trust model as running `hive` itself, just reachable from somewhere else. A run is killed
+if it doesn't finish within `timeout` (defaults to 20 minutes) or if the MCP client disconnects mid-run,
+and calls that target the same working tree are queued rather than run concurrently. Because an MCP
+client is itself an LLM — and one reading repo content can be prompt-injected into calling `hive_run`
+with `yes: true` (which disables the destructive-command approval gate) against an arbitrary `cwd` —
+set `mcp.allowedRoots` in `hive.config.json` to the repos you actually want reachable this way; it's
+empty (unrestricted) by default. See `hive.config.example.json` for every setting and its default.
 
 ---
 
@@ -246,11 +252,19 @@ with no model to think with still routes, exactly as it did before any of this e
 
 ```
   soul      an explicit `category → harness` pin in soul.md        ← you wrote it
+  laya-fast local Laya decision model, high confidence skips LLM  ← no spend on hits
   llm       a model reads the task, with your soul.md preferences  ← everything else
   rules     the configurable keyword table (Settings → Task routing)
   semantic  term-overlap scoring, for prompts no rule matched
   default   the configured catch-all, then whatever is available
 ```
+
+**Laya fast-lane + verifier (optional, off by default).** `routing.laya.enabled` adds a local
+`convaiinnovations/laya` pre-router: 9-way category + complexity/strong-model/multi-file in one
+~33ms forward pass, cached like LLM decisions; `>= minConfidence` (0.85) skips the LLM call.
+`routing.layaVerify.enabled` re-checks each LLM decision (agree boosts +0.15, high-conf disagree
+caps at 0.6, destructive/risk is advisory only — the permission gate still owns blocking). Every
+Laya failure falls through silently. Detail: `docs/laya-router/ARCHITECTURE.md`.
 
 A pin naming a harness that isn't installed is ignored rather than obeyed into a failure — you
 pinned an intent, not a crash — and the layers below find something that can actually run.

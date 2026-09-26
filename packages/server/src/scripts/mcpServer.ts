@@ -17,11 +17,11 @@
  */
 import path from "path";
 import fs from "fs";
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "../config";
+import { loadConfig, resetConfigCache } from "../config";
 import { registerHarnesses } from "../registerHarnesses";
 
 const ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -34,6 +34,83 @@ const HEADLESS_SCRIPT = path.join(
   "scripts",
   "runHeadless.ts",
 );
+const CONFIG_PATH = path.join(ROOT, "hive.config.json");
+
+/**
+ * A generous ceiling for a run nobody bounded explicitly. Without this, a
+ * caller that omits `timeout` gets the pre-existing unbounded behaviour —
+ * exactly the bug this exists to close — just with an unhelpful default.
+ */
+const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
+const KILL_GRACE_MS = 3000;
+
+/**
+ * `hive mcp` is a long-lived process; `loadConfig` caches its result for the
+ * lifetime of the process it runs in. Reset before every read so a Settings
+ * change (enabling a harness, editing `mcp.allowedRoots`) is picked up on
+ * the next call instead of requiring the MCP server to be restarted.
+ */
+function freshConfig() {
+  resetConfigCache();
+  return loadConfig(CONFIG_PATH);
+}
+
+/** Kills a spawned process and everything it spawned, not just itself. */
+function killTree(child: ChildProcess): void {
+  const pid = child.pid;
+  if (!pid) return;
+  if (process.platform === "win32") {
+    // taskkill /t walks the child's own process tree; plain proc.kill() on
+    // Windows only signals the immediate child, leaving the harness CLI
+    // (the agent doing the actual work) running unsupervised.
+    spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      stdio: "ignore",
+    });
+    return;
+  }
+  // POSIX: the child was spawned detached (see runHeadlessTask), so its pid
+  // is also its process group id — signalling the negative pid reaches the
+  // whole tree in one shot.
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    // Already gone.
+  }
+  setTimeout(() => {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }, KILL_GRACE_MS).unref();
+}
+
+/**
+ * Serializes calls that target the same cwd. Two `hive_run` calls racing on
+ * one working tree — nothing stops an MCP client from firing them in
+ * parallel — is the same failure worktree isolation exists to prevent
+ * elsewhere: two agents mutating one checkout with no lock between them.
+ * `hive_run` has no worktree of its own to fall back on, so this queues
+ * instead.
+ */
+const cwdQueues = new Map<string, Promise<unknown>>();
+function runExclusive<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = cwdQueues.get(key) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  cwdQueues.set(
+    key,
+    run.catch(() => {}),
+  );
+  return run;
+}
+
+interface HeadlessResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  cancelled: boolean;
+}
 
 /** Runs one task through the same path `hive run` uses, in the given cwd. */
 function runHeadlessTask(
@@ -45,7 +122,9 @@ function runHeadlessTask(
     agent?: string;
     yes?: boolean;
   },
-): Promise<{ code: number; stdout: string; stderr: string }> {
+  timeoutMs: number,
+  clientSignal?: AbortSignal,
+): Promise<HeadlessResult> {
   const flags: string[] = [];
   if (args.harness) flags.push("--harness", args.harness);
   if (args.model) flags.push("--model", args.model);
@@ -56,16 +135,56 @@ function runHeadlessTask(
     const child = spawn(
       process.execPath,
       [TSX, HEADLESS_SCRIPT, args.prompt, ...flags],
-      { cwd, stdio: ["ignore", "pipe", "pipe"] },
+      {
+        cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        // Gives the child its own process group on POSIX so killTree can
+        // take out the harness CLI beneath it, not just this one process.
+        detached: process.platform !== "win32",
+      },
     );
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    let cancelled = false;
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child);
+    }, timeoutMs);
+
+    const onClientAbort = () => {
+      cancelled = true;
+      killTree(child);
+    };
+    clientSignal?.addEventListener("abort", onClientAbort, { once: true });
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      clientSignal?.removeEventListener("abort", onClientAbort);
+    };
+
     child.stdout.on("data", (c) => (stdout += c.toString()));
     child.stderr.on("data", (c) => (stderr += c.toString()));
-    child.on("error", (err) =>
-      resolve({ code: 1, stdout: "", stderr: err.message }),
-    );
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({
+        code: 1,
+        stdout: "",
+        stderr: err.message,
+        timedOut,
+        cancelled,
+      });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ code: code ?? 1, stdout, stderr, timedOut, cancelled });
+    });
   });
 }
 
@@ -82,6 +201,18 @@ function resolveCwd(requested: string | undefined): string | null {
     return null;
   }
   return target;
+}
+
+/** Whether `target` is `root` itself or somewhere underneath it. */
+function isWithin(target: string, root: string): boolean {
+  const rel = path.relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/** `null` roots (the config default) means unrestricted. */
+function isAllowedRoot(target: string, roots: string[]): boolean {
+  if (roots.length === 0) return true;
+  return roots.some((root) => isWithin(target, path.resolve(root)));
 }
 
 async function main(): Promise<void> {
@@ -130,6 +261,14 @@ async function main(): Promise<void> {
           .describe(
             "Skip Hive's destructive-command approval gate. There is no human to ask over MCP, so a run that hits a guarded command (rm, force-push, ...) without this will simply time out and fail. Only set this for a repo/task you trust.",
           ),
+        timeout: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            `Kill the task if it runs longer than this many milliseconds. Defaults to ${DEFAULT_TIMEOUT_MS}ms (${Math.round(DEFAULT_TIMEOUT_MS / 60000)} minutes).`,
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -137,7 +276,7 @@ async function main(): Promise<void> {
         openWorldHint: true,
       },
     },
-    async ({ prompt, cwd, harness, model, agent, yes }) => {
+    async ({ prompt, cwd, harness, model, agent, yes, timeout }, extra) => {
       const target = resolveCwd(cwd);
       if (!target) {
         return textResult(
@@ -146,13 +285,34 @@ async function main(): Promise<void> {
         );
       }
 
-      const { code, stdout, stderr } = await runHeadlessTask(target, {
-        prompt,
-        harness,
-        model,
-        agent,
-        yes,
-      });
+      const { allowedRoots } = freshConfig().mcp;
+      if (!isAllowedRoot(target, allowedRoots)) {
+        return textResult(
+          `"${target}" is outside mcp.allowedRoots in hive.config.json. Add it there to let hive_run target this repo.`,
+          true,
+        );
+      }
+
+      const { code, stdout, stderr, timedOut, cancelled } = await runExclusive(
+        target,
+        () =>
+          runHeadlessTask(
+            target,
+            { prompt, harness, model, agent, yes },
+            timeout ?? DEFAULT_TIMEOUT_MS,
+            extra.signal,
+          ),
+      );
+
+      if (cancelled) {
+        return textResult("The task was cancelled by the client.", true);
+      }
+      if (timedOut) {
+        return textResult(
+          `The task did not finish within ${timeout ?? DEFAULT_TIMEOUT_MS}ms and was stopped.`,
+          true,
+        );
+      }
 
       // runHeadless.ts prints exactly one JSON line on success; a crash
       // before it gets there leaves stdout empty and the reason on stderr.
@@ -177,7 +337,7 @@ async function main(): Promise<void> {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () => {
-      const config = loadConfig(path.join(ROOT, "hive.config.json"));
+      const config = freshConfig();
       const harnesses = await registerHarnesses(config);
       const rows = Array.from(harnesses.keys()).map((id) => ({
         id,

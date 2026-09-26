@@ -169,6 +169,28 @@ export interface LlmRoutingConfig {
   cacheTtlMs: number;
 }
 
+export interface LayaFastConfig {
+  enabled: boolean;
+  /** Category confidence at or above this skips the LLM call. */
+  minConfidence: number;
+  /** Give up and fall through to the LLM/heuristics after this long. */
+  timeoutMs: number;
+  /** Laya checkpoint: "english" (default) or "multilingual". */
+  model: string;
+}
+
+export interface LayaVerifyConfig {
+  enabled: boolean;
+  /** Laya category confidence that triggers one LLM retry on disagreement. */
+  disagreeThreshold: number;
+  /** Retry the LLM once with the Laya category as a hint. */
+  retryOnce: boolean;
+  /** Attach risk/destructive advisory flags to the span. */
+  advisoryRisk: boolean;
+  /** Give up verification after this long and keep the LLM decision. */
+  timeoutMs: number;
+}
+
 export interface Config {
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
@@ -184,6 +206,8 @@ export interface Config {
      */
     llmModel: string;
     llm: LlmRoutingConfig;
+    laya: LayaFastConfig;
+    layaVerify: LayaVerifyConfig;
   };
   /**
    * Local model servers, reached directly over HTTP rather than through a
@@ -362,6 +386,21 @@ export interface Config {
      * `~/.hive/workspace`. See generalWorkspace.ts.
      */
     rootDirectory: string;
+  };
+  mcp: {
+    /**
+     * Absolute paths `hive mcp`'s `hive_run` tool may target, each also
+     * covering its subdirectories. Empty means unrestricted, for backward
+     * compatibility with existing setups.
+     *
+     * This is the only guard between an MCP client and every git repo on
+     * the machine: the client is itself an LLM, and one that reads
+     * prompt-injected repo content can be talked into calling `hive_run`
+     * with an arbitrary `cwd` and `yes: true` (which disables the
+     * destructive-command approval gate). Set this once `hive mcp` is
+     * exposed to a client you don't fully trust.
+     */
+    allowedRoots: string[];
   };
 }
 
@@ -655,6 +694,19 @@ export function createDefaultConfig(): Config {
         minConfidence: 0.5,
         cacheTtlMs: 5 * 60 * 1000,
       },
+      laya: {
+        enabled: false,
+        minConfidence: 0.85,
+        timeoutMs: 1500,
+        model: "english",
+      },
+      layaVerify: {
+        enabled: false,
+        disagreeThreshold: 0.85,
+        retryOnce: true,
+        advisoryRisk: true,
+        timeoutMs: 1500,
+      },
     },
     permission: {
       enabled: true,
@@ -735,6 +787,9 @@ export function createDefaultConfig(): Config {
     general: {
       defaultProjectId: "",
       rootDirectory: "",
+    },
+    mcp: {
+      allowedRoots: [],
     },
   };
 }

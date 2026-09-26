@@ -170,6 +170,44 @@ function validatePartialConfig(body: any): void {
     }
   }
 
+  if (body.routing?.laya !== undefined) {
+    const l = body.routing.laya as Record<string, unknown>;
+    if ("enabled" in l && typeof l.enabled !== "boolean") {
+      throw new Error("routing.laya.enabled must be a boolean");
+    }
+    if (
+      "minConfidence" in l &&
+      (typeof l.minConfidence !== "number" ||
+        l.minConfidence < 0 ||
+        l.minConfidence > 1)
+    ) {
+      throw new Error("routing.laya.minConfidence must be between 0 and 1");
+    }
+    if (
+      "timeoutMs" in l &&
+      (typeof l.timeoutMs !== "number" || l.timeoutMs < 100)
+    ) {
+      throw new Error("routing.laya.timeoutMs must be at least 100ms");
+    }
+  }
+
+  if (body.routing?.layaVerify !== undefined) {
+    const v = body.routing.layaVerify as Record<string, unknown>;
+    if ("enabled" in v && typeof v.enabled !== "boolean") {
+      throw new Error("routing.layaVerify.enabled must be a boolean");
+    }
+    if (
+      "disagreeThreshold" in v &&
+      (typeof v.disagreeThreshold !== "number" ||
+        v.disagreeThreshold < 0 ||
+        v.disagreeThreshold > 1)
+    ) {
+      throw new Error(
+        "routing.layaVerify.disagreeThreshold must be between 0 and 1",
+      );
+    }
+  }
+
   if (body.permission?.destructiveActions) {
     if (!Array.isArray(body.permission.destructiveActions)) {
       throw new Error("permission.destructiveActions must be an array");

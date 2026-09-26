@@ -89,10 +89,21 @@ export function KanbanPage() {
       return;
     }
     try {
-      const data = await API.get<{ tasks: KanbanTask[] }>(
-        `/api/tasks?projectId=${encodeURIComponent(activeProjectId)}`,
-      );
-      setTasks(data.tasks);
+      // The API caps a single page at 100 and defaults to 50 when `limit`
+      // is omitted — fetch every page rather than silently showing the
+      // newest 50 cards and dropping the rest of the board.
+      const pageSize = 100;
+      let offset = 0;
+      let all: KanbanTask[] = [];
+      for (;;) {
+        const data = await API.get<{ tasks: KanbanTask[]; total: number }>(
+          `/api/tasks?projectId=${encodeURIComponent(activeProjectId)}&limit=${pageSize}&offset=${offset}`,
+        );
+        all = all.concat(data.tasks);
+        offset += data.tasks.length;
+        if (data.tasks.length < pageSize || offset >= data.total) break;
+      }
+      setTasks(all);
     } catch {
       setTasks([]);
     } finally {
