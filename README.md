@@ -52,9 +52,7 @@ instead of eight terminals.
 
 ## What it looks like
 
-<video controls poster="https://github.com/sreekar2403/hive/releases/download/readme-assets/brag.jpg" src="https://github.com/sreekar2403/hive/releases/download/readme-assets/brag.mp4" width="100%">
-  Your browser does not support the video tag. Watch <a href="https://github.com/sreekar2403/hive/releases/download/readme-assets/brag.mp4">brag.mp4</a>.
-</video>
+[![Hive launch video — 20s, click to play](docs/assets/brag.jpg)](https://github.com/sreekar2403/hive/releases/download/readme-assets/brag.mp4)
 
 > **Demo:** 30s capture of fan-out (one message → 3 sub-agents), attachments drag/drop, and Office floor live — coming in `docs/demo.gif`. Tracked in `CHANGELOG.md` Unreleased.
 
