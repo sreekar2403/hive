@@ -54,7 +54,6 @@ instead of eight terminals.
 
 [![Hive launch video — 20s, click for full version with sound](docs/assets/brag.gif)](https://github.com/sreekar2403/hive/releases/download/readme-assets/brag.mp4)
 
-> **Demo:** 30s capture of fan-out (one message → 3 sub-agents), attachments drag/drop, and Office floor live — coming in `docs/demo.gif`. Tracked in `CHANGELOG.md` Unreleased.
 
 ## Quick start
 
