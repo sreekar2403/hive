@@ -56,6 +56,8 @@ pnpm-debug.log*
 # Temporary
 .tmp/
 tmp/
+brag-output/
+brag-output-*/
 
 # Agent/skill related directories and files - keep docs/ tracked for OSS, ignore only ephemeral agent state
 .hive/
