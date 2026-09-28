@@ -208,6 +208,12 @@ export interface Config {
     llm: LlmRoutingConfig;
     laya: LayaFastConfig;
     layaVerify: LayaVerifyConfig;
+    classifier: {
+      backend: "laya" | "gliner-decide" | "off";
+      model: string;
+      minConfidence: number;
+      timeoutMs: number;
+    };
   };
   /**
    * Local model servers, reached directly over HTTP rather than through a
@@ -464,6 +470,28 @@ export function loadConfig(configPath?: string): Config {
     config.routing.llm.model = config.routing.llmModel;
   }
 
+  // Migration: `routing.laya` and `routing.layaVerify` predate the unified
+  // `routing.classifier` block. Merge them so older configs keep working.
+  if (!config.routing.classifier) {
+    const laya = config.routing.laya;
+    const layaVerify = config.routing.layaVerify;
+    if (laya?.enabled || layaVerify?.enabled) {
+      config.routing.classifier = {
+        backend: "laya",
+        minConfidence: laya?.minConfidence ?? 0.85,
+        timeoutMs: laya?.timeoutMs ?? 1500,
+        model: laya?.model ?? "english",
+      };
+    } else {
+      config.routing.classifier = {
+        backend: "off",
+        minConfidence: 0.85,
+        timeoutMs: 1500,
+        model: "english",
+      };
+    }
+  }
+
   cachedConfig = config;
   return config;
 }
@@ -699,6 +727,12 @@ export function createDefaultConfig(): Config {
         minConfidence: 0.85,
         timeoutMs: 1500,
         model: "english",
+      },
+      classifier: {
+        backend: "off",
+        model: "english",
+        minConfidence: 0.85,
+        timeoutMs: 1500,
       },
       layaVerify: {
         enabled: false,

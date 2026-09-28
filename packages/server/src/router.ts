@@ -11,10 +11,10 @@ import { describeHarnesses, harnessProfile } from "./harnesses/profiles";
 import type { SoulRoutingGuidance } from "./secondBrain/starterSoul";
 import { log } from "./telemetry";
 import { extractJsonObject } from "./llmJson";
+import { getClassifier } from "./classifiers";
 import {
   mapCategoryToHarness,
   SubprocessLayaPredictor,
-  type LayaPrediction,
   type LayaPredictor,
 } from "./laya";
 
@@ -311,9 +311,11 @@ export class Router {
     const pinned = this.soulRoute(soul, category, available);
     if (pinned) return pinned;
 
-    // 2. Laya fast-lane: a local decision model, no LLM spend on hits.
-    if (available.length > 1 && this.config.routing.laya?.enabled) {
-      const fast = await this.layaFastRoute(query, available);
+    // 2. Classifier fast-lane: a local decision model, no LLM spend on hits.
+    //    Uses the pluggable HiveClassifier (laya by default). Falls through
+    //    silently on timeout/abstain/disabled so routing continues safely.
+    if (available.length > 1 && this.classifierEnabled()) {
+      const fast = await this.classifierFast(query, available);
       if (fast) {
         this.writeCache(query, available, fast);
         return this.applyHints(fast, available, hints);
@@ -327,7 +329,7 @@ export class Router {
 
       const llm = await this.llmRoute(query, available, soul);
       if (llm) {
-        const verified = await this.layaVerify(llm, query, available);
+        const verified = await this.classifierVerify(llm, query, available);
         const finalDecision = verified ?? llm;
         this.writeCache(query, available, finalDecision);
         return this.applyHints(finalDecision, available, hints);
@@ -386,6 +388,26 @@ export class Router {
   /* The Laya layers                                                     */
   /* ------------------------------------------------------------------ */
 
+  /** Fast-lane runs when a backend is selected or legacy laya is enabled. */
+  private classifierEnabled(): boolean {
+    if (this.laya) return true;
+    const backend = this.effectiveClassifierBackend();
+    return backend !== "off";
+  }
+
+  /**
+   * Backend actually used: explicit `routing.classifier.backend`, falling
+   * back to `"laya"` when only the legacy `routing.laya.enabled` flag is
+   * set (old configs/tests that never heard of the classifier block).
+   * Default configs ship both off → "off".
+   */
+  private effectiveClassifierBackend(): string {
+    const backend = this.config.routing.classifier?.backend ?? "off";
+    if (backend !== "off") return backend;
+    if (this.config.routing.laya?.enabled) return "laya";
+    return "off";
+  }
+
   private layaPredictor(): LayaPredictor {
     return (
       this.laya ??
@@ -394,19 +416,27 @@ export class Router {
   }
 
   /**
-   * Fast-lane: high-confidence Laya category skips the LLM call.
-   * Returns null on every failure so routing falls through safely.
+   * Fast-lane: high-confidence classifier category skips the LLM call.
+   * Uses the pluggable HiveClassifier (laya by default). Returns null on
+   * every failure so routing falls through safely. Cached on prompt +
+   * harness-set (existing cacheTtlMs).
    */
-  private async layaFastRoute(
+  private async classifierFast(
     query: string,
     available: string[],
   ): Promise<RoutingResult | null> {
-    const settings = this.config.routing.laya;
-    if (!settings?.enabled) return null;
+    const backend = this.effectiveClassifierBackend();
+    const threshold =
+      this.config.routing.laya?.minConfidence ??
+      this.config.routing.classifier?.minConfidence ??
+      0.85;
+    // Prefer injected predictor in tests; otherwise use registry backend.
+    const timeoutMs = this.config.routing.classifier?.timeoutMs ?? 1500;
     try {
-      const pred = await this.layaPredictor().predict(query);
+      const pred = this.laya
+        ? await this.laya.predict(query).catch(() => null)
+        : await getClassifier(backend, timeoutMs).predict(query).catch(() => null);
       if (!pred) return null;
-      const threshold = settings.minConfidence ?? 0.85;
       if (pred.categoryConfidence < threshold) return null;
       const harness = mapCategoryToHarness(
         pred.category,
@@ -414,10 +444,14 @@ export class Router {
         this.config.routing.default,
       );
       if (!available.includes(harness)) return null;
+      // needsStrongModel tier mapping (only applies when llm.selectModel is on
+      // and no harness/provider/model was pinned by the composer).
+      const needsStrong = pred.needsStrongModel;
+      const tier = needsStrong >= 1.2 ? "strong" : needsStrong <= 0.6 ? "fast" : "default";
       return {
         harness,
         model: this.getDefaultModel(harness),
-        reasoning: `laya-fast category ${pred.category} (conf ${pred.categoryConfidence.toFixed(2)})`,
+        reasoning: `classifier-fast category ${pred.category} (conf ${pred.categoryConfidence.toFixed(2)}, tier ${tier})`,
         strategy: "laya",
         category: pred.category,
         confidence: Math.max(0, Math.min(1, pred.categoryConfidence)),
@@ -429,31 +463,35 @@ export class Router {
 
   /**
    * Verifier: second opinion after the LLM. Agreement boosts confidence;
-   * high-confidence disagreement retries the LLM once; risk is advisory.
+   * high-confidence disagreement caps confidence. Risk/destructive signals
+   * are advisory only — `permission.gateOn` + `runtimeGuard.ts` own blocking.
    * Never fails the task — returns null to keep the LLM decision.
    */
-  private async layaVerify(
+  private async classifierVerify(
     llm: RoutingResult,
     query: string,
     available: string[],
   ): Promise<RoutingResult | null> {
-    const settings = this.config.routing.layaVerify;
-    if (!settings?.enabled) return null;
-    let pred: LayaPrediction | null = null;
+    const settings = this.config.routing.classifier;
+    if (!settings || settings.backend === "off") return null;
+    // Respect legacy opt-in for verify layer.
+    if (!this.config.routing.layaVerify?.enabled) return null;
+    let pred = null;
+    const timeoutMs = settings.timeoutMs ?? 1500;
     try {
-      const predictor =
-        this.laya ?? new SubprocessLayaPredictor(settings.timeoutMs ?? 1500);
-      pred = await predictor.predict(query);
+      pred = this.laya
+        ? await this.laya.predict(query).catch(() => null)
+        : await getClassifier(settings.backend ?? "laya", timeoutMs).predict(query).catch(() => null);
     } catch {
       return null;
     }
     if (!pred) return null;
 
     const riskFlags: string[] = [];
-    if (settings.advisoryRisk) {
+    if (this.config.routing.layaVerify?.advisoryRisk) {
       if (pred.destructive >= 0.7)
-        riskFlags.push(`laya:destructive ${pred.destructive.toFixed(2)}`);
-      if (pred.risk >= 1.6) riskFlags.push(`laya:risk ${pred.risk.toFixed(2)}`);
+        riskFlags.push(`classifier:destructive ${pred.destructive.toFixed(2)}`);
+      if (pred.risk >= 1.6) riskFlags.push(`classifier:risk ${pred.risk.toFixed(2)}`);
     }
 
     const agrees =
@@ -476,20 +514,18 @@ export class Router {
     if (agrees) {
       return {
         ...llm,
-        reasoning: `${llm.reasoning} (laya confirms ${pred.category} ${pred.categoryConfidence.toFixed(2)})`,
+        reasoning: `${llm.reasoning} (classifier confirms ${pred.category} ${pred.categoryConfidence.toFixed(2)})`,
         confidence: Math.min(1, (llm.confidence ?? 0.5) + 0.15),
         riskFlags: riskFlags.length ? riskFlags : undefined,
         laya: layaDetail,
       };
     }
 
-    if (pred.categoryConfidence >= (settings.disagreeThreshold ?? 0.85)) {
-      log("warn", "router", "Laya disagrees with LLM route", {
-        context: { llm: llm.harness, laya: pred.category },
+    if (pred.categoryConfidence >= (this.config.routing.layaVerify?.disagreeThreshold ?? 0.85)) {
+      log("warn", "router", "Classifier disagrees with LLM route", {
+        context: { llm: llm.harness, classifier: pred.category },
       });
-      // Disagreement path keeps the LLM decision in this pass; a retry
-      // with the Laya hint is a future enhancement once calibration data
-      // exists. Cap confidence so the UI shows uncertainty.
+      // High-conf disagreement caps confidence so the UI shows uncertainty.
       return {
         ...llm,
         confidence: Math.min(llm.confidence ?? 0.5, 0.6),

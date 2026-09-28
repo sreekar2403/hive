@@ -77,6 +77,12 @@ export interface KanbanTask {
   files_changed: number;
   output: string | null;
   error: string | null;
+  description: string | null;
+  priority: string | null;
+  labels: string | null;
+  assignee_harness: string | null;
+  assignee_model: string | null;
+  summary: string | null;
   started_at: number | null;
   completed_at: number | null;
   created_at: number;
@@ -229,7 +235,19 @@ router.get("/:id/detail", (req: Request, res: Response) => {
 // POST /api/tasks
 router.post("/", (req: Request, res: Response) => {
   ensureTable();
-  const { projectId, prompt, harness, status } = req.body ?? {};
+  const body = req.body ?? {};
+  const {
+    projectId,
+    prompt,
+    harness,
+    status,
+    description,
+    priority,
+    labels,
+    assigneeHarness,
+    assigneeModel,
+    autoRun,
+  } = body;
 
   if (!projectId || typeof projectId !== "string") {
     return res.status(400).json({ error: "projectId is required" });
@@ -243,6 +261,21 @@ router.post("/", (req: Request, res: Response) => {
     return res
       .status(400)
       .json({ error: `status must be one of ${STATUSES.join(", ")}` });
+  }
+  // Validate harness if provided. Empty string means "unassigned" (same as
+  // before — the board shows "Unassigned"); any non-empty string is accepted
+  // and resolved by the orchestrator/router at run time.
+  if (
+    harness !== undefined &&
+    harness !== null &&
+    harness !== "" &&
+    typeof harness !== "string"
+  ) {
+    return res.status(400).json({ error: "harness must be a string" });
+  }
+  // Validate priority if provided
+  if (priority !== undefined && !["low", "medium", "high", "urgent"].includes(priority)) {
+    return res.status(400).json({ error: "priority must be one of: low, medium, high, urgent" });
   }
 
   const db = getDb();
@@ -266,6 +299,12 @@ router.post("/", (req: Request, res: Response) => {
     files_changed: 0,
     output: null,
     error: null,
+    summary: null,
+    description: typeof description === "string" ? description : null,
+    priority: priority ?? "medium",
+    labels: typeof labels === "string" ? labels : null,
+    assignee_harness: typeof assigneeHarness === "string" ? assigneeHarness : null,
+    assignee_model: typeof assigneeModel === "string" ? assigneeModel : null,
     started_at: null,
     completed_at: null,
     created_at: now,
@@ -277,8 +316,8 @@ router.post("/", (req: Request, res: Response) => {
 
   db.prepare(
     `INSERT INTO kanban_tasks
-      (id, project_id, prompt, title, parent_id, harness, status, branch_name, run_task_id, session_id, model, files, iterations, files_changed, output, error, started_at, completed_at, created_at, updated_at)
-     VALUES (@id, @project_id, @prompt, @title, @parent_id, @harness, @status, @branch_name, @run_task_id, @session_id, @model, @files, @iterations, @files_changed, @output, @error, @started_at, @completed_at, @created_at, @updated_at)`,
+      (id, project_id, prompt, title, parent_id, harness, status, branch_name, run_task_id, session_id, model, files, iterations, files_changed, output, error, description, priority, labels, assignee_harness, assignee_model, summary, started_at, completed_at, created_at, updated_at)
+     VALUES (@id, @project_id, @prompt, @title, @parent_id, @harness, @status, @branch_name, @run_task_id, @session_id, @model, @files, @iterations, @files_changed, @output, @error, @description, @priority, @labels, @assignee_harness, @assignee_model, @summary, @started_at, @completed_at, @created_at, @updated_at)`,
   ).run(task);
 
   broadcast("task:progress", {
@@ -286,6 +325,15 @@ router.post("/", (req: Request, res: Response) => {
     projectId: task.project_id,
     status: task.status,
   });
+
+  // autoRun is accepted and stored implicitly (card lands in a pre-start
+  // column); the orchestrator wiring (createTask + executeTask + run_task_id
+  // linking, per 05-kanban-autorun PRD) lives in server.ts where the live
+  // Orchestrator instance is reachable — this route must not import it
+  // (circular dep + parallel-edit lock on server.ts). Until that lands,
+  // autoRun is a no-op the client can already send.
+  void autoRun;
+
   res.status(201).json(task);
 });
 
@@ -329,6 +377,21 @@ router.put("/:id", (req: Request, res: Response) => {
       : existing.files_changed,
     output: typeof body.output === "string" ? body.output : existing.output,
     error: typeof body.error === "string" ? body.error : existing.error,
+    description: typeof body.description === "string" ? body.description : existing.description,
+    priority: typeof body.priority === "string" ? body.priority : existing.priority,
+    labels: typeof body.labels === "string" ? body.labels : existing.labels,
+    assignee_harness:
+      body.assigneeHarness === null
+        ? null
+        : typeof body.assigneeHarness === "string"
+          ? body.assigneeHarness
+          : existing.assignee_harness,
+    assignee_model:
+      body.assigneeModel === null
+        ? null
+        : typeof body.assigneeModel === "string"
+          ? body.assigneeModel
+          : existing.assignee_model,
     updated_at: Date.now(),
   };
 
@@ -350,6 +413,8 @@ router.put("/:id", (req: Request, res: Response) => {
        prompt = @prompt, harness = @harness, status = @status,
        iterations = @iterations, files_changed = @files_changed,
        output = @output, error = @error,
+       description = @description, priority = @priority, labels = @labels,
+       assignee_harness = @assignee_harness, assignee_model = @assignee_model,
        started_at = @started_at, completed_at = @completed_at, updated_at = @updated_at
      WHERE id = @id`,
   ).run(next);
@@ -367,6 +432,40 @@ router.put("/:id", (req: Request, res: Response) => {
       status: next.status,
     });
   }
+
+  res.json(next);
+});
+
+// PUT /api/tasks/:id/assign — manually assign a harness and/or model
+// without triggering a run. The card stays in its current column.
+router.put("/:id/assign", (req: Request, res: Response) => {
+  ensureTable();
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT * FROM kanban_tasks WHERE id = ?")
+    .get(req.params.id) as KanbanTask | undefined;
+  if (!existing) return res.status(404).json({ error: "Not found" });
+
+  const { harness, model } = req.body ?? {};
+
+  if (harness !== undefined && typeof harness !== "string") {
+    return res.status(400).json({ error: "harness must be a string" });
+  }
+  if (model !== undefined && typeof model !== "string") {
+    return res.status(400).json({ error: "model must be a string" });
+  }
+
+  const next: KanbanTask = {
+    ...existing,
+    harness: harness ?? existing.harness,
+    model: model ?? existing.model,
+    updated_at: Date.now(),
+  };
+
+  db.prepare(
+    `UPDATE kanban_tasks SET harness = @harness, model = @model, updated_at = @updated_at
+     WHERE id = @id`,
+  ).run(next);
 
   res.json(next);
 });

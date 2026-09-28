@@ -753,6 +753,12 @@ function CreateTaskModal({
     prompt: string;
     harness: string;
     status: TaskStatus;
+    description?: string;
+    priority?: string;
+    labels?: string;
+    assigneeHarness?: string;
+    assigneeModel?: string;
+    autoRun?: boolean;
   }) => Promise<void>;
 }) {
   const [prompt, setPrompt] = useState("");

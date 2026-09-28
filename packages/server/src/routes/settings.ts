@@ -208,6 +208,38 @@ function validatePartialConfig(body: any): void {
     }
   }
 
+  if (body.routing?.classifier !== undefined) {
+    const c = body.routing.classifier as Record<string, unknown>;
+    if ("backend" in c && typeof c.backend !== "string") {
+      throw new Error("routing.classifier.backend must be a string");
+    }
+    if (
+      "backend" in c &&
+      !["laya", "gliner-decide", "off"].includes(c.backend as string)
+    ) {
+      throw new Error(
+        "routing.classifier.backend must be 'laya', 'gliner-decide', or 'off'",
+      );
+    }
+    if (
+      "minConfidence" in c &&
+      (typeof c.minConfidence !== "number" ||
+        c.minConfidence < 0 ||
+        c.minConfidence > 1)
+    ) {
+      throw new Error("routing.classifier.minConfidence must be between 0 and 1");
+    }
+    if (
+      "timeoutMs" in c &&
+      (typeof c.timeoutMs !== "number" || c.timeoutMs < 100)
+    ) {
+      throw new Error("routing.classifier.timeoutMs must be at least 100ms");
+    }
+    if ("model" in c && typeof c.model !== "string") {
+      throw new Error("routing.classifier.model must be a string");
+    }
+  }
+
   if (body.permission?.destructiveActions) {
     if (!Array.isArray(body.permission.destructiveActions)) {
       throw new Error("permission.destructiveActions must be an array");

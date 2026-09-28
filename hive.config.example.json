@@ -182,6 +182,12 @@
       "retryOnce": true,
       "advisoryRisk": true,
       "timeoutMs": 1500
+    },
+    "classifier": {
+      "backend": "off",
+      "model": "english",
+      "minConfidence": 0.85,
+      "timeoutMs": 1500
     }
   },
   "permission": {

@@ -41,6 +41,22 @@ export interface LlmRoutingConfig {
   cacheTtlMs: number;
 }
 
+/**
+ * Local classifier (Laya/GLiNER) settings. Mirrors LayaFastConfig in the
+ * server's config.ts — a fast local model that can skip the LLM call when
+ * confident. `backend` selects which classifier to use.
+ */
+export interface ClassifierConfig {
+  /** Which classifier backend: "laya" (default), "gliner-decide", or "off". */
+  backend: "laya" | "gliner-decide" | "off";
+  /** Category confidence at or above this skips the LLM call. */
+  minConfidence: number;
+  /** Give up and fall through to the LLM/heuristics after this long (ms). */
+  timeoutMs: number;
+  /** Classifier checkpoint/model name (e.g. "english" for Laya). */
+  model: string;
+}
+
 export interface RoutingRule {
   id: string;
   taskType: string;
@@ -75,6 +91,8 @@ export interface SettingsConfig {
     /** @deprecated Superseded by `routing.llm.model`. */
     llmModel?: string;
     llm?: LlmRoutingConfig;
+    /** Local classifier (Laya/GLiNER) settings. */
+    classifier?: ClassifierConfig;
   };
   permission: {
     enabled: boolean;
