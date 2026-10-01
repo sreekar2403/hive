@@ -108,4 +108,34 @@ describe("Harness interface contract", () => {
       expect(uniqueNames.size).toBe(names.length);
     });
   });
+
+  describe("resume support", () => {
+    it("harnesses without a verified resume mechanism report false", () => {
+      // supportsResume is optional; absent means the adapter must not be
+      // asked to resume. Until Task 5 lands, none of them declare it.
+      const harnesses: Harness[] = [
+        new ClaudeCodeHarness(),
+        new OpenCodeHarness(),
+        new PiHarness(),
+      ];
+
+      for (const harness of harnesses) {
+        expect(harness.supportsResume?.() ?? false).toBe(false);
+      }
+    });
+
+    it("carries resumeSessionId on options and sessionId on results", async () => {
+      const { CodexHarness } = await import("./codex");
+      const harness: Harness = new CodexHarness("/nonexistent/codex");
+      const result = await harness.execute("test", {
+        cwd: process.cwd(),
+        resumeSessionId: "native-123",
+      });
+      // A missing binary fails the run; the point is the fields typecheck
+      // and flow through the shared contract. sessionId is null until a
+      // parser captures one (Task 5).
+      expect(result.success).toBe(false);
+      expect(result.sessionId ?? null).toBeNull();
+    });
+  });
 });
