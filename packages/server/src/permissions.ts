@@ -36,6 +36,42 @@ function matchesOutsidePaths(pattern: RegExp, action: string): boolean {
   return false;
 }
 
+/**
+ * Blanks out `"..."` and `'...'` spans (backslash escapes honoured, an
+ * unterminated quote swallows the rest) so patterns are matched against
+ * the command's verbs and flags, not its free-text arguments.
+ *
+ * A PR titled "cleanup: remove repeated intros" or a commit message
+ * saying the same halted `gh pr create` / `git commit` — the verbs are
+ * harmless and "remove" there is English prose, not an action. Verbs
+ * and flags are virtually never quoted (quoting them is pointless), so
+ * the accepted trade is a quoted verb escaping the gate
+ * (`powershell -Command "Remove-Item …"`), which is far rarer than
+ * prose tripping it. A blank keeps token separation so stripping never
+ * glues neighbouring words into a false match.
+ */
+function stripQuotedSpans(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch !== '"' && ch !== "'") {
+      out += ch;
+      i++;
+      continue;
+    }
+    const quote = ch;
+    i++;
+    while (i < text.length && text[i] !== quote) {
+      if (text[i] === "\\" && i + 1 < text.length) i++;
+      i++;
+    }
+    i++; // consume the closing quote, or run off a truncated end
+    out += " ";
+  }
+  return out;
+}
+
 function destructivePattern(pattern: string): RegExp {
   const cached = patternCache.get(pattern);
   if (cached) return cached;
@@ -168,8 +204,9 @@ export class PermissionManager {
    *  command's own verbs and flags. Without this, one branch name halted
    *  every git command in the task until the guard budget ran out. */
   matchDestructive(action: string): string[] {
+    const bare = stripQuotedSpans(action);
     return this.config.permission.destructiveActions.filter((pattern) =>
-      matchesOutsidePaths(destructivePattern(pattern), action),
+      matchesOutsidePaths(destructivePattern(pattern), bare),
     );
   }
 

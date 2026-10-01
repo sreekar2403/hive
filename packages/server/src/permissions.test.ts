@@ -101,6 +101,32 @@ describe("PermissionManager", () => {
       ).toEqual(["remove"]);
     });
 
+    it("does not fire on prose inside quoted arguments", () => {
+      // From a real trace: a PR titled "cleanup: remove repeated …" and
+      // a commit message saying the same halted `gh pr create` and
+      // `git commit`. The verbs are harmless; "remove" is English prose
+      // inside -m/--title values, not an action.
+      const proseCommands = [
+        'gh pr create --base main --head cleanup/remove-repeated-intro --title "cleanup: remove repeated intros" --body "x"',
+        'git commit -m "cleanup: remove repeated intros from About and Contact"',
+        "git fetch origin",
+        "git log --oneline main..HEAD",
+      ];
+
+      for (const command of proseCommands) {
+        expect(permissionManager.matchDestructive(command)).toEqual([]);
+      }
+    });
+
+    it("still gates unquoted verbs next to quoted arguments", () => {
+      expect(permissionManager.matchDestructive('rm -rf "my dir"')).toEqual([
+        "rm",
+      ]);
+      expect(
+        permissionManager.matchDestructive('git clean -fd "my dir"'),
+      ).toEqual(["clean"]);
+    });
+
     it("reports which patterns matched", () => {
       expect(permissionManager.matchDestructive("git reset --hard")).toEqual([
         "reset",
