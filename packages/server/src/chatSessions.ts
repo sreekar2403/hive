@@ -162,3 +162,78 @@ export function recentMessages(
     createdAt: r.created_at,
   }));
 }
+
+/**
+ * One live native harness session per Hive chat.
+ *
+ * A Hive chat (`chat_sessions.id`) keeps talking to CLIs that each manage
+ * their own session state (`claude --resume <id>`, `opencode run
+ * --session <id>`, `codex exec resume <id>`, `pi --session <id>` …).
+ * This table is the mapping between the two: which native session the
+ * chat's next turn should resume.
+ *
+ * Exactly one row per chat — a harness switch overwrites it rather than
+ * adding a second row. Switching back later starts fresh (with transcript
+ * history), it does not resurrect the older native session. That is a
+ * deliberate choice: resuming a stale session the transcript has moved
+ * past would fork its context in surprising ways.
+ */
+
+export interface HarnessSessionRow {
+  harness: string;
+  nativeSessionId: string;
+}
+
+function ensureHarnessSessionsTable(): void {
+  ensureTables();
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS harness_sessions (
+      hive_session_id TEXT PRIMARY KEY,
+      harness TEXT NOT NULL,
+      native_session_id TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+}
+
+/** The native session this chat should resume, if any. */
+export function getHarnessSession(
+  hiveSessionId: string,
+): HarnessSessionRow | null {
+  ensureHarnessSessionsTable();
+  const row = getDb()
+    .prepare("SELECT * FROM harness_sessions WHERE hive_session_id = ?")
+    .get(hiveSessionId) as
+    | { harness: string; native_session_id: string }
+    | undefined;
+  if (!row) return null;
+  return { harness: row.harness, nativeSessionId: row.native_session_id };
+}
+
+/** Records the native session a run just lived in, replacing any older one. */
+export function setHarnessSession(
+  hiveSessionId: string,
+  harness: string,
+  nativeSessionId: string,
+): void {
+  ensureHarnessSessionsTable();
+  getDb()
+    .prepare(
+      `INSERT INTO harness_sessions
+         (hive_session_id, harness, native_session_id, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(hive_session_id) DO UPDATE SET
+         harness = excluded.harness,
+         native_session_id = excluded.native_session_id,
+         updated_at = excluded.updated_at`,
+    )
+    .run(hiveSessionId, harness, nativeSessionId, Date.now());
+}
+
+/** Forgets the mapping — the next turn starts fresh. */
+export function clearHarnessSession(hiveSessionId: string): void {
+  ensureHarnessSessionsTable();
+  getDb()
+    .prepare("DELETE FROM harness_sessions WHERE hive_session_id = ?")
+    .run(hiveSessionId);
+}
