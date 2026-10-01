@@ -336,4 +336,113 @@ describe("falling back when a harness answers with silence", () => {
 
     expect(calls).toEqual([]);
   });
+
+  describe("native session resume", () => {
+    const resumable = (
+      name: string,
+      seen: Array<string | undefined>,
+      sessionId?: string,
+    ): Harness =>
+      createMockHarness({
+        name,
+        supportsResume: () => true,
+        execute: async (_prompt, options) => {
+          seen.push(options?.resumeSessionId);
+          return {
+            success: true,
+            exitCode: 0,
+            stdout: "done",
+            stderr: "",
+            output: "done",
+            filesChanged: [],
+            duration: 10,
+            sessionId,
+          };
+        },
+      });
+
+    const resumeConfig = () => {
+      const base = createDefaultConfig();
+      base.harnesses.opencode.enabled = true;
+      base.harnesses["claude-code"].enabled = true;
+      base.routing.llm.enabled = false;
+      return base;
+    };
+
+    it("passes the native session id when the harness matches", async () => {
+      const seen: Array<string | undefined> = [];
+      const engine = new LoopEngine(
+        resumeConfig(),
+        new Map<string, Harness>([["opencode", resumable("opencode", seen)]]),
+      );
+      engine.start("follow up on the same work");
+      await engine.run(async () => {}, undefined, undefined, null, {
+        harness: "opencode",
+        resume: { harness: "opencode", sessionId: "native-1" },
+      });
+
+      expect(seen).toEqual(["native-1"]);
+    });
+
+    it("runs fresh when the harness switched", async () => {
+      const seen: Array<string | undefined> = [];
+      const engine = new LoopEngine(
+        resumeConfig(),
+        new Map<string, Harness>([["opencode", resumable("opencode", seen)]]),
+      );
+      engine.start("same chat, different harness now");
+      await engine.run(async () => {}, undefined, undefined, null, {
+        harness: "opencode",
+        resume: { harness: "codex", sessionId: "native-9" },
+      });
+
+      expect(seen).toEqual([undefined]);
+    });
+
+    it("runs fresh when the adapter has no resume mechanism", async () => {
+      const seen: Array<string | undefined> = [];
+      const plain = createMockHarness({
+        name: "opencode",
+        execute: async (_prompt, options) => {
+          seen.push(options?.resumeSessionId);
+          return {
+            success: true,
+            exitCode: 0,
+            stdout: "done",
+            stderr: "",
+            output: "done",
+            filesChanged: [],
+            duration: 10,
+          };
+        },
+      });
+      const engine = new LoopEngine(
+        resumeConfig(),
+        new Map<string, Harness>([["opencode", plain]]),
+      );
+      engine.start("adapter cannot resume");
+      await engine.run(async () => {}, undefined, undefined, null, {
+        harness: "opencode",
+        resume: { harness: "opencode", sessionId: "native-1" },
+      });
+
+      expect(seen).toEqual([undefined]);
+    });
+
+    it("records the native session and its harness on the loop state", async () => {
+      const engine = new LoopEngine(
+        resumeConfig(),
+        new Map<string, Harness>([
+          ["opencode", resumable("opencode", [], "ses_live_1")],
+        ]),
+      );
+      engine.start("first turn");
+      const state = await engine.run(async () => {}, undefined, undefined, null, {
+        harness: "opencode",
+      });
+
+      expect(state.sessionId).toBe("ses_live_1");
+      expect(state.sessionHarness).toBe("opencode");
+    });
+  });
 });

@@ -22,6 +22,14 @@ export interface LoopState {
   previousOutput: string | null;
   success: boolean;
   error: string | null;
+  /**
+   * The native session the last harness run lived in, in the CLI's own
+   * id notation — for the chat handler to resume next turn. Null until a
+   * run reports one (see `HarnessExecutionResult.sessionId`).
+   */
+  sessionId?: string | null;
+  /** Which harness produced `sessionId` — resume is only valid on the same one. */
+  sessionHarness?: string | null;
 }
 
 export interface RoutingDecision {
