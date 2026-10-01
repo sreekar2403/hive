@@ -131,48 +131,50 @@ export function SoulSuggestions({
         title="Soul.md Suggestions"
         eyebrow="Second Brain"
         actions={
-          <>
-            {suggestions.pending.length > 0 && (
-              <Badge tone="accent">
-                {suggestions.pending.length} pending
-              </Badge>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={fetchSuggestions}
-              disabled={loading}
-              aria-label="Refresh suggestions"
-            >
-              <RefreshCw
-                className={loading ? "size-3.5 animate-spin" : "size-3.5"}
-              />
-              Refresh
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setOpen((o) => !o)}
-              aria-expanded={open}
-              aria-label={open ? "Collapse suggestions" : "Expand suggestions"}
-            >
-              <ChevronDown
-                className={cn(
-                  "size-3.5 transition-transform",
-                  open && "rotate-180",
-                )}
-              />
-            </Button>
-          </>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            aria-label={
+              open ? "Collapse suggestions" : "Expand suggestions"
+            }
+          >
+            {suggestions.pending.length > 0
+              ? `${suggestions.pending.length} pending`
+              : "Show"}
+            <ChevronDown
+              className={cn(
+                "size-3.5 transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </Button>
         }
       />
       {open && (
         <div className="p-4 space-y-3">
           {suggestions.pending.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-ink mb-2">
-                Pending ({suggestions.pending.length})
-              </h3>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-medium text-ink">
+                  Pending ({suggestions.pending.length})
+                </h3>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={fetchSuggestions}
+                  disabled={loading}
+                  aria-label="Refresh suggestions"
+                >
+                  <RefreshCw
+                    className={
+                      loading ? "size-3.5 animate-spin" : "size-3.5"
+                    }
+                  />
+                  Refresh
+                </Button>
+              </div>
               {suggestions.pending.map((s) => (
                 <SuggestionCard
                   key={s.id}
@@ -186,9 +188,27 @@ export function SoulSuggestions({
 
           {suggestions.resolved.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-ink mb-2">
-                Resolved ({suggestions.resolved.length})
-              </h3>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-medium text-ink">
+                  Resolved ({suggestions.resolved.length})
+                </h3>
+                {suggestions.pending.length === 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={fetchSuggestions}
+                    disabled={loading}
+                    aria-label="Refresh suggestions"
+                  >
+                    <RefreshCw
+                      className={
+                        loading ? "size-3.5 animate-spin" : "size-3.5"
+                      }
+                    />
+                    Refresh
+                  </Button>
+                )}
+              </div>
               {suggestions.resolved.slice(0, 10).map((s) => (
                 <SuggestionCard
                   key={s.id}
