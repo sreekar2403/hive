@@ -69,7 +69,14 @@ export function SoulSuggestions({
   const approve = async (id: string) => {
     const scope = projectId ? "project" : "global";
     try {
-      await API.post(`/api/brain/suggestions/${id}/approve`, { scope });
+      // projectId is load-bearing: the server resolves the brain (and its
+      // suggestion store) from it. Without it the request lands on the
+      // server's own brain, finds nothing, answers 404, and the card
+      // silently stays pending no matter how often it is approved.
+      await API.post(`/api/brain/suggestions/${id}/approve`, {
+        scope,
+        projectId: projectId ?? undefined,
+      });
       fetchSuggestions();
       onRefresh?.();
     } catch (err) {
@@ -80,7 +87,11 @@ export function SoulSuggestions({
   const reject = async (id: string) => {
     const scope = projectId ? "project" : "global";
     try {
-      await API.post(`/api/brain/suggestions/${id}/reject`, { scope });
+      // Same projectId requirement as approve above.
+      await API.post(`/api/brain/suggestions/${id}/reject`, {
+        scope,
+        projectId: projectId ?? undefined,
+      });
       fetchSuggestions();
     } catch (err) {
       console.error("Failed to reject suggestion:", err);
