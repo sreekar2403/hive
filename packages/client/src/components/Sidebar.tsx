@@ -53,7 +53,11 @@ export function Sidebar() {
   return (
     <aside className="w-[13.5rem] shrink-0 bg-surface border-r border-line flex flex-col h-full">
       <div className="h-14 flex items-center gap-2.5 px-4 border-b border-line shrink-0">
-        <HiveMark />
+        <img
+          src="/icon.png"
+          alt=""
+          className="size-6 shrink-0 rounded-md"
+        />
         <span className="text-[15px] font-semibold tracking-tight text-ink">
           Hive
         </span>
@@ -113,22 +117,3 @@ export function Sidebar() {
   );
 }
 
-/** Hexagon mark — a hive cell, drawn rather than imported as an asset. */
-function HiveMark() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-5 shrink-0" aria-hidden="true">
-      <path
-        d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z"
-        fill="none"
-        stroke="var(--hive-accent)"
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 8.25 16.25 10.6v4.7L12 17.65 7.75 15.3v-4.7z"
-        fill="var(--hive-accent)"
-        opacity="0.9"
-      />
-    </svg>
-  );
-}
