@@ -33,6 +33,7 @@ import { useProjects } from "../state/ProjectContext";
 import { ModelPicker } from "./chat/ModelPicker";
 import { ActivityTrail } from "./chat/ActivityTrail";
 import { SoulSuggestions } from "./chat/SoulSuggestions";
+import { PermissionPane } from "./chat/PermissionPane";
 import { useAttachments } from "./chat/useAttachments";
 import { Markdown } from "../components/Markdown";
 import { cn } from "../lib/cn";
@@ -323,6 +324,11 @@ export function ChatPage() {
         {/* Composer */}
         <div className="border-t border-line bg-surface px-6 py-3">
           <div className="max-w-3xl mx-auto flex flex-col gap-2">
+            {/* Destructive-command approvals for this chat, inline where
+                the run is watched — approving re-runs the task with the
+                command allowed. Keyed by session so a switch never shows
+                the old chat's requests. */}
+            <PermissionPane key={activeId} sessionId={activeId} />
             {files.attachments.length > 0 || files.uploading > 0 ? (
               <div className="flex flex-wrap items-center gap-2">
                 {files.attachments.map((file) => (
