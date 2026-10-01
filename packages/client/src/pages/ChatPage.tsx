@@ -252,11 +252,6 @@ export function ChatPage() {
             );
           })}
         </div>
-        {/* Pending soul.md suggestions surface here, next to the
-            conversations they came out of. */}
-        <div className="border-t border-line p-2 max-h-72 overflow-y-auto">
-          <SoulSuggestions projectId={activeProject?.id ?? null} />
-        </div>
       </aside>
 
       {/* Conversation */}
@@ -319,6 +314,12 @@ export function ChatPage() {
               ) : null}
             </div>
           )}
+          {/* Second Brain suggestions live with the conversation at full
+              width — the w-64 sidebar cramped the cards until the
+              Approve/Reject buttons overlapped the badges. */}
+          <div className="max-w-3xl mx-auto px-6 pb-6 w-full">
+            <SoulSuggestions projectId={activeProject?.id ?? null} />
+          </div>
         </div>
 
         {/* Composer */}
