@@ -239,6 +239,10 @@ export function runHarness(spec: RunSpec): Promise<HarnessExecutionResult> {
         duration: Date.now() - startTime,
         events: collected,
         usage: parser.usage(),
+        // The native session this run lived in, for the chat handler to
+        // resume next turn. Plain-text parsers have no session concept
+        // and report null.
+        sessionId: parser.sessionId?.() ?? null,
         aborted: aborted && !timedOut && !wentSilent,
         timedOut,
         // Either the watchdog tripped, or the CLI came and went without

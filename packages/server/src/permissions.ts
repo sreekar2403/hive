@@ -15,6 +15,63 @@ function broadcastSafe(event: string, data: unknown): void {
  *  isDestructive() runs on every task. */
 const patternCache = new Map<string, RegExp>();
 
+/**
+ * Whether the pattern occurs anywhere outside a path or ref segment.
+ *
+ * The cached regex cannot be reused with the global flag directly —
+ * lastIndex state would leak between calls — so each check runs on a
+ * fresh global clone. Matches are non-empty (the escaped pattern is a
+ * non-empty literal), so the scan always advances.
+ */
+function matchesOutsidePaths(pattern: RegExp, action: string): boolean {
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
+  const search = new RegExp(pattern.source, flags);
+  let match: RegExpExecArray | null;
+  while ((match = search.exec(action)) !== null) {
+    const prev = match.index > 0 ? action[match.index - 1] : "";
+    if (prev !== "/" && prev !== "\\") return true;
+  }
+  return false;
+}
+
+/**
+ * Blanks out `"..."` and `'...'` spans (backslash escapes honoured, an
+ * unterminated quote swallows the rest) so patterns are matched against
+ * the command's verbs and flags, not its free-text arguments.
+ *
+ * A PR titled "cleanup: remove repeated intros" or a commit message
+ * saying the same halted `gh pr create` / `git commit` — the verbs are
+ * harmless and "remove" there is English prose, not an action. Verbs
+ * and flags are virtually never quoted (quoting them is pointless), so
+ * the accepted trade is a quoted verb escaping the gate
+ * (`powershell -Command "Remove-Item …"`), which is far rarer than
+ * prose tripping it. A blank keeps token separation so stripping never
+ * glues neighbouring words into a false match.
+ */
+function stripQuotedSpans(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch !== '"' && ch !== "'") {
+      out += ch;
+      i++;
+      continue;
+    }
+    const quote = ch;
+    i++;
+    while (i < text.length && text[i] !== quote) {
+      if (text[i] === "\\" && i + 1 < text.length) i++;
+      i++;
+    }
+    i++; // consume the closing quote, or run off a truncated end
+    out += " ";
+  }
+  return out;
+}
+
 function destructivePattern(pattern: string): RegExp {
   const cached = patternCache.get(pattern);
   if (cached) return cached;
@@ -139,10 +196,17 @@ export class PermissionManager {
    *  compiled to a regex whose edges only assert a word boundary where
    *  the pattern itself ends in a word character, so flag-shaped
    *  patterns ("push --force", "push -f") still match the way an
-   *  operator wrote them. */
+   *  operator wrote them.
+   *
+   *  Occurrences preceded by "/" or "\" are additionally ignored: those
+   *  sit inside a path or ref segment (branches like
+   *  `cleanup/remove-repeated-intro`, Windows paths), not in the
+   *  command's own verbs and flags. Without this, one branch name halted
+   *  every git command in the task until the guard budget ran out. */
   matchDestructive(action: string): string[] {
+    const bare = stripQuotedSpans(action);
     return this.config.permission.destructiveActions.filter((pattern) =>
-      destructivePattern(pattern).test(action),
+      matchesOutsidePaths(destructivePattern(pattern), bare),
     );
   }
 

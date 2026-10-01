@@ -76,6 +76,15 @@ export interface HarnessOptions {
    * asking the same stuck one again.
    */
   idleTimeout?: number;
+  /**
+   * Native session to continue, in the CLI's own id notation.
+   *
+   * Absent (or empty) means a fresh session. Set only when the caller
+   * knows this chat already ran on this harness and the adapter supports
+   * resuming it — see `Harness.supportsResume`. A harness switch always
+   * starts fresh (with transcript history instead), never resumes.
+   */
+  resumeSessionId?: string;
   /** Called as the run happens, so the UI can show work in progress. */
   onEvent?: (event: HarnessEvent) => void;
   /**
@@ -118,6 +127,15 @@ export interface HarnessExecutionResult {
   stderr: string;
   /** The readable answer — never a raw JSON envelope. */
   output: string;
+  /**
+   * The native session this run lived in, in the CLI's own id notation.
+   *
+   * Captured from the harness's event stream (each CLI reports it
+   * differently — see the parsers in eventStream.ts). The chat handler
+   * writes it back against the Hive session so the next turn on the same
+   * harness can resume it. Null when the stream never named one.
+   */
+  sessionId?: string | null;
   filesChanged?: string[];
   duration: number;
   /** Everything that happened, in order. */
@@ -154,4 +172,13 @@ export interface Harness {
     options?: HarnessOptions,
   ): Promise<HarnessExecutionResult>;
   isCompatible(model: string): boolean;
+  /**
+   * Whether this CLI has a verified resume mechanism.
+   *
+   * Optional so adapters without one need not declare it — absent means
+   * false, and `resumeSessionId` is then ignored. Only true when the
+   * resume flag was verified against the real CLI (see the Task 1 matrix
+   * in the sessions implementation plan), never on a guess.
+   */
+  supportsResume?(): boolean;
 }

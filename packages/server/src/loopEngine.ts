@@ -51,6 +51,14 @@ export class LoopEngine {
   /** Conversation history for context, prepended to the initial prompt. */
   private conversationHistory: Array<{ role: string; content: string }> = [];
   /**
+   * Resume candidate for this run: the native session the same chat last
+   * used, with the harness it ran on. Only honoured when the iteration
+   * actually runs on that harness *and* the adapter supports resuming —
+   * see resumeSessionIdFor. A harness switch (or an adapter without a
+   * resume mechanism) silently runs fresh instead.
+   */
+  private pendingResume: { harness: string; sessionId: string } | null = null;
+  /**
    * Harnesses that answered this run with silence, and are therefore out of
    * the running for the rest of it.
    *
@@ -75,6 +83,8 @@ export class LoopEngine {
       previousOutput: null,
       success: false,
       error: null,
+      sessionId: null,
+      sessionHarness: null,
     };
   }
 
@@ -91,6 +101,8 @@ export class LoopEngine {
       success: false,
       error: null,
       previousOutput: null,
+      sessionId: null,
+      sessionHarness: null,
     };
     return this.state;
   }
@@ -130,6 +142,13 @@ export class LoopEngine {
       soul?: SoulRoutingGuidance;
       /** Conversation history for context. */
       conversationHistory?: Array<{ role: string; content: string }>;
+      /**
+       * Resume candidate: the native session this chat last used, with the
+       * harness it ran on. Honoured per iteration by resumeSessionIdFor —
+       * a re-route to another harness (e.g. the silence fallback) drops
+       * it automatically, since it names the harness it belongs to.
+       */
+      resume?: { harness: string; sessionId: string } | null;
       /** Files the person attached, forwarded to the CLI as it prefers. */
       attachments?: HarnessAttachment[];
       /**
@@ -145,6 +164,7 @@ export class LoopEngine {
     this.preamble = options?.preamble ?? "";
     this.hints = options?.hints ?? [];
     this.soul = options?.soul;
+    this.pendingResume = options?.resume ?? null;
 
     this.start(this.state.currentPrompt, options?.conversationHistory);
 
@@ -163,12 +183,17 @@ export class LoopEngine {
       if (options?.signal?.aborted) break;
       this.state.iteration++;
 
-      // Build prompt with context
-      const prompt = this.buildPrompt();
-
-      // Route to harness
+      // Route before building: whether the history block is needed
+      // depends on which harness this iteration lands on — a resumed
+      // native session already holds the conversation, a fresh run does
+      // not. (Routing has no prompt dependency, so the order is free.)
       const decision = await this.route(pinnedHarness);
       const harness = this.harnesses.get(decision.harness);
+
+      // Build prompt with context
+      const prompt = this.buildPrompt(
+        this.resumeSessionIdFor(decision.harness) !== undefined,
+      );
 
       const iterationSpan =
         traced && taskId
@@ -203,6 +228,7 @@ export class LoopEngine {
         onEvent: options?.onEvent,
         signal: options?.signal,
         attachments: options?.attachments,
+        resumeSessionId: this.resumeSessionIdFor(decision.harness),
         // `loop.timeoutMs` was config nobody passed on, so a CLI that
         // stopped making progress ran until a person noticed. Per
         // iteration, not per task: each attempt gets the full budget,
@@ -212,6 +238,14 @@ export class LoopEngine {
         // and take the work elsewhere. See the silence branch below.
         idleTimeout: this.config.loop.idleTimeoutMs,
       });
+      // Remember where this run lived so the chat's next turn can resume
+      // it. Only a run that named its session counts — a later iteration
+      // that reports nothing must not clobber an earlier capture with a
+      // blank, nor attribute it to a harness that never produced it.
+      if (result.sessionId) {
+        this.state.sessionId = result.sessionId;
+        this.state.sessionHarness = decision.harness;
+      }
       if (traced && taskId) {
         recordSpan(
           taskId,
@@ -397,15 +431,21 @@ export class LoopEngine {
     return this.state;
   }
 
-  private buildPrompt(): string {
+  private buildPrompt(resuming = false): string {
     const parts: string[] = [];
     if (this.preamble) parts.push(this.preamble);
 
-    // Include conversation history for context (only on first iteration).
+    // Include conversation history for context (only on first iteration,
+    // and never when natively resuming — the resumed session already
+    // holds the conversation, so the block would be pure token spend).
     // Fences use "===": with no preamble this block leads the prompt, and
     // the prompt is a positional CLI argument — a leading "---" would be
     // parsed as an unknown option, killing the run before it starts.
-    if (this.state.iteration === 1 && this.conversationHistory.length > 0) {
+    if (
+      !resuming &&
+      this.state.iteration === 1 &&
+      this.conversationHistory.length > 0
+    ) {
       parts.push("=== Conversation history ===");
       for (const msg of this.conversationHistory.slice(-8)) {
         parts.push(`${msg.role}: ${msg.content}`);
@@ -437,6 +477,23 @@ export class LoopEngine {
     return this.router
       .availableHarnesses()
       .filter((name) => !this.silentHarnesses.has(name));
+  }
+
+  /**
+   * The native session id to hand this iteration's harness, if resuming.
+   *
+   * Three conditions, all required: there is a candidate from the chat's
+   * previous turn, this iteration is actually running on the harness that
+   * candidate belongs to, and that harness declares a verified resume
+   * mechanism. Anything else — a harness switch, a re-route after a
+   * silent harness, an adapter without one — runs fresh and returns
+   * undefined, which adapters treat as "no resume requested".
+   */
+  private resumeSessionIdFor(harnessName: string): string | undefined {
+    const resume = this.pendingResume;
+    if (!resume || resume.harness !== harnessName) return undefined;
+    if (!this.harnesses.get(harnessName)?.supportsResume?.()) return undefined;
+    return resume.sessionId;
   }
 
   private async route(pinned?: string): Promise<RoutingResult> {

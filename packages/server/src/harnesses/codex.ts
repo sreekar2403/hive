@@ -37,7 +37,13 @@ export class CodexHarness implements Harness {
     prompt: string,
     options?: HarnessOptions,
   ): Promise<HarnessExecutionResult> {
-    const args = ["exec", "--json", "--skip-git-repo-check"];
+    // Resuming is a subcommand, not a flag: `codex exec resume <id>
+    // <prompt>`. Usage order is [OPTIONS] [SESSION_ID] [PROMPT], so flags
+    // stay first and the thread id slots in just before the prompt.
+    const resumeId = options?.resumeSessionId;
+    const args = resumeId
+      ? ["exec", "resume", "--json", "--skip-git-repo-check"]
+      : ["exec", "--json", "--skip-git-repo-check"];
 
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
@@ -48,6 +54,7 @@ export class CodexHarness implements Harness {
     const { imageArgs, rest } = splitForCodex(options?.attachments);
     args.push(...imageArgs);
 
+    if (resumeId) args.push(resumeId);
     args.push(`${attachmentPreamble(rest)}${prompt}`);
 
     return runHarness({
@@ -56,6 +63,10 @@ export class CodexHarness implements Harness {
       options,
       parser: new CodexParser(),
     });
+  }
+
+  supportsResume(): boolean {
+    return true;
   }
 
   isCompatible(model: string): boolean {
