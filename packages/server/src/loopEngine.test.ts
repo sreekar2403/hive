@@ -444,5 +444,90 @@ describe("falling back when a harness answers with silence", () => {
       expect(state.sessionId).toBe("ses_live_1");
       expect(state.sessionHarness).toBe("opencode");
     });
+
+    it("omits the history block when natively resuming", async () => {
+      let seenPrompt = "";
+      const engine = new LoopEngine(
+        resumeConfig(),
+        new Map<string, Harness>([
+          [
+            "opencode",
+            createMockHarness({
+              name: "opencode",
+              supportsResume: () => true,
+              execute: async (prompt) => {
+                seenPrompt = prompt;
+                return {
+                  success: true,
+                  exitCode: 0,
+                  stdout: "",
+                  stderr: "",
+                  output: "done",
+                  filesChanged: [],
+                  duration: 10,
+                };
+              },
+            }),
+          ],
+        ]),
+      );
+      const history = [
+        { role: "user", content: "earlier question" },
+        { role: "assistant", content: "earlier answer" },
+      ];
+      engine.start("do the follow-up");
+      await engine.run(async () => {}, undefined, undefined, null, {
+        harness: "opencode",
+        conversationHistory: history,
+        resume: { harness: "opencode", sessionId: "native-1" },
+      });
+
+      // The native session already holds the conversation — resending it
+      // as text would double-pay tokens for zero new context.
+      expect(seenPrompt).toContain("do the follow-up");
+      expect(seenPrompt).not.toContain("Conversation history");
+      expect(seenPrompt).not.toContain("earlier question");
+    });
+
+    it("keeps the history block on fresh runs", async () => {
+      let seenPrompt = "";
+      const engine = new LoopEngine(
+        resumeConfig(),
+        new Map<string, Harness>([
+          [
+            "opencode",
+            createMockHarness({
+              name: "opencode",
+              supportsResume: () => true,
+              execute: async (prompt) => {
+                seenPrompt = prompt;
+                return {
+                  success: true,
+                  exitCode: 0,
+                  stdout: "",
+                  stderr: "",
+                  output: "done",
+                  filesChanged: [],
+                  duration: 10,
+                };
+              },
+            }),
+          ],
+        ]),
+      );
+      const history = [
+        { role: "user", content: "earlier question" },
+        { role: "assistant", content: "earlier answer" },
+      ];
+      engine.start("same chat, different harness now");
+      await engine.run(async () => {}, undefined, undefined, null, {
+        harness: "opencode",
+        conversationHistory: history,
+        resume: { harness: "codex", sessionId: "native-9" },
+      });
+
+      expect(seenPrompt).toContain("Conversation history");
+      expect(seenPrompt).toContain("earlier question");
+    });
   });
 });

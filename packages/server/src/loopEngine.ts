@@ -183,12 +183,17 @@ export class LoopEngine {
       if (options?.signal?.aborted) break;
       this.state.iteration++;
 
-      // Build prompt with context
-      const prompt = this.buildPrompt();
-
-      // Route to harness
+      // Route before building: whether the history block is needed
+      // depends on which harness this iteration lands on — a resumed
+      // native session already holds the conversation, a fresh run does
+      // not. (Routing has no prompt dependency, so the order is free.)
       const decision = await this.route(pinnedHarness);
       const harness = this.harnesses.get(decision.harness);
+
+      // Build prompt with context
+      const prompt = this.buildPrompt(
+        this.resumeSessionIdFor(decision.harness) !== undefined,
+      );
 
       const iterationSpan =
         traced && taskId
@@ -426,15 +431,21 @@ export class LoopEngine {
     return this.state;
   }
 
-  private buildPrompt(): string {
+  private buildPrompt(resuming = false): string {
     const parts: string[] = [];
     if (this.preamble) parts.push(this.preamble);
 
-    // Include conversation history for context (only on first iteration).
+    // Include conversation history for context (only on first iteration,
+    // and never when natively resuming — the resumed session already
+    // holds the conversation, so the block would be pure token spend).
     // Fences use "===": with no preamble this block leads the prompt, and
     // the prompt is a positional CLI argument — a leading "---" would be
     // parsed as an unknown option, killing the run before it starts.
-    if (this.state.iteration === 1 && this.conversationHistory.length > 0) {
+    if (
+      !resuming &&
+      this.state.iteration === 1 &&
+      this.conversationHistory.length > 0
+    ) {
       parts.push("=== Conversation history ===");
       for (const msg of this.conversationHistory.slice(-8)) {
         parts.push(`${msg.role}: ${msg.content}`);
