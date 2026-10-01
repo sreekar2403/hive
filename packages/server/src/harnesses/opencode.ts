@@ -51,6 +51,13 @@ export class OpenCodeHarness implements Harness {
     if (model) args.push("--model", model);
     if (options?.agent) args.push("--agent", options.agent);
 
+    // Resume the chat's native session when asked (`-s` is the short
+    // form; the long form reads better next to the other flags). Placed
+    // before the positional prompt like every other flag.
+    if (options?.resumeSessionId) {
+      args.push("--session", options.resumeSessionId);
+    }
+
     // The prompt goes first, and the order is not cosmetic: `--file` is
     // declared variadic (`[array]`), so yargs keeps consuming positionals
     // after it. With the flag first, the prompt is swallowed as a second
@@ -70,6 +77,10 @@ export class OpenCodeHarness implements Harness {
       options,
       parser: new OpenCodeParser(),
     });
+  }
+
+  supportsResume(): boolean {
+    return true;
   }
 
   isCompatible(model: string): boolean {

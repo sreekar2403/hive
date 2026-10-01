@@ -41,6 +41,12 @@ export class GeminiHarness implements Harness {
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
 
+    // Resume a previous session by UUID (`-r` is the short form).
+    // Per the CLI reference this combines with `-p` for headless runs.
+    if (options?.resumeSessionId) {
+      args.push("--resume", options.resumeSessionId);
+    }
+
     // -p takes the prompt as its value, unlike the CLIs that accept it as a
     // trailing positional.
     args.push("-p", `${attachmentPreamble(options?.attachments)}${prompt}`);
@@ -51,6 +57,10 @@ export class GeminiHarness implements Harness {
       options,
       parser: new GeminiParser(),
     });
+  }
+
+  supportsResume(): boolean {
+    return true;
   }
 
   isCompatible(model: string): boolean {

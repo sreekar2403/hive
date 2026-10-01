@@ -110,16 +110,33 @@ describe("Harness interface contract", () => {
   });
 
   describe("resume support", () => {
-    it("harnesses without a verified resume mechanism report false", () => {
-      // supportsResume is optional; absent means the adapter must not be
-      // asked to resume. Until Task 5 lands, none of them declare it.
-      const harnesses: Harness[] = [
+    it("structured harnesses declare resume support, text CLIs do not", async () => {
+      const { CodexHarness } = await import("./codex");
+      const { GeminiHarness } = await import("./gemini");
+      const { CursorAgentHarness } = await import("./cursorAgent");
+      const { AiderHarness, CopilotHarness } = await import("./textCli");
+      const { OllamaDirectHarness } = await import("./ollamaDirect");
+
+      const resumable: Harness[] = [
         new ClaudeCodeHarness(),
         new OpenCodeHarness(),
         new PiHarness(),
+        new CodexHarness(),
+        new GeminiHarness(),
+        new CursorAgentHarness(),
       ];
+      for (const harness of resumable) {
+        expect(harness.supportsResume?.() ?? false).toBe(true);
+      }
 
-      for (const harness of harnesses) {
+      const freshOnly: Harness[] = [
+        new AiderHarness(),
+        new CopilotHarness(),
+        new OllamaDirectHarness(),
+      ];
+      for (const harness of freshOnly) {
+        // supportsResume is optional; absent means "no resume mechanism"
+        // and the LoopEngine runs those fresh.
         expect(harness.supportsResume?.() ?? false).toBe(false);
       }
     });
