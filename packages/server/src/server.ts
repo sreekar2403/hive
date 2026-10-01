@@ -48,6 +48,7 @@ import eventsRouter, { broadcast } from "./routes/events";
 import {
   appendMessage,
   ensureSession,
+  getHarnessSession,
   getSession,
   recentMessages,
 } from "./chatSessions";
@@ -194,6 +195,17 @@ class HiveServer {
             conversationHistory: recentMessages(session, 11)
               .slice(0, -1)
               .map((m) => ({ role: m.role, content: m.content })),
+            // Resume candidate for the chat's native session. Whether it
+            // is used is decided downstream where the actual harness is
+            // known: the LoopEngine resumes only when the run lands on
+            // the same harness (a switch runs fresh), and only when the
+            // adapter declares a verified resume mechanism.
+            resume: (() => {
+              const stored = getHarnessSession(session);
+              return stored
+                ? { harness: stored.harness, sessionId: stored.nativeSessionId }
+                : null;
+            })(),
           },
         );
 

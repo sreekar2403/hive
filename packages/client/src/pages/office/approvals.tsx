@@ -17,6 +17,8 @@ export interface PendingPermission {
   description: string;
   command?: string;
   timestamp: number;
+  /** Server deadline for an answer; absent on older payloads. */
+  timeoutAt?: number;
 }
 
 type Subscriber = (list: PendingPermission[]) => void;
@@ -27,6 +29,13 @@ export class ApprovalsStore {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Guards against overlapping polls stomping fresher data. */
   private inflight = false;
+
+  /**
+   * When set, only this chat's requests are fetched — the chat window's
+   * inline approval pane. Unset fetches everything (Office Floor,
+   * Permissions page). Approve/deny endpoints are identical either way.
+   */
+  constructor(private readonly sessionId?: string) {}
 
   snapshot(): PendingPermission[] {
     return this.pending;
@@ -45,7 +54,10 @@ export class ApprovalsStore {
     if (this.inflight) return;
     this.inflight = true;
     try {
-      const list = await API.get<PendingPermission[]>("/api/permissions");
+      const path = this.sessionId
+        ? `/api/permissions?sessionId=${encodeURIComponent(this.sessionId)}`
+        : "/api/permissions";
+      const list = await API.get<PendingPermission[]>(path);
       this.pending = Array.isArray(list) ? list : [];
       this.emit();
     } catch {

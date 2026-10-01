@@ -134,7 +134,9 @@ export function CardHeader({
       )}
     >
       <div className="min-w-0">
-        {eyebrow ? <div className="eyebrow mb-1">{eyebrow}</div> : null}
+        {eyebrow ? (
+          <div className="eyebrow mb-1 truncate">{eyebrow}</div>
+        ) : null}
         <div className="text-sm font-semibold text-ink truncate">{title}</div>
       </div>
       {actions ? (

@@ -11,12 +11,25 @@ import { describeHarnesses, harnessProfile } from "./harnesses/profiles";
 import type { SoulRoutingGuidance } from "./secondBrain/starterSoul";
 import { log } from "./telemetry";
 import { extractJsonObject } from "./llmJson";
+import { getClassifier } from "./classifiers";
+import {
+  mapCategoryToHarness,
+  SubprocessLayaPredictor,
+  type LayaPredictor,
+} from "./laya";
 
 /** RoutingDecision enriched with the layer that decided and how sure it was. */
 export interface RoutingResult extends RoutingDecision {
   /** Which layer decided: useful in the logs when a route looks surprising. */
   strategy?:
-    "soul" | "llm" | "rule" | "learned" | "semantic" | "default" | "fallback";
+    | "soul"
+    | "llm"
+    | "laya"
+    | "rule"
+    | "learned"
+    | "semantic"
+    | "default"
+    | "fallback";
   /** The task type this prompt was classified as. */
   category?: string;
   /** 0…1 — how sure the deciding layer was. Rules are certain by fiat. */
@@ -29,6 +42,16 @@ export interface RoutingResult extends RoutingDecision {
   modelId?: string;
   /** Agent/persona to run under, where the chosen CLI supports one. */
   agent?: string;
+  /** Advisory Laya risk flags; never blocks by itself. */
+  riskFlags?: string[];
+  /** Laya second-opinion detail when the verifier ran. */
+  laya?: {
+    category: string;
+    categoryConfidence: number;
+    risk: number;
+    destructive: number;
+    agrees: boolean;
+  };
 }
 
 /** Extra context a caller can hand the router. All of it is optional. */
@@ -224,7 +247,11 @@ export class Router {
     null;
   private routingModelResolved = false;
 
-  constructor(config: Config, harnesses: Map<string, Harness>) {
+  constructor(
+    config: Config,
+    harnesses: Map<string, Harness>,
+    private laya?: LayaPredictor,
+  ) {
     this.config = config;
     this.harnesses = harnesses;
   }
@@ -235,18 +262,22 @@ export class Router {
    *
    *   1. **soul** — an explicit `category → harness` pin in soul.md. The
    *      user wrote it down, so nothing else gets a vote.
-   *   2. **llm** — a model reads the prompt against the harness profiles,
+   *   2. **laya-fast** — a local Laya decision model answers typed questions
+   *      in one forward pass. High confidence skips the LLM entirely.
+   *   3. **llm** — a model reads the prompt against the harness profiles,
    *      the live model catalogue, *and* the free-text preferences from
-   *      soul.md, and chooses across every provider.
-   *   3. **rules / semantic / default** — the old keyword cascade, now a
+   *      soul.md, and chooses across every provider. Optionally checked by
+   *      **laya-verify**.
+   *   4. **rules / semantic / default** — the old keyword cascade, now a
    *      last resort rather than the primary path: it only decides when
    *      there is no model available to think with.
    *
    * The ordering is the point. Routing is defined by what the user said in
-   * soul.md; where they said nothing, it is decided by a model reading the
-   * task; keyword matching alone never decides unless nothing else can.
+   * soul.md; where they said nothing, a fast local decision is tried first,
+   * then a model reading the task; keyword matching alone never decides
+   * unless nothing else can.
    *
-   * Learned Second Brain evidence is applied on top of layers 2 and 3 and
+   * Learned Second Brain evidence is applied on top of layers 2–4 and
    * can re-point them — but never overrides an explicit soul.md pin, and
    * never invents a route from nothing.
    */
@@ -280,19 +311,32 @@ export class Router {
     const pinned = this.soulRoute(soul, category, available);
     if (pinned) return pinned;
 
-    // 2. A model decides, with soul.md's free-text preferences in hand.
+    // 2. Classifier fast-lane: a local decision model, no LLM spend on hits.
+    //    Uses the pluggable HiveClassifier (laya by default). Falls through
+    //    silently on timeout/abstain/disabled so routing continues safely.
+    if (available.length > 1 && this.classifierEnabled()) {
+      const fast = await this.classifierFast(query, available);
+      if (fast) {
+        this.writeCache(query, available, fast);
+        return this.applyHints(fast, available, hints);
+      }
+    }
+
+    // 3. A model decides, with soul.md's free-text preferences in hand.
     if (!options.noLlm) {
       const cached = this.readCache(query, available);
       if (cached) return this.applyHints(cached, available, hints);
 
       const llm = await this.llmRoute(query, available, soul);
       if (llm) {
-        this.writeCache(query, available, llm);
-        return this.applyHints(llm, available, hints);
+        const verified = await this.classifierVerify(llm, query, available);
+        const finalDecision = verified ?? llm;
+        this.writeCache(query, available, finalDecision);
+        return this.applyHints(finalDecision, available, hints);
       }
     }
 
-    // 3. Keywords, only because nothing better could answer.
+    // 4. Keywords, only because nothing better could answer.
     return this.applyHints(
       this.heuristicRoute(query, available, category),
       available,
@@ -338,6 +382,160 @@ export class Router {
   /** The task type a prompt looks like, by the same rules the brain uses. */
   classify(query: string): string {
     return categorize(query, this.config.routing.rules ?? []);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* The Laya layers                                                     */
+  /* ------------------------------------------------------------------ */
+
+  /** Fast-lane runs when a backend is selected or legacy laya is enabled. */
+  private classifierEnabled(): boolean {
+    if (this.laya) return true;
+    const backend = this.effectiveClassifierBackend();
+    return backend !== "off";
+  }
+
+  /**
+   * Backend actually used: explicit `routing.classifier.backend`, falling
+   * back to `"laya"` when only the legacy `routing.laya.enabled` flag is
+   * set (old configs/tests that never heard of the classifier block).
+   * Default configs ship both off → "off".
+   */
+  private effectiveClassifierBackend(): string {
+    const backend = this.config.routing.classifier?.backend ?? "off";
+    if (backend !== "off") return backend;
+    if (this.config.routing.laya?.enabled) return "laya";
+    return "off";
+  }
+
+  private layaPredictor(): LayaPredictor {
+    return (
+      this.laya ??
+      new SubprocessLayaPredictor(this.config.routing.laya?.timeoutMs ?? 1500)
+    );
+  }
+
+  /**
+   * Fast-lane: high-confidence classifier category skips the LLM call.
+   * Uses the pluggable HiveClassifier (laya by default). Returns null on
+   * every failure so routing falls through safely. Cached on prompt +
+   * harness-set (existing cacheTtlMs).
+   */
+  private async classifierFast(
+    query: string,
+    available: string[],
+  ): Promise<RoutingResult | null> {
+    const backend = this.effectiveClassifierBackend();
+    const threshold =
+      this.config.routing.laya?.minConfidence ??
+      this.config.routing.classifier?.minConfidence ??
+      0.85;
+    // Prefer injected predictor in tests; otherwise use registry backend.
+    const timeoutMs = this.config.routing.classifier?.timeoutMs ?? 1500;
+    try {
+      const pred = this.laya
+        ? await this.laya.predict(query).catch(() => null)
+        : await getClassifier(backend, timeoutMs).predict(query).catch(() => null);
+      if (!pred) return null;
+      if (pred.categoryConfidence < threshold) return null;
+      const harness = mapCategoryToHarness(
+        pred.category,
+        available,
+        this.config.routing.default,
+      );
+      if (!available.includes(harness)) return null;
+      // needsStrongModel tier mapping (only applies when llm.selectModel is on
+      // and no harness/provider/model was pinned by the composer).
+      const needsStrong = pred.needsStrongModel;
+      const tier = needsStrong >= 1.2 ? "strong" : needsStrong <= 0.6 ? "fast" : "default";
+      return {
+        harness,
+        model: this.getDefaultModel(harness),
+        reasoning: `classifier-fast category ${pred.category} (conf ${pred.categoryConfidence.toFixed(2)}, tier ${tier})`,
+        strategy: "laya",
+        category: pred.category,
+        confidence: Math.max(0, Math.min(1, pred.categoryConfidence)),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Verifier: second opinion after the LLM. Agreement boosts confidence;
+   * high-confidence disagreement caps confidence. Risk/destructive signals
+   * are advisory only — `permission.gateOn` + `runtimeGuard.ts` own blocking.
+   * Never fails the task — returns null to keep the LLM decision.
+   */
+  private async classifierVerify(
+    llm: RoutingResult,
+    query: string,
+    available: string[],
+  ): Promise<RoutingResult | null> {
+    const settings = this.config.routing.classifier;
+    if (!settings || settings.backend === "off") return null;
+    // Respect legacy opt-in for verify layer.
+    if (!this.config.routing.layaVerify?.enabled) return null;
+    let pred = null;
+    const timeoutMs = settings.timeoutMs ?? 1500;
+    try {
+      pred = this.laya
+        ? await this.laya.predict(query).catch(() => null)
+        : await getClassifier(settings.backend ?? "laya", timeoutMs).predict(query).catch(() => null);
+    } catch {
+      return null;
+    }
+    if (!pred) return null;
+
+    const riskFlags: string[] = [];
+    if (this.config.routing.layaVerify?.advisoryRisk) {
+      if (pred.destructive >= 0.7)
+        riskFlags.push(`classifier:destructive ${pred.destructive.toFixed(2)}`);
+      if (pred.risk >= 1.6) riskFlags.push(`classifier:risk ${pred.risk.toFixed(2)}`);
+    }
+
+    const agrees =
+      (llm.category && pred.category === llm.category) ||
+      (!llm.category &&
+        mapCategoryToHarness(
+          pred.category,
+          available,
+          this.config.routing.default,
+        ) === llm.harness);
+
+    const layaDetail = {
+      category: pred.category,
+      categoryConfidence: pred.categoryConfidence,
+      risk: pred.risk,
+      destructive: pred.destructive,
+      agrees,
+    };
+
+    if (agrees) {
+      return {
+        ...llm,
+        reasoning: `${llm.reasoning} (classifier confirms ${pred.category} ${pred.categoryConfidence.toFixed(2)})`,
+        confidence: Math.min(1, (llm.confidence ?? 0.5) + 0.15),
+        riskFlags: riskFlags.length ? riskFlags : undefined,
+        laya: layaDetail,
+      };
+    }
+
+    if (pred.categoryConfidence >= (this.config.routing.layaVerify?.disagreeThreshold ?? 0.85)) {
+      log("warn", "router", "Classifier disagrees with LLM route", {
+        context: { llm: llm.harness, classifier: pred.category },
+      });
+      // High-conf disagreement caps confidence so the UI shows uncertainty.
+      return {
+        ...llm,
+        confidence: Math.min(llm.confidence ?? 0.5, 0.6),
+        riskFlags: riskFlags.length ? riskFlags : undefined,
+        laya: layaDetail,
+      };
+    }
+
+    if (riskFlags.length) return { ...llm, riskFlags, laya: layaDetail };
+    return null;
   }
 
   /* ------------------------------------------------------------------ */

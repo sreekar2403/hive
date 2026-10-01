@@ -169,6 +169,28 @@ export interface LlmRoutingConfig {
   cacheTtlMs: number;
 }
 
+export interface LayaFastConfig {
+  enabled: boolean;
+  /** Category confidence at or above this skips the LLM call. */
+  minConfidence: number;
+  /** Give up and fall through to the LLM/heuristics after this long. */
+  timeoutMs: number;
+  /** Laya checkpoint: "english" (default) or "multilingual". */
+  model: string;
+}
+
+export interface LayaVerifyConfig {
+  enabled: boolean;
+  /** Laya category confidence that triggers one LLM retry on disagreement. */
+  disagreeThreshold: number;
+  /** Retry the LLM once with the Laya category as a hint. */
+  retryOnce: boolean;
+  /** Attach risk/destructive advisory flags to the span. */
+  advisoryRisk: boolean;
+  /** Give up verification after this long and keep the LLM decision. */
+  timeoutMs: number;
+}
+
 export interface Config {
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
@@ -184,6 +206,14 @@ export interface Config {
      */
     llmModel: string;
     llm: LlmRoutingConfig;
+    laya: LayaFastConfig;
+    layaVerify: LayaVerifyConfig;
+    classifier: {
+      backend: "laya" | "gliner-decide" | "off";
+      model: string;
+      minConfidence: number;
+      timeoutMs: number;
+    };
   };
   /**
    * Local model servers, reached directly over HTTP rather than through a
@@ -440,6 +470,28 @@ export function loadConfig(configPath?: string): Config {
     config.routing.llm.model = config.routing.llmModel;
   }
 
+  // Migration: `routing.laya` and `routing.layaVerify` predate the unified
+  // `routing.classifier` block. Merge them so older configs keep working.
+  if (!config.routing.classifier) {
+    const laya = config.routing.laya;
+    const layaVerify = config.routing.layaVerify;
+    if (laya?.enabled || layaVerify?.enabled) {
+      config.routing.classifier = {
+        backend: "laya",
+        minConfidence: laya?.minConfidence ?? 0.85,
+        timeoutMs: laya?.timeoutMs ?? 1500,
+        model: laya?.model ?? "english",
+      };
+    } else {
+      config.routing.classifier = {
+        backend: "off",
+        minConfidence: 0.85,
+        timeoutMs: 1500,
+        model: "english",
+      };
+    }
+  }
+
   cachedConfig = config;
   return config;
 }
@@ -669,6 +721,25 @@ export function createDefaultConfig(): Config {
         timeoutMs: 20000,
         minConfidence: 0.5,
         cacheTtlMs: 5 * 60 * 1000,
+      },
+      laya: {
+        enabled: false,
+        minConfidence: 0.85,
+        timeoutMs: 1500,
+        model: "english",
+      },
+      classifier: {
+        backend: "off",
+        model: "english",
+        minConfidence: 0.85,
+        timeoutMs: 1500,
+      },
+      layaVerify: {
+        enabled: false,
+        disagreeThreshold: 0.85,
+        retryOnce: true,
+        advisoryRisk: true,
+        timeoutMs: 1500,
       },
     },
     permission: {

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, XCircle, FileText, RefreshCw } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  FileText,
+  RefreshCw,
+  ChevronDown,
+} from "lucide-react";
 import { API } from "../../lib/api";
 import { Badge, Button, Card, CardHeader } from "../../components/ui";
 import { cn } from "../../lib/cn";
@@ -31,6 +37,10 @@ export function SoulSuggestions({
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Collapsed by default: a learning batch can leave dozens pending and
+  // an always-open list would flood the conversation. The pending count
+  // stays visible in the header so nothing is missed.
+  const [open, setOpen] = useState(false);
 
   const fetchSuggestions = useCallback(async () => {
     setLoading(true);
@@ -59,7 +69,14 @@ export function SoulSuggestions({
   const approve = async (id: string) => {
     const scope = projectId ? "project" : "global";
     try {
-      await API.post(`/api/brain/suggestions/${id}/approve`, { scope });
+      // projectId is load-bearing: the server resolves the brain (and its
+      // suggestion store) from it. Without it the request lands on the
+      // server's own brain, finds nothing, answers 404, and the card
+      // silently stays pending no matter how often it is approved.
+      await API.post(`/api/brain/suggestions/${id}/approve`, {
+        scope,
+        projectId: projectId ?? undefined,
+      });
       fetchSuggestions();
       onRefresh?.();
     } catch (err) {
@@ -70,7 +87,11 @@ export function SoulSuggestions({
   const reject = async (id: string) => {
     const scope = projectId ? "project" : "global";
     try {
-      await API.post(`/api/brain/suggestions/${id}/reject`, { scope });
+      // Same projectId requirement as approve above.
+      await API.post(`/api/brain/suggestions/${id}/reject`, {
+        scope,
+        projectId: projectId ?? undefined,
+      });
       fetchSuggestions();
     } catch (err) {
       console.error("Failed to reject suggestion:", err);
@@ -124,49 +145,93 @@ export function SoulSuggestions({
           <Button
             size="sm"
             variant="ghost"
-            onClick={fetchSuggestions}
-            disabled={loading}
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            aria-label={
+              open ? "Collapse suggestions" : "Expand suggestions"
+            }
           >
-            <RefreshCw
-              className={loading ? "size-3.5 animate-spin" : "size-3.5"}
+            {suggestions.pending.length > 0
+              ? `${suggestions.pending.length} pending`
+              : "Show"}
+            <ChevronDown
+              className={cn(
+                "size-3.5 transition-transform",
+                open && "rotate-180",
+              )}
             />
-            Refresh
           </Button>
         }
       />
-      <div className="p-4 space-y-3">
-        {suggestions.pending.length > 0 && (
-          <div>
-            <h3 className="text-sm font-medium text-ink mb-2">
-              Pending ({suggestions.pending.length})
-            </h3>
-            {suggestions.pending.map((s) => (
-              <SuggestionCard
-                key={s.id}
-                suggestion={s}
-                onApprove={approve}
-                onReject={reject}
-              />
-            ))}
-          </div>
-        )}
+      {open && (
+        <div className="p-4 space-y-3">
+          {suggestions.pending.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-medium text-ink">
+                  Pending ({suggestions.pending.length})
+                </h3>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={fetchSuggestions}
+                  disabled={loading}
+                  aria-label="Refresh suggestions"
+                >
+                  <RefreshCw
+                    className={
+                      loading ? "size-3.5 animate-spin" : "size-3.5"
+                    }
+                  />
+                  Refresh
+                </Button>
+              </div>
+              {suggestions.pending.map((s) => (
+                <SuggestionCard
+                  key={s.id}
+                  suggestion={s}
+                  onApprove={approve}
+                  onReject={reject}
+                />
+              ))}
+            </div>
+          )}
 
-        {suggestions.resolved.length > 0 && (
-          <div>
-            <h3 className="text-sm font-medium text-ink mb-2">
-              Resolved ({suggestions.resolved.length})
-            </h3>
-            {suggestions.resolved.slice(0, 10).map((s) => (
-              <SuggestionCard
-                key={s.id}
-                suggestion={s}
-                onApprove={approve}
-                onReject={reject}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+          {suggestions.resolved.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-medium text-ink">
+                  Resolved ({suggestions.resolved.length})
+                </h3>
+                {suggestions.pending.length === 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={fetchSuggestions}
+                    disabled={loading}
+                    aria-label="Refresh suggestions"
+                  >
+                    <RefreshCw
+                      className={
+                        loading ? "size-3.5 animate-spin" : "size-3.5"
+                      }
+                    />
+                    Refresh
+                  </Button>
+                )}
+              </div>
+              {suggestions.resolved.slice(0, 10).map((s) => (
+                <SuggestionCard
+                  key={s.id}
+                  suggestion={s}
+                  onApprove={approve}
+                  onReject={reject}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
@@ -189,9 +254,9 @@ function SuggestionCard({
         isPending && "border-accent-line bg-accent-soft",
       )}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <Badge
               tone={
                 suggestion.status === "approved"
@@ -212,7 +277,7 @@ function SuggestionCard({
           <p className="text-[11px] text-muted mt-1">{suggestion.rationale}</p>
         </div>
         {isPending && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
             <Button
               size="sm"
               variant="primary"

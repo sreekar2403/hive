@@ -56,6 +56,9 @@ pnpm-debug.log*
 # Temporary
 .tmp/
 tmp/
+.worktrees/
+brag-output/
+brag-output-*/
 
 # Agent/skill related directories and files - keep docs/ tracked for OSS, ignore only ephemeral agent state
 .hive/
@@ -72,6 +75,8 @@ CLAUDE.md
 
 # Superpowers specs/plans (entire directory) — keep top-level docs/ tracked
 docs/superpowers/
+docs/laya-router/
+
 
 # Agent skills and prompts directories
 .agent/

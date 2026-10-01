@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { HarnessAttachment } from "@hive/shared/harness";
 import { OpenCodeHarness } from "./opencode";
+import { ClaudeCodeHarness } from "./claudeCode";
 import { CodexHarness } from "./codex";
+import { GeminiHarness } from "./gemini";
+import { CursorAgentHarness } from "./cursorAgent";
+import { PiHarness } from "./pi";
 import * as runner from "./runner";
 
 /**
@@ -81,5 +85,72 @@ describe("codex arguments", () => {
     expect(captured).not.toContain("--image");
     // It still has to reach the agent, so it is named in the prompt.
     expect(captured.some((a) => a.includes("C:/tmp/rows.csv"))).toBe(true);
+  });
+});
+
+describe("resume arguments", () => {
+  // One native session per chat+harness: the second turn on the same
+  // harness resumes it, a harness switch (no resumeSessionId passed)
+  // starts fresh. Flags verified against the real CLIs (Task 1 matrix).
+  it("claude adds --resume only when resuming", async () => {
+    await new ClaudeCodeHarness().execute("go");
+    expect(captured).not.toContain("--resume");
+
+    await new ClaudeCodeHarness().execute("go", { resumeSessionId: "ses_1" });
+    const i = captured.indexOf("--resume");
+    expect(i).toBeGreaterThan(-1);
+    expect(captured[i + 1]).toBe("ses_1");
+  });
+
+  it("opencode adds --session only when resuming, before the prompt", async () => {
+    await new OpenCodeHarness().execute("go");
+    expect(captured).not.toContain("--session");
+
+    await new OpenCodeHarness().execute("go", { resumeSessionId: "ses_2" });
+    const flag = captured.indexOf("--session");
+    expect(flag).toBeGreaterThan(-1);
+    expect(captured[flag + 1]).toBe("ses_2");
+    // Flags stay before the positional prompt (variadic --file rule above).
+    expect(flag).toBeLessThan(captured.indexOf("go"));
+  });
+
+  it("codex uses the resume subcommand with the thread id", async () => {
+    await new CodexHarness().execute("go");
+    expect(captured.slice(0, 2)).toEqual(["exec", "--json"]);
+
+    await new CodexHarness().execute("go", { resumeSessionId: "thr_1" });
+    expect(captured.slice(0, 3)).toEqual(["exec", "resume", "--json"]);
+    expect(captured).toContain("thr_1");
+    expect(captured).toContain("--skip-git-repo-check");
+  });
+
+  it("pi adds --session only when resuming", async () => {
+    await new PiHarness().execute("go");
+    expect(captured).not.toContain("--session");
+
+    await new PiHarness().execute("go", { resumeSessionId: "pi_ses_3" });
+    const i = captured.indexOf("--session");
+    expect(i).toBeGreaterThan(-1);
+    expect(captured[i + 1]).toBe("pi_ses_3");
+  });
+
+  it("gemini adds --resume only when resuming", async () => {
+    await new GeminiHarness().execute("go");
+    expect(captured).not.toContain("--resume");
+
+    await new GeminiHarness().execute("go", { resumeSessionId: "gem_4" });
+    const i = captured.indexOf("--resume");
+    expect(i).toBeGreaterThan(-1);
+    expect(captured[i + 1]).toBe("gem_4");
+  });
+
+  it("cursor-agent adds --resume only when resuming", async () => {
+    await new CursorAgentHarness().execute("go");
+    expect(captured).not.toContain("--resume");
+
+    await new CursorAgentHarness().execute("go", { resumeSessionId: "cur_5" });
+    const i = captured.indexOf("--resume");
+    expect(i).toBeGreaterThan(-1);
+    expect(captured[i + 1]).toBe("cur_5");
   });
 });

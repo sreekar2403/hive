@@ -32,6 +32,12 @@ export class PiHarness implements Harness {
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
 
+    // Resume the chat's native session when asked. `--session` takes a
+    // session file path or partial UUID — the id the session line reports.
+    if (options?.resumeSessionId) {
+      args.push("--session", options.resumeSessionId);
+    }
+
     args.push(`${attachmentPreamble(options?.attachments)}${prompt}`);
 
     return runHarness({
@@ -40,6 +46,10 @@ export class PiHarness implements Harness {
       options,
       parser: new PiParser(),
     });
+  }
+
+  supportsResume(): boolean {
+    return true;
   }
 
   isCompatible(model: string): boolean {

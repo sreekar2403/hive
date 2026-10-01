@@ -19,6 +19,15 @@ export interface StreamParser {
   /** The readable answer assembled from the stream. */
   finalText(): string;
   usage(): HarnessUsage | undefined;
+  /**
+   * The native session this run lived in, in the CLI's own id notation.
+   *
+   * Optional: plain-text parsers have no session concept and omit it.
+   * Null until the stream names one — which every structured CLI does
+   * (each in its own spelling; see the per-parser notes), so a chat's
+   * next turn can resume it.
+   */
+  sessionId?(): string | null;
 }
 
 const MAX_DETAIL = 160;
@@ -51,6 +60,13 @@ abstract class NdjsonParser implements StreamParser {
   protected texts: string[] = [];
   protected finalOverride: string | null = null;
   protected totals: HarnessUsage | undefined;
+  /** The native session id seen so far, if the stream has named one. */
+  protected seenSessionId: string | null = null;
+
+  /** A non-empty string id, else null — session fields vary by CLI. */
+  protected static sessionString(value: unknown): string | null {
+    return typeof value === "string" && value ? value : null;
+  }
 
   push(chunk: string): HarnessEvent[] {
     this.buffer += chunk;
@@ -94,6 +110,10 @@ abstract class NdjsonParser implements StreamParser {
   usage(): HarnessUsage | undefined {
     return this.totals;
   }
+
+  sessionId(): string | null {
+    return this.seenSessionId;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -111,6 +131,14 @@ export class OpenCodeParser extends NdjsonParser {
   private seenTools = new Set<string>();
 
   protected handle(entry: any): HarnessEvent[] {
+    // Live shape: {"type":"error",…,"sessionID":"ses_…"} — present even
+    // on failures, which is what makes a failed first turn resumable.
+    const session =
+      NdjsonParser.sessionString(entry?.sessionID) ??
+      NdjsonParser.sessionString(entry?.sessionId) ??
+      NdjsonParser.sessionString(entry?.session_id);
+    if (session) this.seenSessionId = session;
+
     const part = entry?.part ?? {};
     const kind = entry?.type ?? part?.type;
 
@@ -199,6 +227,11 @@ export class OpenCodeParser extends NdjsonParser {
  */
 export class ClaudeCodeParser extends NdjsonParser {
   protected handle(entry: any): HarnessEvent[] {
+    // Every stream-json line carries session_id (system/init, assistant,
+    // result alike) — confirmed against a live run.
+    const session = NdjsonParser.sessionString(entry?.session_id);
+    if (session) this.seenSessionId = session;
+
     switch (entry?.type) {
       case "system":
         if (entry.subtype !== "init") return [];
@@ -290,6 +323,16 @@ export class ClaudeCodeParser extends NdjsonParser {
  */
 export class PiParser extends NdjsonParser {
   protected handle(entry: any): HarnessEvent[] {
+    // The session id arrives once, up front:
+    //   {"type":"session","version":3,"id":"…",…}
+    // Only that line is read — message lines carry their own `id`
+    // fields that name messages, not sessions.
+    if (entry?.type === "session") {
+      const session = NdjsonParser.sessionString(entry?.id);
+      if (session) this.seenSessionId = session;
+      return [];
+    }
+
     if (entry?.type !== "message_end") return [];
 
     const message = entry.message ?? {};
@@ -372,6 +415,15 @@ export class PiParser extends NdjsonParser {
 export class CodexParser extends NdjsonParser {
   protected handle(entry: any): HarnessEvent[] {
     const msg = entry?.msg ?? entry;
+
+    // Live shape: {"type":"thread.started","thread_id":"…"} (newer
+    // builds emit events unwrapped; older ones nest them under `msg` —
+    // both are covered by reading through `msg`).
+    // That id is what `codex exec resume <id>` takes.
+    const session =
+      NdjsonParser.sessionString(msg?.thread_id) ??
+      NdjsonParser.sessionString(entry?.thread_id);
+    if (session) this.seenSessionId = session;
 
     switch (msg?.type) {
       case "task_started":
@@ -508,6 +560,15 @@ export class CodexParser extends NdjsonParser {
  */
 export class GeminiParser extends NdjsonParser {
   protected handle(entry: any): HarnessEvent[] {
+    // No session field has been observed in the output envelope yet
+    // ({response, stats}); this is opportunistic so a future CLI that
+    // reports one starts resuming without a parser change. `id` is
+    // deliberately not read — too generic to trust blindly.
+    const session =
+      NdjsonParser.sessionString(entry?.session_id) ??
+      NdjsonParser.sessionString(entry?.sessionId);
+    if (session) this.seenSessionId = session;
+
     const events: HarnessEvent[] = [];
 
     if (entry?.error) {

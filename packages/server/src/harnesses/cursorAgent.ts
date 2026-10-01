@@ -41,6 +41,12 @@ export class CursorAgentHarness implements Harness {
     const model = options?.model || this._model;
     if (model) args.push("--model", model);
 
+    // Resume a chat session by id (`--continue` resumes the latest, which
+    // is wrong for per-chat mapping — the stored id is always named).
+    if (options?.resumeSessionId) {
+      args.push("--resume", options.resumeSessionId);
+    }
+
     args.push(`${attachmentPreamble(options?.attachments)}${prompt}`);
 
     return runHarness({
@@ -49,6 +55,10 @@ export class CursorAgentHarness implements Harness {
       options,
       parser: new CursorAgentParser(),
     });
+  }
+
+  supportsResume(): boolean {
+    return true;
   }
 
   isCompatible(model: string): boolean {

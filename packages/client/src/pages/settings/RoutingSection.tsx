@@ -1,5 +1,14 @@
-import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Eye, Plus, Route, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Eye,
+  Plus,
+  Route,
+  Sparkles,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import {
   Badge,
   Button,
@@ -12,10 +21,13 @@ import {
   Switch,
 } from "../../components/ui";
 import { cn } from "../../lib/cn";
+import { API } from "../../lib/api";
 import { useModelCatalog, type ModelOption } from "../../state/useModelCatalog";
 import {
   HARNESS_IDS,
   HARNESS_LABELS,
+  type ClassifierConfig,
+  type LlmRoutingConfig,
   type RoutingRule,
   type SettingsConfig,
 } from "./types";
@@ -91,6 +103,106 @@ export function RoutingSection({
     [probe, rules],
   );
 
+  /**
+   * LLM + classifier blocks may be absent in configs written before they
+   * existed — fall back to the server defaults and create the block on
+   * first edit, so an old config never crashes this section.
+   */
+  const llm: LlmRoutingConfig = draft.routing.llm ?? {
+    enabled: true,
+    model: "",
+    selectModel: true,
+    timeoutMs: 20000,
+    minConfidence: 0.5,
+    cacheTtlMs: 300000,
+  };
+  const classifier: ClassifierConfig = draft.routing.classifier ?? {
+    backend: "off",
+    minConfidence: 0.85,
+    timeoutMs: 1500,
+    model: "english",
+  };
+
+  const patchLlm = (p: Partial<LlmRoutingConfig>) =>
+    onChange((prev) => ({
+      ...prev,
+      routing: { ...prev.routing, llm: { ...(prev.routing.llm ?? llm), ...p } },
+    }));
+
+  const patchClassifier = (p: Partial<ClassifierConfig>) =>
+    onChange((prev) => ({
+      ...prev,
+      routing: {
+        ...prev.routing,
+        classifier: { ...(prev.routing.classifier ?? classifier), ...p },
+      },
+    }));
+
+  /** Routing-model candidates for the LLM layer (small/fast first). */
+  const routingModels = useMemo(
+    () =>
+      [...catalog.options].sort(
+        (a, b) => (a.contextLabel ?? "").localeCompare(b.contextLabel ?? ""),
+      ),
+    [catalog.options],
+  );
+
+  /**
+   * Full layer trace for the probe, in the server's own order
+   * (Router.route): soul pin? → classifier fast-lane → LLM → rules →
+   * semantic → default. Display-only — the server remains authoritative.
+   */
+  const layerTrace = useMemo(
+    () =>
+      probe.trim()
+        ? explainRoute(probe, rules, {
+            llmEnabled: llm.enabled,
+            llmModel: llm.model,
+            classifierBackend: classifier.backend,
+            classifierConfidence: classifier.minConfidence,
+            defaultHarness: draft.routing.default,
+          })
+        : null,
+    [
+      probe,
+      rules,
+      llm.enabled,
+      llm.model,
+      classifier.backend,
+      classifier.minConfidence,
+      draft.routing.default,
+    ],
+  );
+
+  /** Learned Second Brain hints for the probe (read-only scorecard). */
+  const [hints, setHints] = useState<
+    Array<{ harness: string; successRate: number; samples: number }> | null
+  >(null);
+  useEffect(() => {
+    const q = probe.trim();
+    if (!q) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHints(null);
+      return;
+    }
+    let live = true;
+    const timer = setTimeout(() => {
+      API.get<{ hints: Array<{ harness: string; successRate: number; samples: number }> }>(
+        `/api/brain/routing?q=${encodeURIComponent(q)}`,
+      )
+        .then((data) => {
+          if (live) setHints(data.hints ?? []);
+        })
+        .catch(() => {
+          if (live) setHints(null);
+        });
+    }, 400);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [probe]);
+
   const setRules = (next: RoutingRule[]) =>
     onChange((prev) => ({
       ...prev,
@@ -137,7 +249,192 @@ export function RoutingSection({
       </p>
 
       <Card>
-        <CardHeader eyebrow="Try it" title="Which rule would a prompt reach?" />
+        <CardHeader eyebrow="Model layer" title="LLM routing" />
+        <div className="px-4 pb-4 flex flex-col gap-3">
+          <p className="text-[12px] text-faint max-w-[62ch]">
+            When no <span className="font-mono">soul.md</span> pin or fast-lane
+            hit decides, a small model reads the task and picks the harness,
+            model and persona. Leave the model empty to auto-pick the smallest
+            capable one — routing is classification, not work for a frontier
+            model.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Switch
+              checked={llm.enabled}
+              onChange={(v) => patchLlm({ enabled: v })}
+              label="Enable LLM routing"
+            />
+            <span className="text-[12px] text-muted">
+              {llm.enabled ? "On — a model decides" : "Off — keywords only"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 max-w-2xl">
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Routing model</span>
+              <Select
+                className="h-8 font-mono text-[12px]"
+                value={llm.model}
+                onChange={(e) => patchLlm({ model: e.target.value })}
+                aria-label="Routing model"
+                disabled={!llm.enabled}
+              >
+                <option value="">Automatic (smallest capable)</option>
+                {routingModels.map((m) => (
+                  <option key={m.id} value={m.ref}>
+                    {m.provider}/{m.model}
+                    {m.contextLabel ? ` · ${m.contextLabel}` : ""}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Min confidence</span>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                className="h-8 font-mono text-[12px]"
+                value={llm.minConfidence}
+                onChange={(e) =>
+                  patchLlm({ minConfidence: Number(e.target.value) })
+                }
+                aria-label="LLM minimum confidence"
+                disabled={!llm.enabled}
+              />
+            </label>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Switch
+              checked={llm.selectModel}
+              onChange={(v) => patchLlm({ selectModel: v })}
+              label="Let the router choose the model, not only the CLI"
+              disabled={!llm.enabled}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3 max-w-2xl">
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Timeout (ms)</span>
+              <Input
+                type="number"
+                min={1000}
+                step={1000}
+                className="h-8 font-mono text-[12px]"
+                value={llm.timeoutMs}
+                onChange={(e) => patchLlm({ timeoutMs: Number(e.target.value) })}
+                aria-label="LLM routing timeout"
+                disabled={!llm.enabled}
+              />
+            </label>
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Decision cache (ms)</span>
+              <Input
+                type="number"
+                min={0}
+                step={60000}
+                className="h-8 font-mono text-[12px]"
+                value={llm.cacheTtlMs}
+                onChange={(e) =>
+                  patchLlm({ cacheTtlMs: Number(e.target.value) })
+                }
+                aria-label="Routing decision cache TTL"
+                disabled={!llm.enabled}
+              />
+            </label>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader eyebrow="Fast lane" title="Local classifier" />
+        <div className="px-4 pb-4 flex flex-col gap-3">
+          <p className="text-[12px] text-faint max-w-[62ch]">
+            A tiny local model answers first in ~33–170ms. Confident hits skip
+            the LLM call entirely; every miss falls through silently. This is
+            what the router&apos;s{" "}
+            <span className="font-mono text-[12px]">laya-fast</span> layer
+            reads.
+          </p>
+          <div className="grid grid-cols-2 gap-3 max-w-2xl">
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Backend</span>
+              <Select
+                className="h-8 text-[13px]"
+                value={classifier.backend}
+                onChange={(e) =>
+                  patchClassifier({
+                    backend: e.target.value as ClassifierConfig["backend"],
+                  })
+                }
+                aria-label="Classifier backend"
+              >
+                <option value="off">Off — skip the fast lane</option>
+                <option value="laya">Laya (local, 9-way category)</option>
+                <option value="gliner-decide">
+                  GLiNER2.5-Decide (local, 340M)
+                </option>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Checkpoint</span>
+              <Input
+                className="h-8 font-mono text-[12px]"
+                value={classifier.model}
+                onChange={(e) => patchClassifier({ model: e.target.value })}
+                placeholder={
+                  classifier.backend === "gliner-decide"
+                    ? "fastino/GLiNER2.5-Decide"
+                    : "english"
+                }
+                aria-label="Classifier model"
+                disabled={classifier.backend === "off"}
+              />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3 max-w-2xl">
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Min confidence (skip LLM at/above)</span>
+              <Input
+                type="number"
+                min={0.5}
+                max={0.95}
+                step={0.05}
+                className="h-8 font-mono text-[12px]"
+                value={classifier.minConfidence}
+                onChange={(e) =>
+                  patchClassifier({ minConfidence: Number(e.target.value) })
+                }
+                aria-label="Classifier minimum confidence"
+                disabled={classifier.backend === "off"}
+              />
+            </label>
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="eyebrow">Timeout (ms)</span>
+              <Input
+                type="number"
+                min={100}
+                step={100}
+                className="h-8 font-mono text-[12px]"
+                value={classifier.timeoutMs}
+                onChange={(e) =>
+                  patchClassifier({ timeoutMs: Number(e.target.value) })
+                }
+                aria-label="Classifier timeout"
+                disabled={classifier.backend === "off"}
+              />
+            </label>
+          </div>
+          <p className="text-[11px] text-faint flex items-center gap-1.5">
+            <Zap className="size-3.5 text-accent" />
+            {classifier.backend === "off"
+              ? "Fast lane off — every task pays for a routing decision further down."
+              : `Hits at ≥ ${classifier.minConfidence.toFixed(2)} confidence skip the LLM call; anything slower than ${classifier.timeoutMs}ms is ignored, never an error.`}
+          </p>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader eyebrow="Try it" title="Which layer would a prompt reach?" />
         <div className="px-4 pb-4 flex flex-col gap-2">
           <Input
             value={probe}
@@ -171,6 +468,64 @@ export function RoutingSection({
               server uses.
             </p>
           )}
+          {layerTrace ? (
+            <div className="flex flex-col gap-1.5 pt-1">
+              <span className="eyebrow">Layers, in server order</span>
+              {layerTrace.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="flex items-center gap-2 text-[12px]"
+                >
+                  {layer.id === "llm" ? (
+                    <Sparkles className="size-3.5 text-accent shrink-0" />
+                  ) : layer.id === "classifier" ? (
+                    <Zap className="size-3.5 text-accent shrink-0" />
+                  ) : (
+                    <Eye className="size-3.5 text-faint shrink-0" />
+                  )}
+                  <span className="font-mono text-[11px] text-faint w-20 shrink-0">
+                    {layer.id}
+                  </span>
+                  <span
+                    className={cn(
+                      layer.active ? "text-ink" : "text-faint",
+                    )}
+                  >
+                    {layer.label}
+                  </span>
+                  {layer.active ? (
+                    <Badge tone="accent">
+                      {layer.id === "classifier" ? "runs first" : "decides"}
+                    </Badge>
+                  ) : null}
+                </div>
+              ))}
+              <p className="text-[11px] text-faint">
+                Display-only — soul.md pins and the live model catalogue are
+                evaluated server-side. The Logs screen shows the real decision
+                and why.
+              </p>
+            </div>
+          ) : null}
+          {probe.trim() && hints && hints.length > 0 ? (
+            <div className="flex flex-col gap-1.5 pt-1">
+              <span className="eyebrow">Learned experience</span>
+              {hints.slice(0, 3).map((h) => (
+                <div
+                  key={h.harness}
+                  className="flex items-center gap-2 text-[12px] text-muted"
+                >
+                  <span className="font-mono text-[12px] text-ink">
+                    {h.harness}
+                  </span>
+                  <span>
+                    {(h.successRate * 100).toFixed(0)}% over {h.samples}{" "}
+                    {h.samples === 1 ? "run" : "runs"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </Card>
 
@@ -529,6 +884,74 @@ export function ruleFor(
     }
   }
   return rules.find((r) => r.taskType === "default") ?? null;
+}
+
+export interface RouteLayer {
+  id: "soul" | "classifier" | "llm" | "rules" | "default";
+  label: string;
+  /** The layer that would decide this prompt, by the client's estimate. */
+  active: boolean;
+}
+
+/**
+ * Which layer a prompt would reach, in the server's own order.
+ *
+ * Mirrors Router.route in packages/server/src/router.ts: soul pin →
+ * classifier fast-lane → LLM → first matching rule → default. The client
+ * cannot evaluate soul.md pins or run the classifier, so those layers are
+ * described (would they even run?) rather than decided. Exported so the
+ * ordering can be tested directly.
+ */
+export function explainRoute(
+  prompt: string,
+  rules: RoutingRule[],
+  config: {
+    llmEnabled: boolean;
+    llmModel: string;
+    classifierBackend: string;
+    classifierConfidence: number;
+    defaultHarness: string;
+  },
+): RouteLayer[] {
+  const matched = ruleFor(prompt, rules);
+  const classifierOn = config.classifierBackend !== "off";
+  // The client cannot run the classifier, so when it is on it always gets
+  // the "runs first" badge and the LLM row describes the miss path.
+  const rulesDecide = !classifierOn && !config.llmEnabled;
+
+  return [
+    {
+      id: "soul",
+      label: "A category → harness pin in soul.md wins outright, if one matches",
+      active: false,
+    },
+    {
+      id: "classifier",
+      label: classifierOn
+        ? `Local ${config.classifierBackend} answers first — ≥ ${Number(config.classifierConfidence).toFixed(2)} confidence skips the LLM`
+        : "Fast lane off — nothing answers locally",
+      active: classifierOn,
+    },
+    {
+      id: "llm",
+      label: config.llmEnabled
+        ? `A model decides${config.llmModel ? ` (${config.llmModel})` : " (automatic small model)"}`
+        : "LLM routing off — keywords only",
+      active: classifierOn ? false : config.llmEnabled,
+    },
+    {
+      id: "rules",
+      label: matched
+        ? `First matching rule: ${matched.taskType} → ${matched.harness}`
+        : "No rule matches this prompt",
+      active: rulesDecide && !!matched && matched.taskType !== "default",
+    },
+    {
+      id: "default",
+      label: `Falls back to ${HARNESS_LABELS[config.defaultHarness as (typeof HARNESS_IDS)[number]] ?? config.defaultHarness}`,
+      active: rulesDecide && (!matched || matched.taskType === "default"),
+    },
+  ];
 }
 
 /** Why a pattern will never match, when it cannot compile. */
