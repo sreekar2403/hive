@@ -72,6 +72,61 @@ describe("PermissionManager", () => {
       expect(permissionManager.isDestructive("rm -rf node_modules")).toBe(true);
     });
 
+    it("does not fire on patterns inside branch and path names", () => {
+      // A branch named cleanup/remove-repeated-intro halted every git
+      // command in the task (push, fetch, show, ls-remote): the
+      // word-boundary matcher treated "/" as a boundary, so "remove"
+      // fired on a ref, three distinct halts exhausted the guard budget,
+      // and the run failed even with approvals.
+      const refCommands = [
+        "git checkout -b cleanup/remove-repeated-intro",
+        "git push -u origin cleanup/remove-repeated-intro",
+        "git fetch origin",
+        'gh pr list --head cleanup/remove-repeated-intro --state all',
+        "git ls-remote --heads origin cleanup/remove-repeated-intro",
+        String.raw`git show HEAD -- C:\proj\remove-me\file.ts`,
+      ];
+
+      for (const command of refCommands) {
+        expect(permissionManager.matchDestructive(command)).toEqual([]);
+      }
+    });
+
+    it("still catches Remove-Item and remote removal", () => {
+      expect(permissionManager.matchDestructive("Remove-Item -Recurse -Force foo")).toEqual([
+        "remove",
+      ]);
+      expect(
+        permissionManager.matchDestructive("git remote remove origin"),
+      ).toEqual(["remove"]);
+    });
+
+    it("does not fire on prose inside quoted arguments", () => {
+      // From a real trace: a PR titled "cleanup: remove repeated …" and
+      // a commit message saying the same halted `gh pr create` and
+      // `git commit`. The verbs are harmless; "remove" is English prose
+      // inside -m/--title values, not an action.
+      const proseCommands = [
+        'gh pr create --base main --head cleanup/remove-repeated-intro --title "cleanup: remove repeated intros" --body "x"',
+        'git commit -m "cleanup: remove repeated intros from About and Contact"',
+        "git fetch origin",
+        "git log --oneline main..HEAD",
+      ];
+
+      for (const command of proseCommands) {
+        expect(permissionManager.matchDestructive(command)).toEqual([]);
+      }
+    });
+
+    it("still gates unquoted verbs next to quoted arguments", () => {
+      expect(permissionManager.matchDestructive('rm -rf "my dir"')).toEqual([
+        "rm",
+      ]);
+      expect(
+        permissionManager.matchDestructive('git clean -fd "my dir"'),
+      ).toEqual(["clean"]);
+    });
+
     it("reports which patterns matched", () => {
       expect(permissionManager.matchDestructive("git reset --hard")).toEqual([
         "reset",

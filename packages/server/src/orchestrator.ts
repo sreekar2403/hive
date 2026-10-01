@@ -11,6 +11,7 @@ import { describeImagesFor } from "./visionBridge";
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import { getDb } from "./db/database";
+import { setHarnessSession } from "./chatSessions";
 import { createKanbanCard, finishKanbanCard } from "./kanban";
 import { broadcast } from "./routes/events";
 import { endSpan, log, recordSpan, startSpan } from "./telemetry";
@@ -77,6 +78,13 @@ export interface AgentTask {
   events: HarnessEvent[];
   /** Previous messages in this conversation for context. */
   conversationHistory?: Array<{ role: string; content: string }>;
+  /**
+   * Resume candidate from the chat's previous turn: the native session it
+   * last used, with the harness it ran on. Only honoured when the run
+   * actually lands on that harness (LoopEngine checks per iteration), so
+   * a harness switch or re-route silently runs fresh instead.
+   */
+  resume?: { harness: string; sessionId: string } | null;
   /** Files the person attached to the message that started this run. */
   attachments?: HarnessAttachment[];
   /** Iterations the loop actually used, mirrored from LoopEngine state. */
@@ -294,6 +302,7 @@ export class Orchestrator {
       agent?: string | null;
       conversationHistory?: Array<{ role: string; content: string }>;
       attachments?: HarnessAttachment[];
+      resume?: { harness: string; sessionId: string } | null;
     },
   ): Promise<AgentTask> {
     const taskId = this.generateId();
@@ -318,6 +327,7 @@ export class Orchestrator {
       events: [],
       conversationHistory: selection?.conversationHistory ?? [],
       attachments: selection?.attachments ?? [],
+      resume: selection?.resume ?? null,
     };
 
     this.tasks.set(taskId, task);
@@ -958,6 +968,7 @@ ${briefing.text}`
       soul: brain.getRoutingGuidance(),
       conversationHistory: task.conversationHistory,
       attachments,
+      resume: task.resume ?? null,
     };
 
     let result!: Awaited<ReturnType<typeof loopEngine.run>>;
@@ -1072,6 +1083,22 @@ ${briefing.text}`
     task.completedAt = Date.now();
     task.iteration = result.iteration;
     task.error = result.error;
+
+    // The chat's next turn resumes this native session when it stays on
+    // the same harness. Written for failed runs too — a session that died
+    // mid-task still holds the context the follow-up needs. Bookkeeping
+    // must never fail a task that already finished.
+    if (result.sessionId && result.sessionHarness) {
+      try {
+        setHarnessSession(
+          task.sessionId,
+          result.sessionHarness,
+          result.sessionId,
+        );
+      } catch {
+        // Already logged inside the store; nothing here depends on it.
+      }
+    }
 
     log(
       result.success ? "info" : "error",
@@ -1249,6 +1276,7 @@ ${briefing.text}`
           hints: brain.getRoutingHints(task.prompt),
           soul: brain.getRoutingGuidance(),
           conversationHistory: task.conversationHistory,
+          resume: task.resume ?? null,
           onEvent: (harnessEvent) => {
             task.events.push(harnessEvent);
             if (task.events.length > MAX_TASK_EVENTS) {
@@ -1266,6 +1294,19 @@ ${briefing.text}`
       );
 
       endSpan(stageSpan, state.success ? "ok" : "failed");
+      // Same write-back as the direct path: the chat's live session is
+      // whatever the last stage ran in.
+      if (state.sessionId && state.sessionHarness) {
+        try {
+          setHarnessSession(
+            task.sessionId,
+            state.sessionHarness,
+            state.sessionId,
+          );
+        } catch {
+          // Bookkeeping must never fail a task that already finished.
+        }
+      }
       return {
         success: state.success,
         output: lastOutput,

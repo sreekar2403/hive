@@ -108,4 +108,51 @@ describe("Harness interface contract", () => {
       expect(uniqueNames.size).toBe(names.length);
     });
   });
+
+  describe("resume support", () => {
+    it("structured harnesses declare resume support, text CLIs do not", async () => {
+      const { CodexHarness } = await import("./codex");
+      const { GeminiHarness } = await import("./gemini");
+      const { CursorAgentHarness } = await import("./cursorAgent");
+      const { AiderHarness, CopilotHarness } = await import("./textCli");
+      const { OllamaDirectHarness } = await import("./ollamaDirect");
+
+      const resumable: Harness[] = [
+        new ClaudeCodeHarness(),
+        new OpenCodeHarness(),
+        new PiHarness(),
+        new CodexHarness(),
+        new GeminiHarness(),
+        new CursorAgentHarness(),
+      ];
+      for (const harness of resumable) {
+        expect(harness.supportsResume?.() ?? false).toBe(true);
+      }
+
+      const freshOnly: Harness[] = [
+        new AiderHarness(),
+        new CopilotHarness(),
+        new OllamaDirectHarness(),
+      ];
+      for (const harness of freshOnly) {
+        // supportsResume is optional; absent means "no resume mechanism"
+        // and the LoopEngine runs those fresh.
+        expect(harness.supportsResume?.() ?? false).toBe(false);
+      }
+    });
+
+    it("carries resumeSessionId on options and sessionId on results", async () => {
+      const { CodexHarness } = await import("./codex");
+      const harness: Harness = new CodexHarness("/nonexistent/codex");
+      const result = await harness.execute("test", {
+        cwd: process.cwd(),
+        resumeSessionId: "native-123",
+      });
+      // A missing binary fails the run; the point is the fields typecheck
+      // and flow through the shared contract. sessionId is null until a
+      // parser captures one (Task 5).
+      expect(result.success).toBe(false);
+      expect(result.sessionId ?? null).toBeNull();
+    });
+  });
 });

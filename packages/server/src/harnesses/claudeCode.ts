@@ -43,12 +43,22 @@ export class ClaudeCodeHarness implements Harness {
     if (model && model !== "default") args.push("--model", model);
     if (options?.agent) args.push("--agent", options.agent);
 
+    // Resume the chat's native session when asked. Verified flag; without
+    // it every turn starts a blank session and re-pays full history.
+    if (options?.resumeSessionId) {
+      args.push("--resume", options.resumeSessionId);
+    }
+
     return runHarness({
       command: this._path,
       args,
       options,
       parser: new ClaudeCodeParser(),
     });
+  }
+
+  supportsResume(): boolean {
+    return true;
   }
 
   isCompatible(model: string): boolean {

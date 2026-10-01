@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   ClaudeCodeParser,
+  CodexParser,
+  CursorAgentParser,
+  GeminiParser,
   OpenCodeParser,
   PiParser,
   PlainTextParser,
@@ -166,5 +169,59 @@ describe("non-JSON output", () => {
     const parser = new PlainTextParser();
     drain(parser, ["just ", "plain output\n"]);
     expect(parser.finalText()).toBe("just plain output");
+  });
+});
+
+describe("native session capture", () => {
+  // Fixture lines trimmed from real runs (see Task 1 probe matrix): each
+  // CLI names its session differently, and the parsers normalise that
+  // into sessionId() for the chat handler's resume mapping.
+  it("reads session_id off every Claude Code line", () => {
+    const parser = new ClaudeCodeParser();
+    drain(parser, [
+      '{"type":"system","subtype":"init","session_id":"ses_claude_1","model":"sonnet"}\n' +
+        '{"type":"result","subtype":"success","result":"ok","session_id":"ses_claude_1"}\n',
+    ]);
+    expect(parser.sessionId?.()).toBe("ses_claude_1");
+  });
+
+  it("inherits session capture for Cursor Agent", () => {
+    const parser = new CursorAgentParser();
+    drain(parser, [
+      '{"type":"system","subtype":"init","session_id":"cur_9","model":"x"}\n',
+    ]);
+    expect(parser.sessionId?.()).toBe("cur_9");
+  });
+
+  it("reads sessionID from opencode lines, including errors", () => {
+    const parser = new OpenCodeParser();
+    drain(parser, [
+      '{"type":"error","timestamp":1,"sessionID":"ses_oc_2","error":{"name":"UnknownError","data":{}}}\n',
+    ]);
+    expect(parser.sessionId?.()).toBe("ses_oc_2");
+  });
+
+  it("reads thread_id from Codex thread.started", () => {
+    const parser = new CodexParser();
+    drain(parser, [
+      '{"type":"thread.started","thread_id":"thr_7"}\n' +
+        '{"type":"turn.started"}\n',
+    ]);
+    expect(parser.sessionId?.()).toBe("thr_7");
+  });
+
+  it("reads the session line from pi, and nothing else", () => {
+    const parser = new PiParser();
+    drain(parser, [
+      '{"type":"session","version":3,"id":"pi_ses_3","timestamp":"t"}\n' +
+        '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}\n',
+    ]);
+    expect(parser.sessionId?.()).toBe("pi_ses_3");
+  });
+
+  it("reports null when the stream never names a session", () => {
+    const parser = new GeminiParser();
+    drain(parser, ['{"response":"ok","stats":{"models":{}}}\n']);
+    expect(parser.sessionId?.() ?? null).toBeNull();
   });
 });
