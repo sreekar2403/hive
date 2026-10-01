@@ -72,6 +72,35 @@ describe("PermissionManager", () => {
       expect(permissionManager.isDestructive("rm -rf node_modules")).toBe(true);
     });
 
+    it("does not fire on patterns inside branch and path names", () => {
+      // A branch named cleanup/remove-repeated-intro halted every git
+      // command in the task (push, fetch, show, ls-remote): the
+      // word-boundary matcher treated "/" as a boundary, so "remove"
+      // fired on a ref, three distinct halts exhausted the guard budget,
+      // and the run failed even with approvals.
+      const refCommands = [
+        "git checkout -b cleanup/remove-repeated-intro",
+        "git push -u origin cleanup/remove-repeated-intro",
+        "git fetch origin",
+        'gh pr list --head cleanup/remove-repeated-intro --state all',
+        "git ls-remote --heads origin cleanup/remove-repeated-intro",
+        String.raw`git show HEAD -- C:\proj\remove-me\file.ts`,
+      ];
+
+      for (const command of refCommands) {
+        expect(permissionManager.matchDestructive(command)).toEqual([]);
+      }
+    });
+
+    it("still catches Remove-Item and remote removal", () => {
+      expect(permissionManager.matchDestructive("Remove-Item -Recurse -Force foo")).toEqual([
+        "remove",
+      ]);
+      expect(
+        permissionManager.matchDestructive("git remote remove origin"),
+      ).toEqual(["remove"]);
+    });
+
     it("reports which patterns matched", () => {
       expect(permissionManager.matchDestructive("git reset --hard")).toEqual([
         "reset",

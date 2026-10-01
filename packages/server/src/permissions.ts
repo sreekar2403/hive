@@ -15,6 +15,27 @@ function broadcastSafe(event: string, data: unknown): void {
  *  isDestructive() runs on every task. */
 const patternCache = new Map<string, RegExp>();
 
+/**
+ * Whether the pattern occurs anywhere outside a path or ref segment.
+ *
+ * The cached regex cannot be reused with the global flag directly —
+ * lastIndex state would leak between calls — so each check runs on a
+ * fresh global clone. Matches are non-empty (the escaped pattern is a
+ * non-empty literal), so the scan always advances.
+ */
+function matchesOutsidePaths(pattern: RegExp, action: string): boolean {
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
+  const search = new RegExp(pattern.source, flags);
+  let match: RegExpExecArray | null;
+  while ((match = search.exec(action)) !== null) {
+    const prev = match.index > 0 ? action[match.index - 1] : "";
+    if (prev !== "/" && prev !== "\\") return true;
+  }
+  return false;
+}
+
 function destructivePattern(pattern: string): RegExp {
   const cached = patternCache.get(pattern);
   if (cached) return cached;
@@ -139,10 +160,16 @@ export class PermissionManager {
    *  compiled to a regex whose edges only assert a word boundary where
    *  the pattern itself ends in a word character, so flag-shaped
    *  patterns ("push --force", "push -f") still match the way an
-   *  operator wrote them. */
+   *  operator wrote them.
+   *
+   *  Occurrences preceded by "/" or "\" are additionally ignored: those
+   *  sit inside a path or ref segment (branches like
+   *  `cleanup/remove-repeated-intro`, Windows paths), not in the
+   *  command's own verbs and flags. Without this, one branch name halted
+   *  every git command in the task until the guard budget ran out. */
   matchDestructive(action: string): string[] {
     return this.config.permission.destructiveActions.filter((pattern) =>
-      destructivePattern(pattern).test(action),
+      matchesOutsidePaths(destructivePattern(pattern), action),
     );
   }
 
