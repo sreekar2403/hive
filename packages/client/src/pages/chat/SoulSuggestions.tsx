@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CheckCircle2,
   XCircle,
-  FileText,
   RefreshCw,
   ChevronDown,
 } from "lucide-react";
@@ -128,7 +127,6 @@ export function SoulSuggestions({
       <Card>
         <CardHeader title="Soul.md Suggestions" />
         <EmptyState
-          icon={<FileText />}
           title="No suggestions yet"
           description="Run a learning batch to generate soul.md suggestions for your approval."
         />
@@ -309,19 +307,17 @@ function SuggestionCard({
 }
 
 function EmptyState({
-  icon,
   title,
   description,
 }: {
-  icon: React.ReactNode;
   title: string;
   description: string;
 }) {
   return (
-    <div className="p-8 text-center">
-      <div className="mb-3 text-faint">{icon}</div>
-      <p className="text-sm font-medium text-ink">{title}</p>
-      <p className="text-[13px] text-muted mt-1">{description}</p>
+    <div className="px-4 py-3">
+      <p className="text-[12px] text-muted leading-relaxed">
+        {title} — {description}
+      </p>
     </div>
   );
 }

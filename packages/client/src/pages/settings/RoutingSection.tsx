@@ -138,14 +138,26 @@ export function RoutingSection({
       },
     }));
 
-  /** Routing-model candidates for the LLM layer (small/fast first). */
-  const routingModels = useMemo(
-    () =>
-      [...catalog.options].sort(
-        (a, b) => (a.contextLabel ?? "").localeCompare(b.contextLabel ?? ""),
-      ),
-    [catalog.options],
-  );
+  /** Routing-model candidates grouped by provider (small/fast first within). */
+  const routingModelGroups = useMemo(() => {
+    const byProvider = new Map<string, ModelOption[]>();
+    for (const m of catalog.options) {
+      const list = byProvider.get(m.provider) ?? [];
+      list.push(m);
+      byProvider.set(m.provider, list);
+    }
+    return [...byProvider.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(
+        ([provider, options]) =>
+          [
+            provider,
+            [...options].sort((a, b) =>
+              (a.contextLabel ?? "").localeCompare(b.contextLabel ?? ""),
+            ),
+          ] as const,
+      );
+  }, [catalog.options]);
 
   /**
    * Full layer trace for the probe, in the server's own order
@@ -249,24 +261,42 @@ export function RoutingSection({
       </p>
 
       <Card>
-        <CardHeader eyebrow="Model layer" title="LLM routing" />
-        <div className="px-4 pb-4 flex flex-col gap-3">
-          <p className="text-[12px] text-faint max-w-[62ch]">
+        <CardHeader eyebrow="Layers" title="Routing layers" />
+        <div className="divide-y divide-line">
+          <section
+            aria-label="LLM routing"
+            className="px-4 py-4 flex flex-col gap-3"
+          >
+            <div>
+              <div className="eyebrow">Model layer</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                LLM routing
+              </div>
+            </div>
+          <p className="text-[12px] text-muted max-w-[62ch]">
             When no <span className="font-mono">soul.md</span> pin or fast-lane
             hit decides, a small model reads the task and picks the harness,
             model and persona. Leave the model empty to auto-pick the smallest
             capable one — routing is classification, not work for a frontier
             model.
           </p>
-          <div className="flex items-center gap-3 flex-wrap">
-            <Switch
-              checked={llm.enabled}
-              onChange={(v) => patchLlm({ enabled: v })}
-              label="Enable LLM routing"
-            />
-            <span className="text-[12px] text-muted">
-              {llm.enabled ? "On — a model decides" : "Off — keywords only"}
+          <div className="flex items-center gap-x-5 gap-y-2 flex-wrap">
+            <span className="flex items-center gap-3">
+              <Switch
+                checked={llm.enabled}
+                onChange={(v) => patchLlm({ enabled: v })}
+                label="Enable LLM routing"
+              />
+              <span className="text-[12px] text-muted">
+                {llm.enabled ? "On — a model decides" : "Off — keywords only"}
+              </span>
             </span>
+            <Switch
+              checked={llm.selectModel}
+              onChange={(v) => patchLlm({ selectModel: v })}
+              label="Let the router choose the model, not only the CLI"
+              disabled={!llm.enabled}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3 max-w-2xl">
             <label className="flex flex-col gap-1 min-w-0">
@@ -279,11 +309,15 @@ export function RoutingSection({
                 disabled={!llm.enabled}
               >
                 <option value="">Automatic (smallest capable)</option>
-                {routingModels.map((m) => (
-                  <option key={m.id} value={m.ref}>
-                    {m.provider}/{m.model}
-                    {m.contextLabel ? ` · ${m.contextLabel}` : ""}
-                  </option>
+                {routingModelGroups.map(([provider, options]) => (
+                  <optgroup key={provider} label={provider}>
+                    {options.map((m) => (
+                      <option key={m.id} value={m.ref}>
+                        {m.model}
+                        {m.contextLabel ? ` · ${m.contextLabel}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </Select>
             </label>
@@ -303,14 +337,6 @@ export function RoutingSection({
                 disabled={!llm.enabled}
               />
             </label>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <Switch
-              checked={llm.selectModel}
-              onChange={(v) => patchLlm({ selectModel: v })}
-              label="Let the router choose the model, not only the CLI"
-              disabled={!llm.enabled}
-            />
           </div>
           <div className="grid grid-cols-2 gap-3 max-w-2xl">
             <label className="flex flex-col gap-1 min-w-0">
@@ -342,13 +368,19 @@ export function RoutingSection({
               />
             </label>
           </div>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Fast lane" title="Local classifier" />
-        <div className="px-4 pb-4 flex flex-col gap-3">
-          <p className="text-[12px] text-faint max-w-[62ch]">
+          <section
+            aria-label="Local classifier"
+            className="px-4 py-4 flex flex-col gap-3"
+          >
+            <div>
+              <div className="eyebrow">Fast lane</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                Local classifier
+              </div>
+            </div>
+          <p className="text-[12px] text-muted max-w-[62ch]">
             A tiny local model answers first in ~33–170ms. Confident hits skip
             the LLM call entirely; every miss falls through silently. This is
             what the router&apos;s{" "}
@@ -424,18 +456,24 @@ export function RoutingSection({
               />
             </label>
           </div>
-          <p className="text-[11px] text-faint flex items-center gap-1.5">
+          <p className="text-[11px] text-muted flex items-center gap-1.5">
             <Zap className="size-3.5 text-accent" />
             {classifier.backend === "off"
               ? "Fast lane off — every task pays for a routing decision further down."
               : `Hits at ≥ ${classifier.minConfidence.toFixed(2)} confidence skip the LLM call; anything slower than ${classifier.timeoutMs}ms is ignored, never an error.`}
           </p>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Try it" title="Which layer would a prompt reach?" />
-        <div className="px-4 pb-4 flex flex-col gap-2">
+          <section
+            aria-label="Try a prompt"
+            className="px-4 py-4 flex flex-col gap-2"
+          >
+            <div>
+              <div className="eyebrow">Try it</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                Which layer would a prompt reach?
+              </div>
+            </div>
           <Input
             value={probe}
             onChange={(e) => setProbe(e.target.value)}
@@ -463,7 +501,7 @@ export function RoutingSection({
               </p>
             )
           ) : (
-            <p className="text-[12px] text-faint">
+            <p className="text-[12px] text-muted">
               Matched in the order below, first hit wins — the same order the
               server uses.
             </p>
@@ -483,12 +521,12 @@ export function RoutingSection({
                   ) : (
                     <Eye className="size-3.5 text-faint shrink-0" />
                   )}
-                  <span className="font-mono text-[11px] text-faint w-20 shrink-0">
+                  <span className="font-mono text-[11px] text-muted w-20 shrink-0">
                     {layer.id}
                   </span>
                   <span
                     className={cn(
-                      layer.active ? "text-ink" : "text-faint",
+                      layer.active ? "text-ink" : "text-muted",
                     )}
                   >
                     {layer.label}
@@ -500,7 +538,7 @@ export function RoutingSection({
                   ) : null}
                 </div>
               ))}
-              <p className="text-[11px] text-faint">
+              <p className="text-[11px] text-muted">
                 Display-only — soul.md pins and the live model catalogue are
                 evaluated server-side. The Logs screen shows the real decision
                 and why.
@@ -526,6 +564,7 @@ export function RoutingSection({
               ))}
             </div>
           ) : null}
+          </section>
         </div>
       </Card>
 
@@ -570,7 +609,7 @@ export function RoutingSection({
                   {/* Priority controls */}
                   <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0">
                     <span
-                      className="font-mono text-[10px] text-faint"
+                      className="font-mono text-[11px] text-muted"
                       data-numeric
                     >
                       {isDefault ? "—" : i + 1}
@@ -664,7 +703,7 @@ export function RoutingSection({
                               {patternError(rule.pattern)}
                             </span>
                           ) : (
-                            <span className="text-[11px] text-faint">
+                            <span className="text-[11px] text-muted">
                               A regular expression, matched against the prompt.
                               Use <span className="font-mono">|</span> for
                               &ldquo;or&rdquo;.
@@ -827,6 +866,18 @@ function ModelSelect({
 }) {
   const known = models.some((m) => m.ref === value);
 
+  // A flat hundred-option list is unscannable — group by provider the way
+  // the harness picker groups by installed. Order and values unchanged.
+  const byProvider = new Map<string, ModelOption[]>();
+  for (const m of models) {
+    const list = byProvider.get(m.provider) ?? [];
+    list.push(m);
+    byProvider.set(m.provider, list);
+  }
+  const providers = [...byProvider.keys()].sort((a, b) =>
+    a.localeCompare(b),
+  );
+
   return (
     <>
       <Select
@@ -839,16 +890,20 @@ function ModelSelect({
         {value && !known ? (
           <option value={value}>{value} — not in the catalog</option>
         ) : null}
-        {models.map((m) => (
-          <option key={m.id} value={m.ref}>
-            {m.provider}/{m.model}
-            {m.vision === true ? " · vision" : ""}
-            {m.contextLabel ? ` · ${m.contextLabel}` : ""}
-          </option>
+        {providers.map((p) => (
+          <optgroup key={p} label={p}>
+            {(byProvider.get(p) ?? []).map((m) => (
+              <option key={m.id} value={m.ref}>
+                {m.model}
+                {m.vision === true ? " · vision" : ""}
+                {m.contextLabel ? ` · ${m.contextLabel}` : ""}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </Select>
       {models.length === 0 ? (
-        <span className="text-[11px] text-faint">
+        <span className="text-[11px] text-muted">
           {harnessAvailable
             ? "This harness chooses its own model; there is nothing to pick."
             : "Install the harness to see what it can run."}

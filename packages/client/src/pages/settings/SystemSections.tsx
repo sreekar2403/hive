@@ -253,7 +253,7 @@ export function ExecutionSection({
                 </span>
               </span>
             ) : null}
-            <span className="ml-auto font-mono text-[11px] text-faint">
+            <span className="ml-auto font-mono text-[11px] text-muted">
               {capacity.system.platform} · {capacity.system.cpus} cores ·{" "}
               {Math.round(capacity.system.totalMemMb / 1024)} GB
             </span>
@@ -344,7 +344,7 @@ export function PermissionsSection({
                         destructiveActions: actions.filter((a) => a !== action),
                       })
                     }
-                    className="text-faint hover:text-danger transition-colors"
+                    className="text-muted hover:text-danger transition-colors"
                     aria-label={`Remove ${action}`}
                   >
                     <X className="size-3" />
@@ -396,8 +396,16 @@ export function GeneralSection({
   return (
     <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader eyebrow="Appearance" title="Theme" />
-        <div className="p-4">
+        <CardHeader
+          eyebrow="Workspace"
+          title="Appearance, projects & storage"
+        />
+        <div className="divide-y divide-line">
+          <section aria-label="Theme" className="p-4">
+            <div className="eyebrow">Appearance</div>
+            <div className="text-sm font-semibold text-ink mt-0.5 mb-3">
+              Theme
+            </div>
           <Field label="Colour theme" className="max-w-xs">
             {(id) => (
               <Select
@@ -410,12 +418,13 @@ export function GeneralSection({
               </Select>
             )}
           </Field>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Defaults" title="Projects" />
-        <div className="p-4">
+          <section aria-label="Projects" className="p-4">
+            <div className="eyebrow">Defaults</div>
+            <div className="text-sm font-semibold text-ink mt-0.5 mb-3">
+              Projects
+            </div>
           <Field
             label="Open this project on launch"
             hint="Add projects from the switcher in the top bar."
@@ -444,12 +453,13 @@ export function GeneralSection({
               </Select>
             )}
           </Field>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Scope" title="General workspace" />
-        <div className="p-4">
+          <section aria-label="General workspace" className="p-4">
+            <div className="eyebrow">Scope</div>
+            <div className="text-sm font-semibold text-ink mt-0.5 mb-3">
+              General workspace
+            </div>
           <Field
             label="Working folder"
             hint="Where chats that belong to no repository run. Leave blank for ~/.hive/workspace. Created and git-initialised on first use."
@@ -469,12 +479,18 @@ export function GeneralSection({
               />
             )}
           </Field>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Storage" title="Where Hive keeps data" />
-        <div className="p-4 flex flex-col gap-4">
+          <section
+            aria-label="Storage"
+            className="p-4 flex flex-col gap-4"
+          >
+            <div>
+              <div className="eyebrow">Storage</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                Where Hive keeps data
+              </div>
+            </div>
           <Field label="Cache folder" hint="Shared memory and session files.">
             {(id) => (
               <Input
@@ -493,16 +509,27 @@ export function GeneralSection({
           <div className="flex items-center gap-2">
             <span className="text-[12px] text-muted">Server port</span>
             <Badge>{draft.server.port}</Badge>
-            <span className="text-[12px] text-faint">
+            <span className="text-[12px] text-muted">
               Change with the PORT environment variable, then restart.
             </span>
           </div>
+          </section>
         </div>
       </Card>
 
       <Card>
-        <CardHeader eyebrow="Office Floor" title="Grid settings" />
-        <div className="p-4 grid grid-cols-2 gap-4">
+        <CardHeader eyebrow="Boards" title="Office & Kanban" />
+        <div className="divide-y divide-line">
+          <section
+            aria-label="Office grid"
+            className="p-4 grid grid-cols-2 gap-4"
+          >
+            <div className="col-span-2">
+              <div className="eyebrow">Office Floor</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                Grid settings
+              </div>
+            </div>
           <Field
             label="Grid columns"
             hint="Number of columns in the office grid."
@@ -581,12 +608,18 @@ export function GeneralSection({
               />
             )}
           </Field>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Kanban" title="WIP limits per column" />
-        <div className="p-4 grid grid-cols-2 gap-4">
+          <section
+            aria-label="Kanban WIP limits"
+            className="p-4 grid grid-cols-2 gap-4"
+          >
+            <div className="col-span-2">
+              <div className="eyebrow">Kanban</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                WIP limits per column
+              </div>
+            </div>
           <Field
             label="Backlog"
             hint="Work-in-progress limit for Backlog column (0 = unlimited)."
@@ -795,6 +828,7 @@ export function GeneralSection({
               />
             )}
           </Field>
+          </section>
         </div>
       </Card>
     </div>

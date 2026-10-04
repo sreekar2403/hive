@@ -166,14 +166,14 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex items-end justify-between gap-6 mb-6">
+    <div className="flex items-end justify-between gap-6 mb-4">
       <div className="min-w-0">
-        {eyebrow ? <div className="eyebrow mb-1.5">{eyebrow}</div> : null}
-        <h1 className="text-[22px] leading-tight font-semibold text-ink">
+        {eyebrow ? <span className="eyebrow mr-2">{eyebrow}</span> : null}
+        <h1 className="inline text-[20px] font-semibold text-ink">
           {title}
         </h1>
         {description ? (
-          <p className="text-[13px] text-muted mt-1.5 max-w-[68ch]">
+          <p className="text-[12px] text-muted mt-1 truncate max-w-[68ch]">
             {description}
           </p>
         ) : null}

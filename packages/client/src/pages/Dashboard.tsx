@@ -12,6 +12,9 @@ import {
 import { API, subscribeToEvents } from "../lib/api";
 import { useProjects } from "../state/ProjectContext";
 import { cn } from "../lib/cn";
+import { STATUS_LABEL, STATUS_TONE } from "./kanban/constants";
+import type { KanbanTask } from "./kanban/types";
+import { formatRelativeTime } from "./memory/format";
 
 interface AgentSnapshot {
   id: string;
@@ -41,23 +44,38 @@ export function Dashboard() {
   const [agents, setAgents] = useState<AgentSnapshot[]>([]);
   const [git, setGit] = useState<GitStatus | null>(null);
   const [harnesses, setHarnesses] = useState<HarnessProbe[]>([]);
+  const [recent, setRecent] = useState<KanbanTask[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     // Each panel degrades on its own — one missing endpoint shouldn't
     // blank the whole dashboard.
-    const [agentsRes, gitRes, harnessRes] = await Promise.allSettled([
-      API.get<{ agents: AgentSnapshot[] }>("/api/agents"),
-      activeProjectId
-        ? API.get<GitStatus>(`/api/git/status?projectId=${activeProjectId}`)
-        : Promise.reject(new Error("no project")),
-      API.get<{ harnesses: HarnessProbe[] }>("/api/settings/harnesses"),
-    ]);
+    const [agentsRes, gitRes, harnessRes, tasksRes] = await Promise.allSettled(
+      [
+        API.get<{ agents: AgentSnapshot[] }>("/api/agents"),
+        activeProjectId
+          ? API.get<GitStatus>(`/api/git/status?projectId=${activeProjectId}`)
+          : Promise.reject(new Error("no project")),
+        API.get<{ harnesses: HarnessProbe[] }>("/api/settings/harnesses"),
+        activeProjectId
+          ? API.get<{ tasks: KanbanTask[]; total: number }>(
+              `/api/tasks?projectId=${encodeURIComponent(activeProjectId)}&limit=20`,
+            )
+          : Promise.reject(new Error("no project")),
+      ],
+    );
 
     setAgents(agentsRes.status === "fulfilled" ? agentsRes.value.agents : []);
     setGit(gitRes.status === "fulfilled" ? gitRes.value : null);
     setHarnesses(
       harnessRes.status === "fulfilled" ? harnessRes.value.harnesses : [],
+    );
+    setRecent(
+      tasksRes.status === "fulfilled"
+        ? [...tasksRes.value.tasks]
+            .sort((a, b) => b.updated_at - a.updated_at)
+            .slice(0, 5)
+        : [],
     );
     setLoading(false);
   }, [activeProjectId]);
@@ -152,6 +170,15 @@ export function Dashboard() {
               title="Nobody has clocked in"
               description="Agents appear once a harness is available and a task is running."
               className="py-8"
+              action={
+                <Link
+                  to="/chat"
+                  className="inline-flex items-center justify-center gap-2 h-9 px-3.5 rounded-md border border-transparent bg-accent text-accent-fg text-sm font-medium transition-colors hover:bg-accent-hover"
+                >
+                  <MessageSquare className="size-4" />
+                  Start a task
+                </Link>
+              }
             />
           ) : (
             <ul className="divide-y divide-line">
@@ -164,7 +191,7 @@ export function Dashboard() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] text-ink truncate">
                       {a.name}
-                      <span className="font-mono text-[11px] text-faint ml-1.5">
+                      <span className="font-mono text-[11px] text-muted ml-1.5">
                         {a.harness}
                       </span>
                     </span>
@@ -213,6 +240,16 @@ export function Dashboard() {
                   : `${activeProject.name} isn't a git repository.`
               }
               className="py-8"
+              action={
+                activeProject.isGitRepo ? (
+                  <Link
+                    to="/git-diff"
+                    className="text-[12px] text-accent hover:underline"
+                  >
+                    Review changes
+                  </Link>
+                ) : undefined
+              }
             />
           )}
         </Card>
@@ -241,10 +278,68 @@ export function Dashboard() {
                   <StatusDot tone={h.available ? "ok" : "danger"} />
                   <span className="min-w-0">
                     <span className="block text-[13px] text-ink">{h.id}</span>
-                    <span className="block font-mono text-[10px] text-faint truncate">
+                    <span className="block font-mono text-[11px] text-muted truncate">
                       {h.available ? (h.version ?? "available") : "not found"}
                     </span>
                   </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader
+            eyebrow="Momentum"
+            title="Latest activity"
+            actions={
+              <Link
+                to="/kanban"
+                className="text-[12px] text-accent hover:underline"
+              >
+                Open board
+              </Link>
+            }
+          />
+          {loading ? (
+            <p className="px-4 py-6 text-[13px] text-muted">Loading…</p>
+          ) : recent.length === 0 ? (
+            <EmptyState
+              icon={<MessageSquare />}
+              title="No tasks yet"
+              description="Queue work from the board or send it straight from chat."
+              className="py-8"
+              action={
+                <Link
+                  to="/chat"
+                  className="inline-flex items-center justify-center gap-2 h-9 px-3.5 rounded-md border border-transparent bg-accent text-accent-fg text-sm font-medium transition-colors hover:bg-accent-hover"
+                >
+                  <MessageSquare className="size-4" />
+                  Start a task
+                </Link>
+              }
+            />
+          ) : (
+            <ul className="divide-y divide-line">
+              {recent.map((t) => (
+                <li key={t.id}>
+                  <Link
+                    to="/kanban"
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2 transition-colors"
+                  >
+                    <Badge tone={STATUS_TONE[t.status]}>
+                      {STATUS_LABEL[t.status]}
+                    </Badge>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                      {t.title?.trim() || t.prompt}
+                    </span>
+                    <span
+                      className="font-mono text-[11px] text-muted shrink-0"
+                      data-numeric
+                    >
+                      {formatRelativeTime(t.updated_at)}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>

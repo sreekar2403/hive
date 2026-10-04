@@ -16,7 +16,6 @@ import {
   EmptyState,
   Field,
   Input,
-  PageHeader,
   Select,
   Textarea,
 } from "../components/ui";
@@ -226,23 +225,29 @@ export function BrainPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-6 pt-6">
-        <PageHeader
-          eyebrow="Inspect"
-          title="Second Brain"
-          description={`What Hive has learned about you and your work${projectSuffix} — edit soul.md directly, browse the record stores, walk the knowledge graph.`}
-          actions={
+      <div className="px-6 pt-4">
+        <div className="flex items-end justify-between gap-6 mb-3">
+          <div className="min-w-0">
+            <span className="eyebrow mr-2">Inspect</span>
+            <h1 className="inline text-[20px] font-semibold text-ink">
+              Second Brain
+            </h1>
+            <p className="text-[12px] text-muted mt-1 truncate max-w-[68ch]">
+              {`What Hive has learned about you and your work${projectSuffix} — edit soul.md directly, browse the record stores, walk the knowledge graph.`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 pb-0.5">
             <Select
               value={scope}
               onChange={(e) => setScope(e.target.value as BrainScope)}
-              className="w-36"
+              className="w-36 h-8 text-[13px]"
               aria-label="Memory scope"
             >
               <option value="global">Global scope</option>
               <option value="project">Project scope</option>
             </Select>
-          }
-        />
+          </div>
+        </div>
       </div>
 
       <div className="px-6 pb-3 flex items-center gap-1 border-b border-line">
@@ -265,60 +270,68 @@ export function BrainPage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl">
-          {tab === "soul" ? (
-            <Card>
-              <CardHeader
-                title={`soul.md (${scope})`}
-                eyebrow={soulPath ?? undefined}
-                actions={
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => void loadSoul()}
+      <div className="soul-pane flex-1 min-h-0 overflow-y-auto p-6">
+            <div className="max-w-4xl w-full mx-auto">
+              {tab === "soul" ? (
+                <Card className="soul-pane-card flex flex-col">
+                  <CardHeader
+                    title={`soul.md (${scope})`}
+                    eyebrow={soulPath ?? undefined}
+                    actions={
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => void loadSoul()}
+                          disabled={soulBusy}
+                        >
+                          <RefreshCw
+                            className={cn("size-3.5", soulBusy && "animate-spin")}
+                          />
+                          Reload
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => void saveSoul()}
+                          disabled={!soulDirty || soulBusy}
+                        >
+                          <Save className="size-3.5" />
+                          Save
+                        </Button>
+                      </div>
+                    }
+                  />
+                  <div className="p-4 flex-1 flex flex-col gap-3 min-h-0">
+                    {soulError ? (
+                      <div className="px-3 py-2 rounded-md border border-danger bg-danger-soft text-[12px] text-danger">
+                        {soulError}
+                      </div>
+                    ) : null}
+                    <Textarea
+                      value={soul}
+                      onChange={(e) => {
+                        setSoul(e.target.value);
+                        setSoulDirty(true);
+                      }}
+                      placeholder="soul.md is empty so far — run tasks and approve suggestions, or write your own standing preferences here."
+                      className="font-mono text-[12px] soul-pane-editor flex-1 min-h-0"
                       disabled={soulBusy}
-                    >
-                      <RefreshCw
-                        className={cn("size-3.5", soulBusy && "animate-spin")}
-                      />
-                      Reload
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() => void saveSoul()}
-                      disabled={!soulDirty || soulBusy}
-                    >
-                      <Save className="size-3.5" />
-                      Save
-                    </Button>
+                    />
+                    <div className="flex items-center gap-2 text-[12px] shrink-0">
+                      {soulBusy ? (
+                        <span className="text-muted">Working…</span>
+                      ) : soulDirty ? (
+                        <span className="text-warn">Unsaved changes.</span>
+                      ) : (
+                        <span className="text-muted">All changes saved.</span>
+                      )}
+                      <span className="ml-auto font-mono text-[11px] text-muted" data-numeric>
+                        {soul.split(/\s+/).filter(Boolean).length} words
+                      </span>
+                    </div>
                   </div>
-                }
-              />
-              <div className="p-4 flex flex-col gap-3">
-                {soulError ? (
-                  <div className="px-3 py-2 rounded-md border border-danger bg-danger-soft text-[12px] text-danger">
-                    {soulError}
-                  </div>
-                ) : null}
-                <Textarea
-                  value={soul}
-                  onChange={(e) => {
-                    setSoul(e.target.value);
-                    setSoulDirty(true);
-                  }}
-                  placeholder="soul.md is empty so far — run tasks and approve suggestions, or write your own standing preferences here."
-                  className="font-mono text-[12px] min-h-[420px]"
-                  disabled={soulBusy}
-                />
-                {soulDirty ? (
-                  <p className="text-[11px] text-warn">Unsaved changes.</p>
-                ) : null}
-              </div>
-            </Card>
-          ) : null}
-
+                </Card>
+              ) : null}
           {tab === "records" ? (
             <div className="flex flex-col gap-4">
               <div className="flex items-end gap-2 flex-wrap">
@@ -547,8 +560,8 @@ export function BrainPage() {
               )}
             </div>
           ) : null}
-        </div>
-      </div>
+            </div>
+          </div>
     </div>
   );
 }

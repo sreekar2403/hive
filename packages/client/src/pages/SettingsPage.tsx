@@ -144,7 +144,7 @@ export function SettingsPage() {
               />
               <span className="min-w-0">
                 <span className="block text-[13px] font-medium">{label}</span>
-                <span className="block text-[11px] text-faint leading-snug">
+                <span className="block text-[11px] text-muted leading-snug">
                   {description}
                 </span>
               </span>

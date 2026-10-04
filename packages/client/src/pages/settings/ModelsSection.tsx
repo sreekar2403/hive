@@ -76,7 +76,7 @@ export function ModelsSection({
             aria-label="Filter models"
           />
         </div>
-        <span className="text-[12px] text-faint" data-numeric>
+        <span className="text-[12px] text-muted" data-numeric>
           {total} runnable
         </span>
         <Button size="sm" onClick={() => void refresh(true)} disabled={loading}>
@@ -188,12 +188,12 @@ export function ModelsSection({
                     key={model.id}
                     className="flex items-baseline gap-2 font-mono text-[11px] min-w-0"
                   >
-                    <span className="text-faint shrink-0">
+                    <span className="text-muted shrink-0">
                       {model.provider}/
                     </span>
                     <span className="text-ink truncate">{model.model}</span>
                     {model.contextLabel ? (
-                      <span className="text-faint ml-auto shrink-0">
+                      <span className="text-muted ml-auto shrink-0">
                         {model.contextLabel}
                       </span>
                     ) : null}
@@ -202,7 +202,7 @@ export function ModelsSection({
               </ul>
             </div>
           ) : source.models.length > 0 ? (
-            <p className="px-4 pb-4 text-[12px] text-faint">
+            <p className="px-4 pb-4 text-[12px] text-muted">
               Nothing here matches “{query}”.
             </p>
           ) : null}
