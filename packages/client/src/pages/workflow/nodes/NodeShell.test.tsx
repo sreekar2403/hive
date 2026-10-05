@@ -18,6 +18,12 @@ describe("node text containment", () => {
     expect(truncate("Run the tests", 72)).toBe("Run the tests");
   });
 
+  it("registers a card for every def", async () => {
+    const { nodeTypes } = await import("./index");
+    const { NODE_DEFS } = await import("../nodeDefs");
+    for (const d of NODE_DEFS) expect(nodeTypes[d.kind]).toBeDefined();
+  });
+
   it("wraps unbroken strings anywhere inside the fixed-width card", () => {
     expect(shellSrc).toContain("overflow-wrap:anywhere");
     expect(shellSrc).toContain("line-clamp-3");
