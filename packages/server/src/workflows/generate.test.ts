@@ -1,8 +1,46 @@
 import { describe, it, expect } from "vitest";
+import type { Harness } from "@hive/shared/harness";
+import { createDefaultConfig } from "../config";
 import {
+  GenerateError,
   buildGeneratePrompt,
   coerceGeneratedGraph,
+  generateWorkflowGraph,
+  setGenerateDeps,
 } from "./generate";
+
+function fakeHarness(
+  output: string,
+  success = true,
+  stderr = "",
+): Harness {
+  return {
+    name: "fake",
+    isAvailable: async () => true,
+    execute: async () => ({
+      success,
+      exitCode: success ? 0 : 1,
+      stdout: output,
+      stderr,
+      output: success ? output : stderr || output,
+      filesChanged: [],
+      duration: 1,
+    }),
+    isCompatible: () => true,
+  };
+}
+
+const GRAPH_JSON = JSON.stringify({
+  nodes: [
+    { id: "n1", type: "trigger", data: { label: "T", triggerKind: "manual" } },
+    {
+      id: "n2",
+      type: "note",
+      data: { label: "N", text: "hi" },
+    },
+  ],
+  edges: [{ source: "n1", target: "n2" }],
+});
 
 describe("coerceGeneratedGraph", () => {
   it("warns on unknown kinds instead of failing", () => {
@@ -58,5 +96,51 @@ describe("buildGeneratePrompt", () => {
       expect(prompt).toContain(kind);
     }
     expect(prompt).toContain("nightly test sweep");
+  });
+});
+
+describe("generateWorkflowGraph", () => {
+  it("falls back to the next harness when the first fails", async () => {
+    setGenerateDeps({
+      config: createDefaultConfig(),
+      harnesses: new Map<string, Harness>([
+        ["broken", fakeHarness("", false, "boom")],
+        ["working", fakeHarness(`Here you go: ${GRAPH_JSON}`)],
+      ]),
+    });
+    const graph = await generateWorkflowGraph({
+      description: "anything",
+      harness: "broken",
+    });
+    expect(graph.nodes.map((n) => n.type)).toEqual(["trigger", "note"]);
+  });
+
+  it("names every failed harness and its reason", async () => {
+    setGenerateDeps({
+      config: createDefaultConfig(),
+      harnesses: new Map<string, Harness>([
+        ["opencode", fakeHarness("", false, "Unexpected server error")],
+        ["pi", fakeHarness("", false, "OAuth session expired")],
+      ]),
+    });
+    const err = await generateWorkflowGraph({ description: "anything" }).catch(
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(GenerateError);
+    expect(err.message).toMatch(/opencode/);
+    expect(err.message).toMatch(/Unexpected server error/);
+    expect(err.message).toMatch(/OAuth session expired/);
+  });
+
+  it("503s when nothing is installed", async () => {
+    setGenerateDeps({
+      config: createDefaultConfig(),
+      harnesses: new Map<string, Harness>(),
+    });
+    const err = await generateWorkflowGraph({ description: "anything" }).catch(
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(GenerateError);
+    expect((err as GenerateError).status).toBe(503);
   });
 });

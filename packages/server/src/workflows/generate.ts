@@ -282,28 +282,33 @@ export async function generateWorkflowGraph(
 
   // Model first: an explicit catalog ref pins harness + model, a bare
   // harness pins the CLI with its default, otherwise the preferred
-  // configured harness (or the first available one) does the drafting.
-  let harnessId: string | null = null;
+  // configured harness leads and the rest follow as fallbacks. Drafting is
+  // provider-agnostic thinking, so a 500 from one CLI is not a verdict on
+  // the request — the next installed CLI gets the same prompt.
+  let firstId: string | null = null;
   let modelRef = "";
   if (input.model) {
     const resolved = await resolveModelRef(input.model);
     if (resolved) {
-      harnessId = resolved.harness;
+      firstId = resolved.harness;
       modelRef = resolved.ref;
     }
   }
-  if (!harnessId && input.harness && harnesses.has(input.harness)) {
-    harnessId = input.harness;
+  if (!firstId && input.harness && harnesses.has(input.harness)) {
+    firstId = input.harness;
   }
-  if (!harnessId) {
+  if (!firstId) {
     const preferred = config.routing?.default;
-    harnessId =
-      (preferred && harnesses.has(preferred) ? preferred : null) ??
-      harnesses.keys().next().value ??
-      null;
+    firstId =
+      preferred && harnesses.has(preferred) ? preferred : (
+        harnesses.keys().next().value ?? null
+      );
   }
-  const harness = harnessId ? harnesses.get(harnessId) : undefined;
-  if (!harness || !harnessId) {
+  const ordered = [
+    ...(firstId ? [firstId] : []),
+    ...[...harnesses.keys()].filter((id) => id !== firstId),
+  ];
+  if (ordered.length === 0) {
     throw new GenerateError(
       503,
       "No harness is installed to draft the workflow. Install a CLI first.",
@@ -311,30 +316,61 @@ export async function generateWorkflowGraph(
   }
 
   const prompt = buildGeneratePrompt(description, maxNodes);
-  const attempts = [prompt, `${prompt}\nReminder: reply with ONLY the JSON object.`];
-  let lastExcerpt = "";
-  for (const attempt of attempts) {
-    let output: string;
-    try {
-      const result = await harness.execute(attempt, {
-        ...(modelRef ? { model: modelRef } : {}),
-        timeout: 30000,
-        cwd: generateScratchDir(),
-      });
-      if (!result.success || !result.output) continue;
-      output = result.output;
-    } catch {
-      continue;
+  const failures: string[] = [];
+  for (const harnessId of ordered) {
+    const harness = harnesses.get(harnessId);
+    if (!harness) continue;
+    // A pinned model ref belongs to the harness that understands it; other
+    // harnesses draft with their own default rather than a foreign flag.
+    const effectiveModel =
+      harnessId === firstId && modelRef ? modelRef : "";
+    const attempts = [
+      prompt,
+      `${prompt}\nReminder: reply with ONLY the JSON object.`,
+    ];
+    for (const attempt of attempts) {
+      let output: string;
+      try {
+        const result = await harness.execute(attempt, {
+          ...(effectiveModel ? { model: effectiveModel } : {}),
+          timeout: 30000,
+          cwd: generateScratchDir(),
+        });
+        if (!result.success || !result.output) {
+          failures.push(describeFailure(harnessId, result));
+          break;
+        }
+        output = result.output;
+      } catch (err) {
+        failures.push(
+          `${harnessId}: ${oneLine(err instanceof Error ? err.message : String(err))}`,
+        );
+        break;
+      }
+      const parsed = extractJsonObject(output);
+      if (!parsed) {
+        failures.push(`${harnessId}: reply was not JSON: ${oneLine(output)}`);
+        continue;
+      }
+      return coerceGeneratedGraph(parsed, maxNodes);
     }
-    const parsed = extractJsonObject(output);
-    if (!parsed) {
-      lastExcerpt = output.slice(0, 200);
-      continue;
-    }
-    return coerceGeneratedGraph(parsed, maxNodes);
   }
   throw new GenerateError(
     422,
-    `The model did not return a usable workflow${lastExcerpt ? `: ${lastExcerpt}` : "."} Try again or shorten the description.`,
+    `No harness could draft a workflow (tried ${ordered.join(", ")}): ${failures.join("; ")}. Fix the CLI, or pick another harness preference.`,
   );
+}
+
+/** First stderr/output line, capped — enough to act on, never a dump. */
+function oneLine(value: string): string {
+  return value.split("\n")[0].slice(0, 150).trim() || "(no output)";
+}
+
+function describeFailure(
+  harnessId: string,
+  result: { stderr?: string; output?: string; timedOut?: boolean },
+): string {
+  if (result.timedOut) return `${harnessId}: timed out after 30s`;
+  const text = result.stderr || result.output || "";
+  return `${harnessId}: ${oneLine(text)}`;
 }
