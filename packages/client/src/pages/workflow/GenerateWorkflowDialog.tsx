@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, type LucideIcon } from "lucide-react";
 import {
   Button,
   Field,
@@ -229,43 +229,41 @@ export function GenerateWorkflowDialog({
 }
 
 function PreviewRow({ index, node }: { index: number; node: HiveNode }) {
+  // Resolve everything throwing before returning JSX — React does not run
+  // effects/render through try/catch, so JSX must stay out of the try block.
   let label: string = node.type;
   let summary = "";
+  let Icon: LucideIcon | null = null;
   try {
     const def = nodeDef(node.type);
     label = def.label;
-    const Icon = def.icon;
+    Icon = def.icon;
     summary = summarize(node);
-    return (
-      <li className="flex items-start gap-2 text-[13px]">
-        <span className="font-mono text-[11px] text-muted mt-0.5 w-5 shrink-0">
-          {index + 1}.
-        </span>
-        <Icon className="size-3.5 mt-0.5 text-muted shrink-0" aria-hidden="true" />
-        <span className="min-w-0">
-          <span className="font-medium text-ink">{node.data.label}</span>
-          <span className="text-muted"> — {label}</span>
-          {summary ? (
-            <span className="block text-[12px] text-muted truncate">
-              {summary}
-            </span>
-          ) : null}
-        </span>
-      </li>
-    );
   } catch {
-    return (
-      <li className="flex items-start gap-2 text-[13px]">
-        <span className="font-mono text-[11px] text-muted mt-0.5 w-5 shrink-0">
-          {index + 1}.
-        </span>
-        <span className="min-w-0">
-          <span className="font-medium text-ink">{node.data.label}</span>
-          <span className="text-muted"> — {label}</span>
-        </span>
-      </li>
-    );
+    // Unknown kind from a newer server: text-only row, still applicable.
   }
+  return (
+    <li className="flex items-start gap-2 text-[13px]">
+      <span className="font-mono text-[11px] text-muted mt-0.5 w-5 shrink-0">
+        {index + 1}.
+      </span>
+      {Icon ? (
+        <Icon
+          className="size-3.5 mt-0.5 text-muted shrink-0"
+          aria-hidden="true"
+        />
+      ) : null}
+      <span className="min-w-0">
+        <span className="font-medium text-ink">{node.data.label}</span>
+        <span className="text-muted"> — {label}</span>
+        {summary ? (
+          <span className="block text-[12px] text-muted truncate">
+            {summary}
+          </span>
+        ) : null}
+      </span>
+    </li>
+  );
 }
 
 function summarize(node: HiveNode): string {
