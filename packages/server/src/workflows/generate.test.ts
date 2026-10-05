@@ -110,7 +110,7 @@ describe("buildGeneratePrompt", () => {
   it("spells out the drafting contract", () => {
     const prompt = buildGeneratePrompt("anything", 8);
     // Process + output contract + hard rules + anti-patterns + checklist.
-    expect(prompt).toMatch(/trigger alone is never a workflow/i);
+    expect(prompt).toMatch(/trigger-only drafts fail/i);
     expect(prompt).toMatch(/sourceHandle/);
     expect(prompt).toMatch(/concrete/i);
     expect(prompt).toMatch(/anti-patterns/i);
@@ -118,6 +118,71 @@ describe("buildGeneratePrompt", () => {
     // Required fields are marked so the model fills them, not blanks them.
     expect(prompt).toContain("!prompt");
     expect(prompt).toContain("!path");
+  });
+});
+
+describe("coerceGeneratedGraph edges", () => {
+  it("strips sourceHandles from non-gate edges (they unanchor the edge)", () => {
+    const res = coerceGeneratedGraph(
+      {
+        nodes: [
+          { id: "n1", type: "trigger", data: { label: "T" } },
+          { id: "n2", type: "fileRead", data: { label: "R" } },
+        ],
+        edges: [{ source: "n1", target: "n2", sourceHandle: "true" }],
+      },
+      8,
+    );
+    expect(res.edges).toHaveLength(1);
+    expect(res.edges[0]).not.toHaveProperty("sourceHandle");
+    expect(res.warnings.join(" ")).toMatch(/handle/i);
+  });
+
+  it("keeps gate true/false branch handles", () => {
+    const res = coerceGeneratedGraph(
+      {
+        nodes: [
+          { id: "n1", type: "trigger", data: { label: "T" } },
+          { id: "n2", type: "gate", data: { label: "G", condition: "x" } },
+          { id: "n3", type: "note", data: { label: "A" } },
+          { id: "n4", type: "note", data: { label: "B" } },
+        ],
+        edges: [
+          { source: "n1", target: "n2" },
+          { source: "n2", target: "n3", sourceHandle: "true" },
+          { source: "n2", target: "n4", sourceHandle: "false" },
+        ],
+      },
+      8,
+    );
+    expect(
+      res.edges.find((e) => e.target === "n3")?.sourceHandle,
+    ).toBe("true");
+    expect(
+      res.edges.find((e) => e.target === "n4")?.sourceHandle,
+    ).toBe("false");
+  });
+
+  it("collapses duplicate pairs and chains the unwired remainder", () => {
+    const res = coerceGeneratedGraph(
+      {
+        nodes: [
+          { id: "n1", type: "trigger", data: { label: "T" } },
+          { id: "n2", type: "note", data: { label: "A" } },
+          { id: "n3", type: "note", data: { label: "B" } },
+        ],
+        edges: [
+          { source: "n1", target: "n2" },
+          { source: "n1", target: "n2" },
+        ],
+      },
+      8,
+    );
+    const pairs = res.edges.map((e) => `${e.source}>${e.target}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
+    // n2->n3 chained (n3 had no incoming), n1->n2 kept once.
+    expect(pairs).toContain("n1>n2");
+    expect(pairs).toContain("n2>n3");
   });
 });
 

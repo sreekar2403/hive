@@ -94,7 +94,7 @@ export const GENERATABLE_KINDS: ReadonlySet<string> = new Set([
 const KIND_SCHEMAS: Array<[kind: string, fields: string]> = [
   ["trigger", `!label, !triggerKind manual|cron|webhook|file-change (+cron/webhookPath/filePattern).`],
   ["agentTask", `!label, !prompt (imperative, names files/commands), harness="opencode", model="", retries=2, timeoutSec=300.`],
-  ["gate", `!label, !condition. Edges MUST carry sourceHandle true+false.`],
+  ["gate", `!label, !condition. Branches carry sourceHandle true+false.`],
   ["parallel", `!label, branches 2-8. Branches MUST close at a join.`],
   ["join", `!label, waitPolicy all|any|first.`],
   ["loop", `!label, !items, maxIterations=10.`],
@@ -128,7 +128,7 @@ export function buildGeneratePrompt(
 ): string {
   const catalog = KIND_SCHEMAS.map(([k, s]) => `- ${k}: ${s}`).join("\n");
   return [
-    "Role: Hive workflow architect. Design a COMPLETE runnable multi-step workflow. A trigger alone is never a workflow — a draft with no working steps is a failure.",
+    "Role: Hive workflow architect. Design a COMPLETE runnable workflow. Trigger-only drafts fail.",
     "",
     "Process: 1) list concrete deliverables (files, decisions, approvals); 2) pick the smallest kind set covering them (fileRead for named files; webSearch/urlFetch for outside knowledge; agentTask for repo work; llmCall for pure thinking; reviewer after key agent work; approval before anything written/sent/destructive; fileWrite/notify/output to land results); 3) wire everything (linear chains; gate with true+false sourceHandles; parallel closed by join); 4) self-check, revise, then reply.",
     "",
@@ -136,7 +136,7 @@ export function buildGeneratePrompt(
     "",
     "Hard rules:",
     `- 3 to ${maxNodes} nodes. Exactly one trigger, first: manual unless schedule (cron), webhook (webhookPath), or file changes (filePattern) implied.`,
-    "- Every non-trigger node has an incoming edge; every node except output/chatOutput/notify has an outgoing edge.",
+    "- Every non-trigger node has an incoming edge; every node except output/chatOutput/notify has an outgoing edge. sourceHandle appears ONLY on gate branch edges.",
     "- Every !required field present with CONCRETE values (real commands/paths/queries/full-sentence prompts). Never TODO/TBD/placeholder/lorem/empty required fields.",
     "- fileWrite content uses {{variables}} from upstream; approval sits between generation and fileWrite. Only catalog kinds.",
     "",
@@ -231,33 +231,63 @@ export function coerceGeneratedGraph(
     }
   }
 
+  // Models overgeneralize the gate-branch handle onto linear edges, and
+  // React Flow cannot anchor an edge to a handle id no node declares — the
+  // whole edge silently vanishes. So handles survive only on gate true/false
+  // branches, and duplicate pairs collapse (one id per edge is structural).
+  const typeById = new Map(nodes.map((n) => [n.id, n.type]));
   const edges: GeneratedEdge[] = [];
+  const pairs = new Set<string>();
+  let droppedHandles = 0;
+  let droppedDupes = 0;
   for (const entry of rawEdges) {
     if (!entry || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     const source = typeof e.source === "string" ? e.source : "";
     const target = typeof e.target === "string" ? e.target : "";
     if (!seen.has(source) || !seen.has(target)) continue;
+    const pair = `${source}>${target}`;
+    if (pairs.has(pair)) {
+      droppedDupes++;
+      continue;
+    }
+    pairs.add(pair);
+    const handle = typeof e.sourceHandle === "string" ? e.sourceHandle : "";
+    const keepHandle =
+      typeById.get(source) === "gate" &&
+      (handle === "true" || handle === "false");
+    if (handle && !keepHandle) droppedHandles++;
     edges.push({
       id: `e-${source}-${target}`,
       source,
       target,
-      ...(typeof e.sourceHandle === "string"
-        ? { sourceHandle: e.sourceHandle }
-        : {}),
+      ...(keepHandle ? { sourceHandle: handle } : {}),
       type: "smoothstep",
     });
+  }
+  if (droppedHandles > 0) {
+    warnings.push(
+      `Dropped ${droppedHandles} bogus edge handle(s) — only gate branches use source handles.`,
+    );
+  }
+  if (droppedDupes > 0) {
+    warnings.push(`Dropped ${droppedDupes} duplicate edge(s).`);
   }
   // Chain unwired nodes in order so the result is always a runnable line —
   // the user rearranges from something valid, not from fragments.
   const hasIn = new Set(edges.map((e) => e.target));
-  const hasOut = new Set(edges.map((e) => e.source));
-  for (let i = 0; i < nodes.length - 1; i++) {
-    const a = nodes[i];
-    const b = nodes[i + 1];
-    if (!hasOut.has(a.id) && !hasIn.has(b.id)) {
-      edges.push({ id: `e-${a.id}-${b.id}`, source: a.id, target: b.id, type: "smoothstep" });
-      hasOut.add(a.id);
+  for (let i = 1; i < nodes.length; i++) {
+    const a = nodes[i - 1];
+    const b = nodes[i];
+    const pair = `${a.id}>${b.id}`;
+    if (!hasIn.has(b.id) && !pairs.has(pair)) {
+      edges.push({
+        id: `e-${a.id}-${b.id}`,
+        source: a.id,
+        target: b.id,
+        type: "smoothstep",
+      });
+      pairs.add(pair);
       hasIn.add(b.id);
     }
   }
