@@ -313,24 +313,47 @@ function WorkflowCanvas() {
   }
 
   /**
-   * Preview-then-apply: the dialog owns review, so Apply is one undo step.
-   * Refit afterwards — applied nodes land on a fresh grid at the origin,
-   * which is routinely outside the current viewport, and without a refit
-   * Apply looks like it did nothing.
+   * Preview-then-apply. With a workflow open the dialog owns review, so
+   * Apply is one undo step. From the empty state there is no canvas to
+   * apply to — applying then must CREATE the workflow, or the accepted
+   * graph is silently dropped (nodes state with no current workflow never
+   * renders and never autosaves).
    */
   const handleApplyGenerated = useCallback(
-    (graph: GeneratedGraph) => {
-      history.record(snapshot());
+    async (graph: GeneratedGraph, suggestedName: string) => {
       const nodes = graph.nodes as HiveNode[];
       const edges = graph.edges as HiveEdge[];
-      setNodes(autoLayout(nodes, edges));
-      setEdges(edges);
-      setSelectedId(null);
+      const laid = autoLayout(nodes, edges);
+      if (currentId) {
+        history.record(snapshot());
+        setNodes(laid);
+        setEdges(edges);
+        setSelectedId(null);
+        // Applied nodes land on a fresh grid at the origin, routinely
+        // outside the current viewport — without a refit Apply looks dead.
+        window.setTimeout(() => {
+          fitView({ padding: 0.2, duration: 400, maxZoom: 1 });
+        }, 60);
+        return;
+      }
+      if (!activeProjectId) {
+        throw new Error("Pick a project first, then apply the workflow.");
+      }
+      const created = await createWorkflow({
+        name: suggestedName,
+        projectId: activeProjectId,
+        nodes: sanitizeNodes(laid),
+        edges: sanitizeEdges(edges),
+      });
+      setWorkflows((w) => [created, ...w]);
+      setCurrentId(created.id);
+      // The hydration effect loads the created graph onto the canvas; refit
+      // once it has committed so the new workflow is actually visible.
       window.setTimeout(() => {
         fitView({ padding: 0.2, duration: 400, maxZoom: 1 });
-      }, 60);
+      }, 120);
     },
-    [history, snapshot, fitView],
+    [history, snapshot, fitView, currentId, activeProjectId],
   );
 
   /* ---------------- render ---------------- */

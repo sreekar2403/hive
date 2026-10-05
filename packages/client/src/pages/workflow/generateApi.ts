@@ -21,3 +21,14 @@ export async function generateWorkflow(input: {
   }
   return API.post<GeneratedGraph>("/api/workflows/generate", input);
 }
+
+/**
+ * Names a workflow created by Apply-from-empty-state. First line of the
+ * description, capped — falls back when the description is blank (the
+ * dialog blocks Generate then, but Apply must never create "untitled-…").
+ */
+export function deriveWorkflowName(description: string): string {
+  const first = description.split("\n")[0].trim().replace(/\s+/g, " ");
+  if (!first) return "Generated workflow";
+  return first.length > 48 ? `${first.slice(0, 47)}…` : first;
+}

@@ -8,7 +8,11 @@ import {
   Textarea,
 } from "../../components/ui";
 import { HARNESS_IDS, HARNESS_LABELS } from "../settings/types";
-import { generateWorkflow, type GeneratedGraph } from "./generateApi";
+import {
+  deriveWorkflowName,
+  generateWorkflow,
+  type GeneratedGraph,
+} from "./generateApi";
 import { nodeDef } from "./nodeDefs";
 import type { HiveNode } from "./types";
 
@@ -43,15 +47,36 @@ export function GenerateWorkflowDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onApply: (graph: GeneratedGraph) => void;
+  /** Resolves when the graph is on the canvas; rejects to keep the dialog open with the error shown. */
+  onApply: (graph: GeneratedGraph, suggestedName: string) => Promise<void>;
 }) {
   const [description, setDescription] = useState("");
   const [harness, setHarness] = useState("");
   const [maxSteps, setMaxSteps] = useState(8);
   const [phase, setPhase] = useState<Phase>({ name: "editing" });
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   function reset() {
     setPhase({ name: "editing" });
+    setApplyError(null);
+  }
+
+  async function apply(graph: GeneratedGraph) {
+    if (applying) return;
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await onApply(graph, deriveWorkflowName(description));
+      reset();
+      onClose();
+    } catch (err) {
+      setApplyError(
+        err instanceof Error ? err.message : "Could not apply the workflow.",
+      );
+    } finally {
+      setApplying(false);
+    }
   }
 
   // Ticks the elapsed clock + stage rotation while a draft is in flight.
@@ -126,13 +151,13 @@ export function GenerateWorkflowDialog({
             </Button>
             <Button
               variant="primary"
-              onClick={() => {
-                onApply(phase.graph);
-                reset();
-                onClose();
-              }}
+              onClick={() => apply(phase.graph)}
+              disabled={applying}
             >
-              Apply to canvas
+              {applying ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : null}
+              {applying ? "Applying…" : "Apply to canvas"}
             </Button>
           </>
         ) : (
@@ -288,6 +313,12 @@ export function GenerateWorkflowDialog({
               </ul>
             ) : null}
           </div>
+        ) : null}
+
+        {applyError ? (
+          <p className="text-[13px] text-danger" role="alert">
+            {applyError}
+          </p>
         ) : null}
 
         {phase.name === "editing" ? (
