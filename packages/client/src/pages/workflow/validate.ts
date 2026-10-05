@@ -1,4 +1,41 @@
-import type { HiveEdge, HiveNode } from "./types";
+import type { HiveEdge, HiveNode, HiveNodeKind } from "./types";
+
+/**
+ * Forward-compat guard: flows saved by a newer client (or hand-edited) may
+ * reference kinds this build has no card for. Warn rather than crash — the
+ * canvas renders unknown nodes through React Flow's default, and validation
+ * must never be the thing that breaks the page.
+ */
+const KNOWN_KINDS: ReadonlySet<string> = new Set<string>([
+  "trigger",
+  "agentTask",
+  "gate",
+  "parallel",
+  "join",
+  "approval",
+  "tool",
+  "output",
+  "loop",
+  "delay",
+  "subflow",
+  "reviewer",
+  "chatInput",
+  "chatOutput",
+  "promptTemplate",
+  "llmCall",
+  "structuredOutput",
+  "note",
+  "fileRead",
+  "fileWrite",
+  "transform",
+  "setVariable",
+  "jsonParse",
+  "httpRequest",
+  "webSearch",
+  "urlFetch",
+  "notify",
+  "vectorSearch",
+] satisfies readonly HiveNodeKind[]);
 
 export type ValidationSeverity = "error" | "warning";
 
@@ -85,6 +122,68 @@ export function validateWorkflow(
         id: `no-out-${n.id}`,
         severity: "warning",
         message: `"${label}" doesn't lead anywhere.`,
+        nodeId: n.id,
+      });
+    }
+  }
+
+  for (const n of nodes) {
+    const label = n.data.label || n.id;
+    const data = n.data as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v : "");
+    if (n.type === "fileWrite" && !str(data.path).trim()) {
+      issues.push({
+        id: `no-path-${n.id}`,
+        severity: "error",
+        message: `"${label}" needs a file path to write to.`,
+        nodeId: n.id,
+      });
+    }
+    if (n.type === "loop" && !str(data.items).trim()) {
+      issues.push({
+        id: `no-items-${n.id}`,
+        severity: "error",
+        message: `"${label}" needs items to loop over.`,
+        nodeId: n.id,
+      });
+    }
+    if (n.type === "subflow" && !str(data.workflowName).trim()) {
+      issues.push({
+        id: `no-workflow-${n.id}`,
+        severity: "error",
+        message: `"${label}" needs a workflow name to call.`,
+        nodeId: n.id,
+      });
+    }
+    if (n.type === "llmCall" && !str(data.prompt).trim()) {
+      issues.push({
+        id: `no-prompt-${n.id}`,
+        severity: "warning",
+        message: `"${label}" has no prompt yet.`,
+        nodeId: n.id,
+      });
+    }
+    if (n.type === "promptTemplate") {
+      const template = str(data.template);
+      const opens = (template.match(/\{\{/g) ?? []).length;
+      const closes = (template.match(/\}\}/g) ?? []).length;
+      if (opens !== closes) {
+        issues.push({
+          id: `unclosed-var-${n.id}`,
+          severity: "warning",
+          message: `"${label}" has an unclosed {{ variable.`,
+          nodeId: n.id,
+        });
+      }
+    }
+  }
+
+  for (const n of nodes) {
+    if (!KNOWN_KINDS.has(n.type)) {
+      issues.push({
+        id: `unknown-kind-${n.id}`,
+        severity: "warning",
+        message: `"${n.data.label || n.id}" is a "${n.type}" node this version doesn't know — it won't run.`,
         nodeId: n.id,
       });
     }
