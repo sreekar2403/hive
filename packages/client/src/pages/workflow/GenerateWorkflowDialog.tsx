@@ -1,0 +1,301 @@
+import { useState } from "react";
+import { Sparkles } from "lucide-react";
+import {
+  Button,
+  Field,
+  Modal,
+  Select,
+  Textarea,
+} from "../../components/ui";
+import { HARNESS_IDS, HARNESS_LABELS } from "../settings/types";
+import { generateWorkflow, type GeneratedGraph } from "./generateApi";
+import { nodeDef } from "./nodeDefs";
+import type { HiveNode } from "./types";
+
+type Phase =
+  | { name: "editing" }
+  | { name: "generating" }
+  | { name: "preview"; graph: GeneratedGraph }
+  | { name: "error"; message: string; graph: GeneratedGraph | null };
+
+/**
+ * Describe-in-text → workflow graph, with preview-then-apply.
+ *
+ * Nothing touches the canvas until Apply: the dialog owns its phases and
+ * hands the accepted graph to the caller, which records history first so
+ * the whole generation is one undo step.
+ */
+export function GenerateWorkflowDialog({
+  open,
+  onClose,
+  onApply,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onApply: (graph: GeneratedGraph) => void;
+}) {
+  const [description, setDescription] = useState("");
+  const [harness, setHarness] = useState("");
+  const [maxSteps, setMaxSteps] = useState(8);
+  const [phase, setPhase] = useState<Phase>({ name: "editing" });
+
+  function reset() {
+    setPhase({ name: "editing" });
+  }
+
+  async function run() {
+    if (!description.trim() || phase.name === "generating") return;
+    setPhase({ name: "generating" });
+    try {
+      const graph = await generateWorkflow({
+        description: description.trim(),
+        ...(harness ? { harness } : {}),
+        maxNodes: maxSteps,
+      });
+      setPhase({ name: "preview", graph });
+    } catch (err) {
+      setPhase({
+        name: "error",
+        message: err instanceof Error ? err.message : "Generation failed.",
+        graph: null,
+      });
+    }
+  }
+
+  const busy = phase.name === "generating";
+  const preview =
+    phase.name === "preview" ? phase.graph : (
+      phase.name === "error" ? phase.graph : null
+    );
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        reset();
+        onClose();
+      }}
+      title="Generate workflow"
+      description="Describe what you need. Review the preview, then apply — nothing changes until you do."
+      width="lg"
+      footer={
+        phase.name === "preview" ? (
+          <>
+            <Button
+              onClick={run}
+              disabled={busy}
+            >
+              Regenerate
+            </Button>
+            <Button
+              onClick={reset}
+              disabled={busy}
+            >
+              Back
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                onApply(phase.graph);
+                reset();
+                onClose();
+              }}
+            >
+              Apply to canvas
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              onClick={() => {
+                reset();
+                onClose();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={run}
+              disabled={busy || !description.trim()}
+            >
+              <Sparkles className="size-4" />
+              {busy ? "Generating…" : "Generate"}
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="What should this workflow do?" required>
+          {(id) => (
+            <Textarea
+              id={id}
+              rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Nightly sweep: read research notes, run tests in parallel, ask approval before writing files…"
+              autoFocus
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run();
+              }}
+            />
+          )}
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Harness preference">
+            {(id) => (
+              <Select
+                id={id}
+                value={harness}
+                onChange={(e) => setHarness(e.target.value)}
+                disabled={busy}
+              >
+                <option value="">Automatic</option>
+                {HARNESS_IDS.map((h) => (
+                  <option key={h} value={h}>
+                    {HARNESS_LABELS[h]}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Max steps">
+            {(id) => (
+              <Select
+                id={id}
+                value={String(maxSteps)}
+                onChange={(e) => setMaxSteps(Number(e.target.value) || 8)}
+                disabled={busy}
+              >
+                <option value="4">Up to 4 steps</option>
+                <option value="8">Up to 8 steps</option>
+                <option value="10">Up to 10 steps</option>
+              </Select>
+            )}
+          </Field>
+        </div>
+
+        {phase.name === "error" ? (
+          <p className="text-[13px] text-danger" role="alert">
+            {phase.message}{" "}
+            <button
+              className="underline"
+              onClick={run}
+            >
+              Try again
+            </button>
+          </p>
+        ) : null}
+
+        {preview ? (
+          <div className="border border-line rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-surface-2 border-b border-line flex items-center justify-between">
+              <span className="text-[12px] font-medium text-ink">
+                Preview — {preview.nodes.length} step
+                {preview.nodes.length === 1 ? "" : "s"}
+              </span>
+              <span className="text-[11px] text-muted">
+                Editable after Apply
+              </span>
+            </div>
+            <ol className="px-3 py-2 flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+              {preview.nodes.map((n, i) => (
+                <PreviewRow key={n.id} index={i} node={n} />
+              ))}
+            </ol>
+            {preview.warnings.length > 0 ? (
+              <ul className="px-3 py-2 border-t border-line flex flex-col gap-1">
+                {preview.warnings.map((w, i) => (
+                  <li key={i} className="text-[11px] text-warn">
+                    {w}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {phase.name === "editing" ? (
+          <p className="text-[12px] text-muted">
+            Tip: Ctrl+Enter generates. The canvas keeps its own undo, so
+            Apply is always reversible.
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+function PreviewRow({ index, node }: { index: number; node: HiveNode }) {
+  let label: string = node.type;
+  let summary = "";
+  try {
+    const def = nodeDef(node.type);
+    label = def.label;
+    const Icon = def.icon;
+    summary = summarize(node);
+    return (
+      <li className="flex items-start gap-2 text-[13px]">
+        <span className="font-mono text-[11px] text-muted mt-0.5 w-5 shrink-0">
+          {index + 1}.
+        </span>
+        <Icon className="size-3.5 mt-0.5 text-muted shrink-0" aria-hidden="true" />
+        <span className="min-w-0">
+          <span className="font-medium text-ink">{node.data.label}</span>
+          <span className="text-muted"> — {label}</span>
+          {summary ? (
+            <span className="block text-[12px] text-muted truncate">
+              {summary}
+            </span>
+          ) : null}
+        </span>
+      </li>
+    );
+  } catch {
+    return (
+      <li className="flex items-start gap-2 text-[13px]">
+        <span className="font-mono text-[11px] text-muted mt-0.5 w-5 shrink-0">
+          {index + 1}.
+        </span>
+        <span className="min-w-0">
+          <span className="font-medium text-ink">{node.data.label}</span>
+          <span className="text-muted"> — {label}</span>
+        </span>
+      </li>
+    );
+  }
+}
+
+function summarize(node: HiveNode): string {
+  const data = node.data as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  switch (node.type) {
+    case "agentTask":
+    case "llmCall":
+    case "reviewer":
+      return [str(data.harness), str(data.prompt || data.rubric)]
+        .filter(Boolean)
+        .join(" · ")
+        .slice(0, 80);
+    case "trigger":
+      return str(data.triggerKind);
+    case "fileWrite":
+      return str(data.path);
+    case "httpRequest":
+    case "urlFetch":
+      return str(data.url);
+    case "webSearch":
+    case "vectorSearch":
+      return str(data.query);
+    default:
+      return (
+        str(data.prompt) ||
+        str(data.command) ||
+        str(data.condition) ||
+        str(data.message) ||
+        ""
+      ).slice(0, 80);
+  }
+}

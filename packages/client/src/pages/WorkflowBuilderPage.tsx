@@ -21,6 +21,7 @@ import {
   LayoutGrid,
   Plus,
   Redo2,
+  Sparkles,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -39,6 +40,10 @@ import { useProjects } from "../state/ProjectContext";
 import { cn } from "../lib/cn";
 import { Palette, PALETTE_DRAG_MIME } from "./workflow/Palette";
 import { Inspector } from "./workflow/Inspector";
+import {
+  GenerateWorkflowDialog,
+} from "./workflow/GenerateWorkflowDialog";
+import type { GeneratedGraph } from "./workflow/generateApi";
 import { nodeTypes } from "./workflow/nodes";
 import { nodeDef } from "./workflow/nodeDefs";
 import { autoLayout } from "./workflow/autoLayout";
@@ -81,6 +86,7 @@ function WorkflowCanvas() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [showIssues, setShowIssues] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
   const history = useHistory<HiveNode, HiveEdge>();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -306,6 +312,19 @@ function WorkflowCanvas() {
     setCurrentId(null);
   }
 
+  /** Preview-then-apply: the dialog owns review, so Apply is one undo step. */
+  const handleApplyGenerated = useCallback(
+    (graph: GeneratedGraph) => {
+      history.record(snapshot());
+      const nodes = graph.nodes as HiveNode[];
+      const edges = graph.edges as HiveEdge[];
+      setNodes(autoLayout(nodes, edges));
+      setEdges(edges);
+      setSelectedId(null);
+    },
+    [history, snapshot],
+  );
+
   /* ---------------- render ---------------- */
 
   if (!activeProject) {
@@ -352,6 +371,14 @@ function WorkflowCanvas() {
                   </option>
                 ))}
               </Select>
+              <Button
+                onClick={() => setGenerating(true)}
+                className="hive-ai-glow"
+                aria-label="Generate workflow with AI"
+              >
+                <Sparkles className="size-4" />
+                Generate with AI
+              </Button>
               <Button variant="primary" onClick={() => setCreating(true)}>
                 <Plus className="size-4" />
                 New
@@ -371,15 +398,21 @@ function WorkflowCanvas() {
           title="No workflows yet"
           description="A workflow chains agent steps, branches, and approvals into something you can run on a schedule."
           action={
-            <Button variant="primary" onClick={() => setCreating(true)}>
-              <Plus className="size-4" />
-              Create workflow
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setGenerating(true)}>
+                <Sparkles className="size-4" />
+                Describe with AI
+              </Button>
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                <Plus className="size-4" />
+                Create workflow
+              </Button>
+            </div>
           }
         />
       ) : (
         <div className="flex-1 min-h-0 flex border-t border-line">
-          <div className="w-52 shrink-0 border-r border-line overflow-y-auto bg-surface">
+          <div className="w-64 shrink-0 border-r border-line bg-surface overflow-hidden flex flex-col min-h-0">
             <Palette />
           </div>
 
@@ -528,6 +561,12 @@ function WorkflowCanvas() {
           </div>
         </div>
       )}
+
+      <GenerateWorkflowDialog
+        open={generating}
+        onClose={() => setGenerating(false)}
+        onApply={handleApplyGenerated}
+      />
 
       <Modal
         open={creating}
