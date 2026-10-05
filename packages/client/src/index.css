@@ -237,6 +237,18 @@
     background-size: 24px 24px;
     opacity: 1;
   }
+
+  /*
+    Fixed soul.md editor pane (BrainPage): the card holds a set height and
+    the text scrolls inside it instead of pushing the page.
+  */
+  .soul-pane-card {
+    height: 560px;
+    max-height: 100%;
+  }
+  .soul-pane-editor {
+    resize: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -56,10 +56,24 @@ export function SecondBrainSection({
   ) =>
     setSecondBrain({ retrieval: { ...draft.secondBrain.retrieval, ...patch } });
 
-  const modelOptions = catalog.options.map((opt) => ({
-    value: opt.id,
-    label: `${opt.harness}/${opt.provider}/${opt.model}`,
-  }));
+  // Grouped by harness the way the routing section groups by provider —
+  // a flat hundred-option list is unscannable. Values unchanged.
+  const modelOptionGroups = (() => {
+    const byHarness = new Map<
+      string,
+      Array<{ value: string; label: string }>
+    >();
+    for (const opt of catalog.options) {
+      const entry = {
+        value: opt.id,
+        label: `${opt.provider}/${opt.model}`,
+      };
+      const list = byHarness.get(opt.harness) ?? [];
+      list.push(entry);
+      byHarness.set(opt.harness, list);
+    }
+    return [...byHarness.entries()].sort(([a], [b]) => a.localeCompare(b));
+  })();
 
   /**
    * The machine-wide soul.md — the file first-run setup seeds, and the one
@@ -190,8 +204,18 @@ export function SecondBrainSection({
       </Card>
 
       <Card>
-        <CardHeader eyebrow="Second Brain" title="Learning" />
-        <div className="p-4 grid grid-cols-2 gap-4">
+        <CardHeader eyebrow="Second Brain" title="Learning & retrieval" />
+        <div className="divide-y divide-line">
+          <section
+            aria-label="Learning signals"
+            className="p-4 grid grid-cols-2 gap-4"
+          >
+            <div className="col-span-2">
+              <div className="eyebrow">Signals in</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                Learning
+              </div>
+            </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-ink">
               Learn from runs
@@ -231,10 +255,14 @@ export function SecondBrainSection({
                 onChange={(e) => setLearning({ model: e.target.value })}
               >
                 <option value="">Heuristics only (no model)</option>
-                {modelOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
+                {modelOptionGroups.map(([harness, options]) => (
+                  <optgroup key={harness} label={harness}>
+                    {options.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </Select>
             )}
@@ -337,12 +365,18 @@ export function SecondBrainSection({
               />
             </div>
           </div>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Second Brain" title="Routing augmentation" />
-        <div className="p-4 grid grid-cols-2 gap-4">
+          <section
+            aria-label="Routing use"
+            className="p-4 grid grid-cols-2 gap-4"
+          >
+            <div className="col-span-2">
+              <div className="eyebrow">Signals out</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                Routing augmentation
+              </div>
+            </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-ink">
               Augment keyword routing
@@ -400,12 +434,18 @@ export function SecondBrainSection({
               />
             )}
           </Field>
-        </div>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader eyebrow="Second Brain" title="Retrieval limits" />
-        <div className="p-4 grid grid-cols-2 gap-4">
+          <section
+            aria-label="Retrieval budget"
+            className="p-4 grid grid-cols-2 gap-4"
+          >
+            <div className="col-span-2">
+              <div className="eyebrow">Budget</div>
+              <div className="text-sm font-semibold text-ink mt-0.5">
+                Retrieval limits
+              </div>
+            </div>
           <Field
             label="Max preferences in briefing"
             hint="Cap on injected user preferences so they don't crowd the prompt."
@@ -472,6 +512,7 @@ export function SecondBrainSection({
               />
             )}
           </Field>
+          </section>
         </div>
       </Card>
 

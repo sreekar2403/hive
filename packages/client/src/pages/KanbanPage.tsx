@@ -326,7 +326,7 @@ export function KanbanPage() {
         <Select
           value={harnessFilter}
           onChange={(e) => setHarnessFilter(e.target.value)}
-          className="w-40"
+          className="w-full max-w-40 flex-none"
           aria-label="Filter by harness"
         >
           <option value="">All harnesses</option>
@@ -358,7 +358,7 @@ export function KanbanPage() {
           Finished
         </span>
 
-        <span className="ml-auto font-mono text-[11px] text-faint" data-numeric>
+        <span className="ml-auto font-mono text-[11px] text-muted" data-numeric>
           {visible.length}
           {filtering ? ` of ${tasks.length}` : ""} task
           {visible.length === 1 ? "" : "s"}
@@ -367,8 +367,8 @@ export function KanbanPage() {
 
       <p ref={liveRef} className="sr-only" aria-live="polite" />
 
-      <div className="flex-1 min-h-0 border-t border-line overflow-x-auto">
-        <div className="h-full flex gap-3 p-4 min-w-max">
+      <div className="flex-1 min-h-0 border-t border-line overflow-x-auto scroll-px-6">
+        <div className="h-full flex gap-4 min-w-max px-6 pt-4 pb-6">
           {columns.map((col) => {
             const items = byStatus.get(col.id) ?? [];
             const isCollapsed = collapsed.includes(col.id);
@@ -415,23 +415,23 @@ export function KanbanPage() {
                   setDragOver(null);
                 }}
                 className={cn(
-                  "shrink-0 flex flex-col rounded-lg border bg-surface transition-colors",
+                  "shrink-0 flex flex-col rounded-lg border transition-colors",
                   COLUMN_WIDTH[density],
                   dragOver === col.id
                     ? "border-accent bg-accent-soft"
-                    : "border-line",
+                    : "border-transparent",
                 )}
               >
-                <header className="px-3 pt-2.5 pb-2 border-b border-line">
+                <header className="px-1 pt-1 pb-2">
                   <div className="flex items-center gap-2">
                     <StatusDot tone={STATUS_TONE[col.id]} />
-                    <h2 className="text-[13px] font-medium text-ink truncate">
+                    <h2 className="text-[13px] font-semibold text-ink truncate">
                       {col.title}
                     </h2>
                     <span
                       className={cn(
                         "font-mono text-[11px] ml-auto shrink-0",
-                        over ? "text-warn" : "text-faint",
+                        over ? "text-warn" : "text-muted",
                       )}
                       data-numeric
                       title={
@@ -463,7 +463,7 @@ export function KanbanPage() {
                     </IconButton>
                   </div>
                   {density === "comfortable" ? (
-                    <p className="text-[11px] text-faint mt-0.5 truncate">
+                    <p className="text-[11px] text-muted mt-0.5 truncate">
                       {col.blurb}
                     </p>
                   ) : null}
@@ -475,13 +475,13 @@ export function KanbanPage() {
                   ) : items.length === 0 ? (
                     /* A visible target, so an empty column can still be
                        dropped onto rather than looking inert. */
-                    <p
-                      className={cn(
-                        "rounded-md border border-dashed px-2 py-6 text-center text-[12px] transition-colors",
-                        dragOver === col.id
-                          ? "border-accent text-accent"
-                          : "border-line text-faint",
-                      )}
+                      <p
+                        className={cn(
+                          "rounded-lg border border-dashed px-2 py-6 text-center text-[12px] transition-colors",
+                          dragOver === col.id
+                            ? "border-accent text-accent"
+                            : "border-line text-muted",
+                        )}
                     >
                       {dragOver === col.id
                         ? `Drop in ${col.title}`
@@ -564,12 +564,14 @@ function CollapsedColumn({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={cn(
-        "w-11 shrink-0 flex flex-col items-center gap-2 rounded-lg border bg-surface py-2.5 transition-colors",
-        highlight ? "border-accent bg-accent-soft" : "border-line",
+        "w-11 shrink-0 flex flex-col items-center gap-2 rounded-lg border py-2.5 transition-colors",
+        highlight
+          ? "border-accent bg-accent-soft"
+          : "border-transparent bg-surface-2",
       )}
     >
       <StatusDot tone={tone} />
-      <span className="font-mono text-[11px] text-faint" data-numeric>
+      <span className="font-mono text-[11px] text-muted" data-numeric>
         {count}
       </span>
       <button
@@ -631,7 +633,7 @@ function TaskCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={cn(
-        "group relative rounded-md border bg-surface-2 transition-colors",
+        "group relative rounded-lg border bg-surface shadow-card transition-colors",
         density === "compact" ? "p-2" : "p-2.5",
         dragging
           ? "opacity-40 border-accent"
@@ -645,7 +647,7 @@ function TaskCard({
     >
       {parent ? (
         <p
-          className="mb-1 truncate font-mono text-[10px] text-faint"
+          className="mb-1 truncate font-mono text-[11px] text-muted"
           title={`Split from: ${parent.title?.trim() || parent.prompt}`}
         >
           ↳ {parent.title?.trim() || parent.prompt}
@@ -695,7 +697,7 @@ function TaskCard({
           </span>
         ) : null}
         <span
-          className="inline-flex items-center gap-1 font-mono text-[10px] text-muted"
+          className="inline-flex items-center gap-1 font-mono text-[11px] text-muted"
           title={harnessLabel(task.harness)}
         >
           <span
@@ -705,17 +707,17 @@ function TaskCard({
           {harnessLabel(task.harness)}
         </span>
         {task.iterations > 0 ? (
-          <span className="font-mono text-[10px] text-faint" data-numeric>
+          <span className="font-mono text-[11px] text-muted" data-numeric>
             {task.iterations}× iter
           </span>
         ) : null}
         {task.files_changed > 0 ? (
-          <span className="font-mono text-[10px] text-faint" data-numeric>
+          <span className="font-mono text-[11px] text-muted" data-numeric>
             {task.files_changed} files
           </span>
         ) : null}
         {duration ? (
-          <span className="font-mono text-[10px] text-faint" data-numeric>
+          <span className="font-mono text-[11px] text-muted" data-numeric>
             {duration}
           </span>
         ) : null}
@@ -728,7 +730,7 @@ function TaskCard({
         onChange={(e) => onMove(e.target.value as TaskStatus)}
         onClick={(e) => e.stopPropagation()}
         aria-label="Move task to another column"
-        className="h-6 mt-1.5 w-full text-[11px] border-transparent bg-transparent text-faint hover:border-line hover:text-muted"
+        className="h-7 mt-1.5 w-full text-[12px] border-transparent bg-transparent text-muted hover:border-line hover:text-ink"
       >
         {COLUMNS.map((c) => (
           <option key={c.id} value={c.id}>
