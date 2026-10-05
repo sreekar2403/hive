@@ -86,59 +86,85 @@ export const GENERATABLE_KINDS: ReadonlySet<string> = new Set([
   "vectorSearch",
 ]);
 
-const KIND_SCHEMAS: Array<[string, string]> = [
-  ["trigger", `{label, triggerKind: manual|cron|webhook|file-change}`],
-  ["agentTask", `{label, harness, model?, prompt, retries?, timeoutSec?}`],
-  ["gate", `{label, condition}`],
-  ["parallel", `{label, branches: 2-8}`],
-  ["join", `{label, waitPolicy: all|any|first}`],
-  ["loop", `{label, items, maxIterations?}`],
-  ["delay", `{label, waitSec, waitFor?}`],
-  ["subflow", `{label, workflowName, input?}`],
-  ["reviewer", `{label, harness, model?, rubric}`],
-  ["chatInput", `{label, placeholder?}`],
-  ["chatOutput", `{label, message}`],
-  ["promptTemplate", `{label, template with {{variables}}`],
-  ["llmCall", `{label, harness, model?, prompt}`],
-  ["structuredOutput", `{label, schema (JSON Schema)}`],
-  ["note", `{label, text}`],
-  ["fileRead", `{label, pattern (path or glob)}`],
-  ["fileWrite", `{label, path, content}`],
-  ["transform", `{label, expression}`],
-  ["setVariable", `{label, name, value}`],
-  ["jsonParse", `{label, source, path?}`],
-  ["httpRequest", `{label, method, url, body?}`],
-  ["webSearch", `{label, query, maxResults?}`],
-  ["urlFetch", `{label, url}`],
-  ["notify", `{label, channel, message}`],
-  ["vectorSearch", `{label, query, maxResults?}`],
-  ["approval", `{label, approver?, instructions?}`],
-  ["tool", `{label, toolKind: shell|git|http, command}`],
-  ["output", `{label, resultKey?}`],
+/**
+ * Field guide per node kind. `!` marks required data fields; the rest fall
+ * back to safe defaults. Kept in one table so the prompt and the code that
+ * validates the answer can never disagree about what a kind needs.
+ */
+const KIND_SCHEMAS: Array<[kind: string, fields: string]> = [
+  ["trigger", `!label, !triggerKind manual|cron|webhook|file-change (+cron/webhookPath/filePattern).`],
+  ["agentTask", `!label, !prompt (imperative, names files/commands), harness="opencode", model="", retries=2, timeoutSec=300.`],
+  ["gate", `!label, !condition. Edges MUST carry sourceHandle true+false.`],
+  ["parallel", `!label, branches 2-8. Branches MUST close at a join.`],
+  ["join", `!label, waitPolicy all|any|first.`],
+  ["loop", `!label, !items, maxIterations=10.`],
+  ["delay", `!label, waitSec=60, waitFor?.`],
+  ["subflow", `!label, !workflowName, input?.`],
+  ["reviewer", `!label, !rubric (checklist). AFTER the judged step.`],
+  ["chatInput", `!label, placeholder?. Conversational entries only.`],
+  ["chatOutput", `!label, !message ({{vars}} ok). Terminal.`],
+  ["promptTemplate", `!label, !template ({{vars}} from earlier steps).`],
+  ["llmCall", `!label, !prompt (self-contained, no repo). Thinking only, not repo work.`],
+  ["structuredOutput", `!label, !schema (JSON Schema string). After the step it constrains.`],
+  ["note", `!label, text. Max one, never load-bearing.`],
+  ["fileRead", `!label, !pattern (path/glob). First when request names files.`],
+  ["fileWrite", `!label, !path, !content ({{vars}}). Approval before it when generated.`],
+  ["transform", `!label, !expression (one JS expression).`],
+  ["setVariable", `!label, !name, !value.`],
+  ["jsonParse", `!label, !source ({{var}} with JSON), path?.`],
+  ["httpRequest", `!label, !method, !url (full https), body?.`],
+  ["webSearch", `!label, !query (terms, not a sentence), maxResults=5.`],
+  ["urlFetch", `!label, !url (full https). Page as markdown.`],
+  ["notify", `!label, !channel, !message. Near the end.`],
+  ["vectorSearch", `!label, !query. Second Brain memory, NOT the web.`],
+  ["approval", `!label, !instructions (what human verifies). Before fileWrite/notify/destructive.`],
+  ["tool", `!label, !toolKind shell|git|http, !command (exact runnable).`],
+  ["output", `!label, resultKey?. Terminal.`],
 ];
 
 export function buildGeneratePrompt(
   description: string,
   maxNodes: number,
 ): string {
-  const catalog = KIND_SCHEMAS.map(([k, s]) => `- ${k}: data is ${s}`).join(
-    "\n",
-  );
+  const catalog = KIND_SCHEMAS.map(([k, s]) => `- ${k}: ${s}`).join("\n");
   return [
-    "You design Hive workflows. Reply with ONLY a JSON object, no prose.",
-    `Schema: {"nodes": [{"id": "n1", "type": "<kind>", "data": {...}}], "edges": [{"source": "n1", "target": "n2"}]}`,
-    "Rules:",
-    `- At most ${maxNodes} nodes. Always start with exactly one trigger node (manual unless the request implies cron/webhook/file-change).`,
-    "- Every node except the trigger needs an incoming edge; every node except output/chatOutput needs an outgoing edge (gate needs true+false branches).",
-    "- Prefer agentTask for repo work, reviewer after important agent steps, approval before fileWrite/destructive steps.",
-    "- Node kinds and their data shapes:",
+    "Role: Hive workflow architect. Design a COMPLETE runnable multi-step workflow. A trigger alone is never a workflow — a draft with no working steps is a failure.",
+    "",
+    "Process: 1) list concrete deliverables (files, decisions, approvals); 2) pick the smallest kind set covering them (fileRead for named files; webSearch/urlFetch for outside knowledge; agentTask for repo work; llmCall for pure thinking; reviewer after key agent work; approval before anything written/sent/destructive; fileWrite/notify/output to land results); 3) wire everything (linear chains; gate with true+false sourceHandles; parallel closed by join); 4) self-check, revise, then reply.",
+    "",
+    "Output (STRICT): ONLY one JSON object, no prose/fences: {\"nodes\": [{\"id\": \"n1\", \"type\": \"<kind>\", \"data\": {...}}], \"edges\": [{\"source\": \"n1\", \"target\": \"n2\"}]}. Ids sequential n1, n2… Gate edges add \"sourceHandle\": \"true\"/\"false\".",
+    "",
+    "Hard rules:",
+    `- 3 to ${maxNodes} nodes. Exactly one trigger, first: manual unless schedule (cron), webhook (webhookPath), or file changes (filePattern) implied.`,
+    "- Every non-trigger node has an incoming edge; every node except output/chatOutput/notify has an outgoing edge.",
+    "- Every !required field present with CONCRETE values (real commands/paths/queries/full-sentence prompts). Never TODO/TBD/placeholder/lorem/empty required fields.",
+    "- fileWrite content uses {{variables}} from upstream; approval sits between generation and fileWrite. Only catalog kinds.",
+    "",
+    "Anti-patterns (= failed draft): trigger-only; unwired nodes; gate missing a branch; parallel without join; empty fileWrite path; sentence-long webSearch query; agentTask for pure summarising.",
+    "",
+    "Catalog (! = required):",
     catalog,
-    "Example 1 (nightly test sweep):",
-    '{"nodes": [{"id": "n1", "type": "trigger", "data": {"label": "Nightly", "triggerKind": "cron", "cron": "0 2 * * *"}}, {"id": "n2", "type": "parallel", "data": {"label": "Fan out", "branches": 2}}, {"id": "n3", "type": "agentTask", "data": {"label": "Run tests", "harness": "opencode", "model": "", "prompt": "Run the test suite and summarize failures", "retries": 1, "timeoutSec": 600}}, {"id": "n4", "type": "tool", "data": {"label": "Lint", "toolKind": "shell", "command": "pnpm lint"}}, {"id": "n5", "type": "join", "data": {"label": "Join", "waitPolicy": "all"}}], "edges": [{"source": "n1", "target": "n2"}, {"source": "n2", "target": "n3"}, {"source": "n2", "target": "n4"}, {"source": "n3", "target": "n5"}, {"source": "n4", "target": "n5"}]}',
-    "Example 2 (research digest with approval gate):",
-    '{"nodes": [{"id": "n1", "type": "trigger", "data": {"label": "Trigger", "triggerKind": "manual"}}, {"id": "n2", "type": "webSearch", "data": {"label": "Search", "query": "local LLM observability", "maxResults": 5}}, {"id": "n3", "type": "agentTask", "data": {"label": "Digest", "harness": "opencode", "model": "", "prompt": "Summarize the search hits into a digest", "retries": 2, "timeoutSec": 300}}, {"id": "n4", "type": "approval", "data": {"label": "Approve", "approver": "", "instructions": "Check the digest before it is saved"}}, {"id": "n5", "type": "fileWrite", "data": {"label": "Save digest", "path": "digest.md", "content": "{{digest}}"}}], "edges": [{"source": "n1", "target": "n2"}, {"source": "n2", "target": "n3"}, {"source": "n3", "target": "n4"}, {"source": "n4", "target": "n5"}]}',
+    "",
+    "Example 1 (nightly sweep, parallel closed by join):",
+    '{"nodes": [{"id": "n1", "type": "trigger", "data": {"label": "Nightly", "triggerKind": "cron", "cron": "0 2 * * *"}}, {"id": "n2", "type": "parallel", "data": {"label": "Fan out", "branches": 2}}, {"id": "n3", "type": "agentTask", "data": {"label": "Run tests", "harness": "opencode", "model": "", "prompt": "Run pnpm test. Summarize each failing suite with file:line.", "retries": 1, "timeoutSec": 600}}, {"id": "n4", "type": "tool", "data": {"label": "Lint", "toolKind": "shell", "command": "pnpm lint"}}, {"id": "n5", "type": "join", "data": {"label": "Join", "waitPolicy": "all"}}], "edges": [{"source": "n1", "target": "n2"}, {"source": "n2", "target": "n3"}, {"source": "n2", "target": "n4"}, {"source": "n3", "target": "n5"}, {"source": "n4", "target": "n5"}]}',
+    "",
+    "Example 2 (research digest, approval before fileWrite):",
+    '{"nodes": [{"id": "n1", "type": "trigger", "data": {"label": "Trigger", "triggerKind": "manual"}}, {"id": "n2", "type": "fileRead", "data": {"label": "Read notes", "pattern": "research/**/*.md"}}, {"id": "n3", "type": "webSearch", "data": {"label": "Search", "query": "\\"local LLM\\" observability", "maxResults": 5}}, {"id": "n4", "type": "agentTask", "data": {"label": "Digest", "harness": "opencode", "model": "", "prompt": "Rank 5 blog topics from notes+hits. Each: title, why now, questions, links.", "retries": 2, "timeoutSec": 300}}, {"id": "n5", "type": "approval", "data": {"label": "Approve", "approver": "", "instructions": "Pick the topic. Reject if links missing."}}, {"id": "n6", "type": "fileWrite", "data": {"label": "Save PRD", "path": "research/prd.md", "content": "# PRD\\n\\n{{digest}}"}}], "edges": [{"source": "n1", "target": "n2"}, {"source": "n2", "target": "n3"}, {"source": "n3", "target": "n4"}, {"source": "n4", "target": "n5"}, {"source": "n5", "target": "n6"}]}',
+    "",
+    "Checklist: 3+ nodes, one trigger first, required fields concrete, all wired (gate true+false), join closes parallel, approval before fileWrite, JSON only.",
+    "",
     `Request: ${description}`,
   ].join("\n");
+}
+
+/**
+ * A draft with no working steps (trigger alone, or trigger + notes) is not
+ * a short workflow — it is the model declining the task. Callers retry with
+ * a sterner reminder, then fail honestly instead of previewing nothing.
+ */
+export function isDegenerateGraph(nodes: Array<{ type: string }>): boolean {
+  const working = nodes.filter((n) => n.type !== "trigger" && n.type !== "note");
+  return working.length === 0;
 }
 
 /** Server-side twin of the client's sanitize: ids, kinds, cap, wiring. */
@@ -329,16 +355,18 @@ export async function generateWorkflowGraph(
       harnessId === firstId && modelRef ? modelRef : "";
     const attempts = [
       prompt,
-      `${prompt}\nReminder: reply with ONLY the JSON object.`,
+      `${prompt}\nReminder: reply with ONLY the JSON object. A trigger alone is a failed draft — include 3+ wired working steps with concrete field values.`,
     ];
     for (const attempt of attempts) {
       let output: string;
       try {
         const result = await harness.execute(attempt, {
-          ...(effectiveModel ? { model: effectiveModel } : {}),
-          timeout: 30000,
-          cwd: generateScratchDir(),
-        });
+        ...(effectiveModel ? { model: effectiveModel } : {}),
+        // Local models draft slowly (60s+ observed); cloud CLIs fail fast,
+        // so a generous ceiling costs nothing on the failure paths.
+        timeout: 60000,
+        cwd: generateScratchDir(),
+      });
         if (!result.success || !result.output) {
           failures.push(describeFailure(harnessId, result));
           break;
@@ -355,7 +383,12 @@ export async function generateWorkflowGraph(
         failures.push(`${harnessId}: reply was not JSON: ${oneLine(output)}`);
         continue;
       }
-      return coerceGeneratedGraph(parsed, maxNodes, harnessId);
+      const graph = coerceGeneratedGraph(parsed, maxNodes, harnessId);
+      if (isDegenerateGraph(graph.nodes)) {
+        failures.push(`${harnessId}: draft had no working steps`);
+        continue;
+      }
+      return graph;
     }
   }
   throw new GenerateError(

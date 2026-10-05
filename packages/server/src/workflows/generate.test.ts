@@ -6,6 +6,7 @@ import {
   buildGeneratePrompt,
   coerceGeneratedGraph,
   generateWorkflowGraph,
+  isDegenerateGraph,
   setGenerateDeps,
 } from "./generate";
 
@@ -35,8 +36,8 @@ const GRAPH_JSON = JSON.stringify({
     { id: "n1", type: "trigger", data: { label: "T", triggerKind: "manual" } },
     {
       id: "n2",
-      type: "note",
-      data: { label: "N", text: "hi" },
+      type: "fileRead",
+      data: { label: "Read", pattern: "research/**/*.md" },
     },
   ],
   edges: [{ source: "n1", target: "n2" }],
@@ -97,6 +98,42 @@ describe("buildGeneratePrompt", () => {
     }
     expect(prompt).toContain("nightly test sweep");
   });
+
+  it("stays short enough for cmd.exe CLIs", () => {
+    // pi/codex/claude fall back to cmd.exe (8191-char limit) when their
+    // shims don't resolve — see winShim.ts. A prompt past that dies with
+    // "command line too long" instead of drafting.
+    const prompt = buildGeneratePrompt("x".repeat(2000), 8);
+    expect(prompt.length).toBeLessThan(7500);
+  });
+
+  it("spells out the drafting contract", () => {
+    const prompt = buildGeneratePrompt("anything", 8);
+    // Process + output contract + hard rules + anti-patterns + checklist.
+    expect(prompt).toMatch(/trigger alone is never a workflow/i);
+    expect(prompt).toMatch(/sourceHandle/);
+    expect(prompt).toMatch(/concrete/i);
+    expect(prompt).toMatch(/anti-patterns/i);
+    expect(prompt).toMatch(/checklist:/i);
+    // Required fields are marked so the model fills them, not blanks them.
+    expect(prompt).toContain("!prompt");
+    expect(prompt).toContain("!path");
+  });
+});
+
+describe("isDegenerateGraph", () => {
+  it("rejects trigger-only and trigger-plus-note drafts", () => {
+    expect(isDegenerateGraph([{ type: "trigger" }])).toBe(true);
+    expect(
+      isDegenerateGraph([{ type: "trigger" }, { type: "note" }]),
+    ).toBe(true);
+  });
+
+  it("accepts a draft with one working step", () => {
+    expect(
+      isDegenerateGraph([{ type: "trigger" }, { type: "fileRead" }]),
+    ).toBe(false);
+  });
 });
 
 describe("generateWorkflowGraph", () => {
@@ -112,7 +149,7 @@ describe("generateWorkflowGraph", () => {
       description: "anything",
       harness: "broken",
     });
-    expect(graph.nodes.map((n) => n.type)).toEqual(["trigger", "note"]);
+    expect(graph.nodes.map((n) => n.type)).toEqual(["trigger", "fileRead"]);
     expect(graph.draftedBy).toBe("working");
   });
 
@@ -131,6 +168,35 @@ describe("generateWorkflowGraph", () => {
     expect(err.message).toMatch(/opencode/);
     expect(err.message).toMatch(/Unexpected server error/);
     expect(err.message).toMatch(/OAuth session expired/);
+  });
+
+  it("rejects a trigger-only draft instead of previewing nothing", async () => {
+    setGenerateDeps({
+      config: createDefaultConfig(),
+      harnesses: new Map<string, Harness>([
+        [
+          "thin",
+          fakeHarness(
+            JSON.stringify({
+              nodes: [
+                {
+                  id: "n1",
+                  type: "trigger",
+                  data: { label: "T", triggerKind: "manual" },
+                },
+              ],
+              edges: [],
+            }),
+          ),
+        ],
+      ]),
+    });
+    const err = await generateWorkflowGraph({ description: "anything" }).catch(
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(GenerateError);
+    expect((err as GenerateError).status).toBe(422);
+    expect((err as Error).message).toMatch(/no working steps/i);
   });
 
   it("503s when nothing is installed", async () => {
