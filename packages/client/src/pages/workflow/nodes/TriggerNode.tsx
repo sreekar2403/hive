@@ -32,7 +32,11 @@ export function TriggerNode({
       selected={selected}
       handles={[{ type: "source", position: Position.Right, id: "out" }]}
     >
-      {detail ? <span className="font-mono">{detail}</span> : null}
+      {detail ? (
+        <span className="font-mono break-all [overflow-wrap:anywhere]">
+          {detail}
+        </span>
+      ) : null}
     </NodeShell>
   );
 }
