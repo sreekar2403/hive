@@ -113,6 +113,7 @@ describe("generateWorkflowGraph", () => {
       harness: "broken",
     });
     expect(graph.nodes.map((n) => n.type)).toEqual(["trigger", "note"]);
+    expect(graph.draftedBy).toBe("working");
   });
 
   it("names every failed harness and its reason", async () => {

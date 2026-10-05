@@ -42,6 +42,8 @@ export interface GenerateResponse {
   nodes: GeneratedNode[];
   edges: GeneratedEdge[];
   warnings: string[];
+  /** Which installed harness actually drafted the graph. */
+  draftedBy: string;
 }
 
 export class GenerateError extends Error {
@@ -143,6 +145,7 @@ export function buildGeneratePrompt(
 export function coerceGeneratedGraph(
   raw: unknown,
   maxNodes: number,
+  draftedBy = "unknown",
 ): GenerateResponse {
   const warnings: string[] = [];
   const cap = Math.min(10, Math.max(4, Math.floor(maxNodes) || 8));
@@ -233,7 +236,7 @@ export function coerceGeneratedGraph(
     }
   }
 
-  return { nodes, edges, warnings };
+  return { nodes, edges, warnings, draftedBy };
 }
 
 function labelFor(kind: string): string {
@@ -352,7 +355,7 @@ export async function generateWorkflowGraph(
         failures.push(`${harnessId}: reply was not JSON: ${oneLine(output)}`);
         continue;
       }
-      return coerceGeneratedGraph(parsed, maxNodes);
+      return coerceGeneratedGraph(parsed, maxNodes, harnessId);
     }
   }
   throw new GenerateError(

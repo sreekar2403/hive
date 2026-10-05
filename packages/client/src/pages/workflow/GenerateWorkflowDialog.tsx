@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Sparkles, type LucideIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, Sparkles, type LucideIcon } from "lucide-react";
 import {
   Button,
   Field,
@@ -14,9 +14,20 @@ import type { HiveNode } from "./types";
 
 type Phase =
   | { name: "editing" }
-  | { name: "generating" }
-  | { name: "preview"; graph: GeneratedGraph }
+  | { name: "generating"; startedAt: number }
+  | { name: "preview"; graph: GeneratedGraph; elapsedMs: number }
   | { name: "error"; message: string; graph: GeneratedGraph | null };
+
+/**
+ * Indeterminate but honest: generation is one long model call, so the
+ * stages describe what the server is doing while the elapsed clock proves
+ * the request is alive. Rotates until the call resolves.
+ */
+const GENERATING_STAGES = [
+  "Contacting harness…",
+  "Drafting workflow…",
+  "Validating graph…",
+] as const;
 
 /**
  * Describe-in-text → workflow graph, with preview-then-apply.
@@ -43,16 +54,26 @@ export function GenerateWorkflowDialog({
     setPhase({ name: "editing" });
   }
 
+  // Ticks the elapsed clock + stage rotation while a draft is in flight.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (phase.name !== "generating") return;
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, [phase.name]);
+
   async function run() {
     if (!description.trim() || phase.name === "generating") return;
-    setPhase({ name: "generating" });
+    const startedAt = Date.now();
+    setNow(startedAt);
+    setPhase({ name: "generating", startedAt });
     try {
       const graph = await generateWorkflow({
         description: description.trim(),
         ...(harness ? { harness } : {}),
         maxNodes: maxSteps,
       });
-      setPhase({ name: "preview", graph });
+      setPhase({ name: "preview", graph, elapsedMs: Date.now() - startedAt });
     } catch (err) {
       setPhase({
         name: "error",
@@ -67,6 +88,16 @@ export function GenerateWorkflowDialog({
     phase.name === "preview" ? phase.graph : (
       phase.name === "error" ? phase.graph : null
     );
+  // Narrowed once here so JSX below never touches a missing field.
+  const generatingLabel =
+    phase.name === "generating"
+      ? `${stageFor(now - phase.startedAt)} (${Math.floor((now - phase.startedAt) / 1000)}s)`
+      : "Generate";
+
+  function stageFor(elapsedMs: number): string {
+    const idx = Math.floor(elapsedMs / 3500) % GENERATING_STAGES.length;
+    return GENERATING_STAGES[idx];
+  }
 
   return (
     <Modal
@@ -119,8 +150,12 @@ export function GenerateWorkflowDialog({
               onClick={run}
               disabled={busy || !description.trim()}
             >
-              <Sparkles className="size-4" />
-              {busy ? "Generating…" : "Generate"}
+              {busy ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Sparkles className="size-4" />
+              )}
+              {generatingLabel}
             </Button>
           </>
         )
@@ -189,12 +224,50 @@ export function GenerateWorkflowDialog({
           </p>
         ) : null}
 
+        {phase.name === "generating" ? (
+          <div
+            className="border border-line rounded-lg overflow-hidden"
+            aria-live="polite"
+            aria-label="Generating workflow"
+          >
+            <div className="px-3 py-2 bg-surface-2 border-b border-line flex items-center gap-2">
+              <Loader2
+                className="size-3.5 animate-spin text-accent"
+                aria-hidden="true"
+              />
+              <span className="text-[12px] font-medium text-ink">
+                {generatingLabel}
+              </span>
+            </div>
+            <div className="px-3 py-2.5 flex flex-col gap-2">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="size-6 rounded-md bg-surface-2 animate-pulse shrink-0" />
+                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                    <div
+                      className="h-3 rounded bg-surface-2 animate-pulse"
+                      style={{ width: `${82 - i * 12}%` }}
+                    />
+                    <div
+                      className="h-2.5 rounded bg-surface-2 animate-pulse"
+                      style={{ width: `${64 - i * 8}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {preview ? (
           <div className="border border-line rounded-lg overflow-hidden">
             <div className="px-3 py-2 bg-surface-2 border-b border-line flex items-center justify-between">
               <span className="text-[12px] font-medium text-ink">
                 Preview — {preview.nodes.length} step
                 {preview.nodes.length === 1 ? "" : "s"}
+                {phase.name === "preview" && preview.draftedBy
+                  ? ` · drafted by ${preview.draftedBy} in ${(phase.elapsedMs / 1000).toFixed(0)}s`
+                  : null}
               </span>
               <span className="text-[11px] text-muted">
                 Editable after Apply

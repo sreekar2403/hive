@@ -74,7 +74,7 @@ const nextNodeId = () =>
 
 function WorkflowCanvas() {
   const { activeProject, activeProjectId } = useProjects();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -312,7 +312,12 @@ function WorkflowCanvas() {
     setCurrentId(null);
   }
 
-  /** Preview-then-apply: the dialog owns review, so Apply is one undo step. */
+  /**
+   * Preview-then-apply: the dialog owns review, so Apply is one undo step.
+   * Refit afterwards — applied nodes land on a fresh grid at the origin,
+   * which is routinely outside the current viewport, and without a refit
+   * Apply looks like it did nothing.
+   */
   const handleApplyGenerated = useCallback(
     (graph: GeneratedGraph) => {
       history.record(snapshot());
@@ -321,8 +326,11 @@ function WorkflowCanvas() {
       setNodes(autoLayout(nodes, edges));
       setEdges(edges);
       setSelectedId(null);
+      window.setTimeout(() => {
+        fitView({ padding: 0.2, duration: 400, maxZoom: 1 });
+      }, 60);
     },
-    [history, snapshot],
+    [history, snapshot, fitView],
   );
 
   /* ---------------- render ---------------- */

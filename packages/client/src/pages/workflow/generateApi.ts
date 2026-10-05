@@ -5,6 +5,8 @@ export interface GeneratedGraph {
   nodes: HiveNode[];
   edges: HiveEdge[];
   warnings: string[];
+  /** Which harness drafted the graph. Absent from older servers. */
+  draftedBy?: string;
 }
 
 /** Asks the server to draft a workflow from a plain-text description. */
