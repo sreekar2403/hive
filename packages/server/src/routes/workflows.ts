@@ -1,8 +1,32 @@
 import { Router, Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { getDb } from "../db/database";
+import {
+  GenerateError,
+  generateWorkflowGraph,
+} from "../workflows/generate";
 
 const router: Router = Router();
+
+// NOTE: registered before "/:id" — Express matches in order and "generate"
+// would otherwise be read as a workflow id.
+router.post("/generate", async (req: Request, res: Response) => {
+  const { description, harness, model, maxNodes } = req.body ?? {};
+  try {
+    const graph = await generateWorkflowGraph({
+      description: typeof description === "string" ? description : "",
+      harness: typeof harness === "string" ? harness : undefined,
+      model: typeof model === "string" ? model : undefined,
+      maxNodes: typeof maxNodes === "number" ? maxNodes : undefined,
+    });
+    res.json(graph);
+  } catch (err) {
+    if (err instanceof GenerateError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    res.status(500).json({ error: "Workflow generation failed" });
+  }
+});
 
 router.get("/", (req: Request, res: Response) => {
   const db = getDb();

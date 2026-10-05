@@ -31,6 +31,7 @@ import logRoutes from "./routes/logs";
 import settingsRoutes from "./routes/settings";
 import setupRoutes from "./routes/setup";
 import memoryRoutes, { setSharedMemory } from "./routes/memory";
+import { setGenerateDeps } from "./workflows/generate";
 import agentRoutes from "./routes/agents";
 import brainRoutes from "./routes/brain";
 import modelRoutes from "./routes/models";
@@ -68,12 +69,15 @@ class HiveServer {
   private orchestrator: Orchestrator;
   private sharedMemory: SharedMemory;
   private config: Config;
+  private harnesses: Map<string, Harness>;
 
   constructor(config: Config, harnesses: Map<string, Harness>) {
     this.config = config;
+    this.harnesses = harnesses;
     this.sharedMemory = new SharedMemory(config);
     this.orchestrator = new Orchestrator(config, harnesses);
     this.app = express();
+    setGenerateDeps({ config, harnesses });
   }
 
   async start(): Promise<void> {
