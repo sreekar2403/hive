@@ -83,6 +83,42 @@ export function initDb(): Database.Database {
     `CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_id ON schedule_runs(schedule_id)`,
   );
 
+  // Workflow run persistence
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      project_id TEXT,
+      trigger TEXT NOT NULL,
+      schedule_id TEXT,
+      input TEXT DEFAULT '',
+      output TEXT DEFAULT '',
+      error TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      started_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000),
+      finished_at INTEGER
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_run_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      node_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      output TEXT DEFAULT '',
+      error TEXT DEFAULT '',
+      started_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000),
+      finished_at INTEGER
+    )
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_run_steps_run_id ON workflow_run_steps(run_id)`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_id ON workflow_runs(workflow_id)`,
+  );
+
   // A project is a git working tree Hive operates on. Everything else in
   // the app (tasks, diffs, logs, schedules) is scoped to one of these.
   db.exec(`

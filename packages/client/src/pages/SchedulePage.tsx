@@ -21,10 +21,13 @@ import {
   Modal,
   PageHeader,
   SegmentedControl,
+  Select,
   StatusDot,
 } from "../components/ui";
 import { API } from "../lib/api";
 import { useProjects } from "../state/ProjectContext";
+import { listWorkflows } from "./workflow/api";
+import type { WorkflowRecord } from "./workflow/types";
 import { cn } from "../lib/cn";
 
 interface Schedule {
@@ -71,10 +74,18 @@ export function SchedulePage() {
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
+
+  const workflowNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const w of workflows) map.set(w.id, w.name);
+    return map;
+  }, [workflows]);
 
   const load = useCallback(async () => {
     if (!activeProjectId) {
       setSchedules([]);
+      setWorkflows([]);
       setLoading(false);
       return;
     }
@@ -85,6 +96,11 @@ export function SchedulePage() {
       setSchedules(data.schedules);
     } catch {
       setSchedules([]);
+    }
+    try {
+      setWorkflows(await listWorkflows(activeProjectId));
+    } catch {
+      setWorkflows([]);
     } finally {
       setLoading(false);
     }
@@ -220,6 +236,11 @@ export function SchedulePage() {
                         {s.cron_expression}
                       </span>
                     </p>
+                    {s.workflow_id ? (
+                      <p className="text-[11px] text-accent mt-1">
+                        Workflow: {workflowNames.get(s.workflow_id) ?? s.workflow_id}
+                      </p>
+                    ) : null}
                     {s.nextRuns.length > 0 && s.status === "active" ? (
                       <p className="text-[11px] text-faint mt-1.5">
                         Next: {formatWhen(s.nextRuns[0])}
@@ -307,6 +328,7 @@ export function SchedulePage() {
       <ScheduleForm
         open={creating || !!editing}
         schedule={editing}
+        workflows={workflows}
         projectId={activeProjectId}
         onClose={() => {
           setCreating(false);
@@ -443,12 +465,14 @@ function CalendarView({
 function ScheduleForm({
   open,
   schedule,
+  workflows,
   projectId,
   onClose,
   onSaved,
 }: {
   open: boolean;
   schedule: Schedule | null;
+  workflows: WorkflowRecord[];
   projectId: string | null;
   onClose: () => void;
   onSaved: () => void;
@@ -456,6 +480,7 @@ function ScheduleForm({
   const [name, setName] = useState("");
   const [cron, setCron] = useState("0 9 * * 1-5");
   const [color, setColor] = useState(PALETTE[0]);
+  const [workflowId, setWorkflowId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -465,6 +490,7 @@ function ScheduleForm({
     setName(schedule?.name ?? "");
     setCron(schedule?.cron_expression ?? "0 9 * * 1-5");
     setColor(schedule?.color ?? PALETTE[0]);
+    setWorkflowId(schedule?.workflow_id ?? "");
     setError(null);
   }, [open, schedule]);
 
@@ -477,6 +503,7 @@ function ScheduleForm({
         cron_expression: cron,
         color,
         project_id: projectId,
+        workflow_id: workflowId || null,
       };
       if (schedule) await API.put(`/api/schedules/${schedule.id}`, body);
       else await API.post("/api/schedules", body);
@@ -535,6 +562,22 @@ function ScheduleForm({
               onChange={(e) => setCron(e.target.value)}
               placeholder="0 9 * * 1-5"
             />
+          )}
+        </Field>
+        <Field label="Workflow" hint="Runs this workflow on schedule. Empty runs nothing new.">
+          {(id) => (
+            <Select
+              id={id}
+              value={workflowId}
+              onChange={(e) => setWorkflowId(e.target.value)}
+            >
+              <option value="">No workflow</option>
+              {workflows.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </Select>
           )}
         </Field>
         <div>

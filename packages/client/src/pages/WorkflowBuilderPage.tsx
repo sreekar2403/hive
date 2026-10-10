@@ -17,10 +17,13 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   AlertTriangle,
+  CalendarClock,
   GitBranch,
   LayoutGrid,
+  Play,
   Plus,
   Redo2,
+  Sparkles,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -34,11 +37,21 @@ import {
   Modal,
   PageHeader,
   Select,
+  Textarea,
 } from "../components/ui";
 import { useProjects } from "../state/ProjectContext";
+import { subscribeToEvents } from "../lib/api";
 import { cn } from "../lib/cn";
 import { Palette, PALETTE_DRAG_MIME } from "./workflow/Palette";
 import { Inspector } from "./workflow/Inspector";
+import { RunPanel } from "./workflow/RunPanel";
+import { startRun } from "./workflow/runsApi";
+import { ScheduleModal, type WorkflowSchedule } from "./workflow/ScheduleModal";
+import { API } from "../lib/api";
+import {
+  GenerateWorkflowDialog,
+} from "./workflow/GenerateWorkflowDialog";
+import type { GeneratedGraph } from "./workflow/generateApi";
 import { nodeTypes } from "./workflow/nodes";
 import { nodeDef } from "./workflow/nodeDefs";
 import { autoLayout } from "./workflow/autoLayout";
@@ -69,7 +82,7 @@ const nextNodeId = () =>
 
 function WorkflowCanvas() {
   const { activeProject, activeProjectId } = useProjects();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -81,6 +94,16 @@ function WorkflowCanvas() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [showIssues, setShowIssues] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [runOpen, setRunOpen] = useState(false);
+  const [runActive, setRunActive] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [runInputOpen, setRunInputOpen] = useState(false);
+  const [runInput, setRunInput] = useState("");
+  const [runError, setRunError] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [boundSchedule, setBoundSchedule] = useState<WorkflowSchedule | null>(null);
 
   const history = useHistory<HiveNode, HiveEdge>();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -306,6 +329,147 @@ function WorkflowCanvas() {
     setCurrentId(null);
   }
 
+  /**
+   * Preview-then-apply. With a workflow open the dialog owns review, so
+   * Apply is one undo step. From the empty state there is no canvas to
+   * apply to — applying then must CREATE the workflow, or the accepted
+   * graph is silently dropped (nodes state with no current workflow never
+   * renders and never autosaves).
+   */
+  const handleApplyGenerated = useCallback(
+    async (graph: GeneratedGraph, suggestedName: string) => {
+      const nodes = graph.nodes as HiveNode[];
+      const edges = graph.edges as HiveEdge[];
+      const laid = autoLayout(nodes, edges);
+      if (currentId) {
+        history.record(snapshot());
+        setNodes(laid);
+        setEdges(edges);
+        setSelectedId(null);
+        // Applied nodes land on a fresh grid at the origin, routinely
+        // outside the current viewport — without a refit Apply looks dead.
+        window.setTimeout(() => {
+          fitView({ padding: 0.2, duration: 400, maxZoom: 1 });
+        }, 60);
+        return;
+      }
+      if (!activeProjectId) {
+        throw new Error("Pick a project first, then apply the workflow.");
+      }
+      const created = await createWorkflow({
+        name: suggestedName,
+        projectId: activeProjectId,
+        nodes: sanitizeNodes(laid),
+        edges: sanitizeEdges(edges),
+      });
+      setWorkflows((w) => [created, ...w]);
+      setCurrentId(created.id);
+      // The hydration effect loads the created graph onto the canvas; refit
+      // once it has committed so the new workflow is actually visible.
+      window.setTimeout(() => {
+        fitView({ padding: 0.2, duration: 400, maxZoom: 1 });
+      }, 120);
+    },
+    [history, snapshot, fitView, currentId, activeProjectId],
+  );
+
+  /* ---------------- run lifecycle ---------------- */
+
+  const hasChatInput = useMemo(
+    () => nodes.some((n) => n.type === "chatInput"),
+    [nodes],
+  );
+
+  // Paints live run statuses onto the canvas. Display-only: node statuses
+  // live in canvas state and are never written back as workflow data.
+  useEffect(() => {
+    if (!currentId) return;
+    return subscribeToEvents((type: string, data: unknown) => {
+      if (
+        type !== "workflow:run:step" &&
+        type !== "workflow:run:started" &&
+        type !== "workflow:run:finished"
+      ) {
+        return;
+      }
+      const d = data as {
+        workflowId?: string;
+        runId?: string;
+        nodeId?: string;
+        status?: string;
+      } | null;
+      if (!d || d.workflowId !== currentId) return;
+      if (type === "workflow:run:started") {
+        setNodes((nds) =>
+          nds.map((n) => ({ ...n, data: { ...n.data, status: "idle" } })),
+        );
+        return;
+      }
+      if (type !== "workflow:run:step" || !d.nodeId || !d.status) return;
+      const mapped =
+        d.status === "success"
+          ? "ok"
+          : d.status === "failed"
+            ? "failed"
+            : d.status === "running" || d.status === "waiting_approval"
+              ? "running"
+              : undefined;
+      if (!mapped) return;
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === d.nodeId ? { ...n, data: { ...n.data, status: mapped } } : n,
+        ),
+      );
+    });
+  }, [currentId]);
+
+  async function doStartRun(input: string) {
+    if (!currentId || starting) return;
+    setStarting(true);
+    setRunError(null);
+    try {
+      const run = await startRun(currentId, input);
+      setRunId(run.id);
+      setRunOpen(true);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "Could not start the run.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  function handleRunClick() {
+    setRunError(null);
+    if (hasChatInput) {
+      setRunInputOpen(true);
+      return;
+    }
+    void doStartRun("");
+  }
+
+  const refreshBoundSchedule = useCallback(async () => {
+    if (!currentId || !activeProjectId) {
+      setBoundSchedule(null);
+      return;
+    }
+    try {
+      const data = await API.get<{ schedules: WorkflowSchedule[] }>(
+        `/api/schedules?projectId=${encodeURIComponent(activeProjectId)}`,
+      );
+      setBoundSchedule(
+        data.schedules.find((s) => s.workflow_id === currentId) ?? null,
+      );
+    } catch {
+      setBoundSchedule(null);
+    }
+  }, [currentId, activeProjectId]);
+
+  useEffect(() => {
+    // Loads server state into the header indicator.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshBoundSchedule();
+  }, [refreshBoundSchedule]);
+
   /* ---------------- render ---------------- */
 
   if (!activeProject) {
@@ -352,7 +516,37 @@ function WorkflowCanvas() {
                   </option>
                 ))}
               </Select>
-              <Button variant="primary" onClick={() => setCreating(true)}>
+              <Button
+                onClick={() => setGenerating(true)}
+                className="hive-ai-glow"
+                aria-label="Generate workflow with AI"
+              >
+                <Sparkles className="size-4" />
+                Generate with AI
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleRunClick}
+                disabled={starting || runActive}
+                aria-label="Run workflow"
+              >
+                <Play className="size-4" />
+                {starting ? "Starting…" : runActive ? "Running…" : "Run"}
+              </Button>
+              <Button
+                onClick={() => setScheduling(true)}
+                aria-label="Schedule workflow"
+              >
+                <CalendarClock className="size-4" />
+                {boundSchedule ? "Scheduled" : "Schedule"}
+                {boundSchedule ? (
+                  <span
+                    className="size-1.5 rounded-full bg-ok shrink-0"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </Button>
+              <Button onClick={() => setCreating(true)}>
                 <Plus className="size-4" />
                 New
               </Button>
@@ -371,15 +565,21 @@ function WorkflowCanvas() {
           title="No workflows yet"
           description="A workflow chains agent steps, branches, and approvals into something you can run on a schedule."
           action={
-            <Button variant="primary" onClick={() => setCreating(true)}>
-              <Plus className="size-4" />
-              Create workflow
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setGenerating(true)}>
+                <Sparkles className="size-4" />
+                Describe with AI
+              </Button>
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                <Plus className="size-4" />
+                Create workflow
+              </Button>
+            </div>
           }
         />
       ) : (
         <div className="flex-1 min-h-0 flex border-t border-line">
-          <div className="w-52 shrink-0 border-r border-line overflow-y-auto bg-surface">
+          <div className="w-64 shrink-0 border-r border-line bg-surface overflow-hidden flex flex-col min-h-0">
             <Palette />
           </div>
 
@@ -520,14 +720,91 @@ function WorkflowCanvas() {
           </div>
 
           <div className="w-72 shrink-0 border-l border-line bg-surface overflow-hidden">
-            <Inspector
-              node={selected}
-              onChange={patchNode}
-              onDelete={removeNode}
-            />
+            {runOpen && current ? (
+              <RunPanel
+                workflowId={current.id}
+                runId={runId}
+                onClose={() => setRunOpen(false)}
+                onRunningChange={setRunActive}
+              />
+            ) : (
+              <Inspector
+                node={selected}
+                onChange={patchNode}
+                onDelete={removeNode}
+              />
+            )}
           </div>
         </div>
       )}
+
+      {runError ? (
+        <div className="px-6 pb-3 -mt-2">
+          <p className="text-[12px] text-danger" role="alert">
+            {runError}
+          </p>
+        </div>
+      ) : null}
+
+      <GenerateWorkflowDialog
+        open={generating}
+        onClose={() => setGenerating(false)}
+        onApply={handleApplyGenerated}
+      />
+
+      {current ? (
+        <ScheduleModal
+          open={scheduling}
+          workflowId={current.id}
+          workflowName={current.name}
+          projectId={activeProjectId}
+          existing={boundSchedule}
+          onClose={() => setScheduling(false)}
+          onSaved={() => {
+            setScheduling(false);
+            void refreshBoundSchedule();
+          }}
+          onDeleted={() => {
+            setScheduling(false);
+            void refreshBoundSchedule();
+          }}
+        />
+      ) : null}
+
+      <Modal
+        open={runInputOpen}
+        onClose={() => setRunInputOpen(false)}
+        title="Run workflow"
+        description="This workflow starts with a chat message. What should it say?"
+        footer={
+          <>
+            <Button onClick={() => setRunInputOpen(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setRunInputOpen(false);
+                void doStartRun(runInput);
+              }}
+              disabled={starting}
+            >
+              {starting ? "Starting…" : "Start run"}
+            </Button>
+          </>
+        }
+      >
+        <Field label="Opening message">
+          {(id) => (
+            <Textarea
+              id={id}
+              rows={3}
+              value={runInput}
+              onChange={(e) => setRunInput(e.target.value)}
+              placeholder="What should this run work on?"
+              autoFocus
+            />
+          )}
+        </Field>
+      </Modal>
 
       <Modal
         open={creating}

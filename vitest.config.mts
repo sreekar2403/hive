@@ -18,6 +18,12 @@ export default defineConfig({
             "packages/server/src/**/*.test.ts",
             "packages/shared/src/**/*.test.ts",
           ],
+          // Server tests exercise code with multi-second legitimate
+          // timeouts (the Ollama/LM Studio probes abort at 5s each, and
+          // cold model-catalog discovery spawns real CLIs). The 5s default
+          // trips on the first routing call per worker under full-suite
+          // load, so the ceiling here is 3x headroom, not 5s.
+          testTimeout: 15_000,
         },
       },
       {
