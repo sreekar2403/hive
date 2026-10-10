@@ -1,30 +1,64 @@
 import { CronJob, CronTime } from "cron";
 import { getDb } from "../db/database";
 import type { Schedule, ScheduleRun } from "../db/schedules";
-import { recordScheduleRun } from "../db/schedules";
+import { finishScheduleRun, recordScheduleRun } from "../db/schedules";
 import { broadcast } from "../routes/events";
 import { Orchestrator } from "../orchestrator";
+import { launchWorkflowRun } from "../workflows/executor";
 
 const jobs = new Map<string, CronJob>();
 
 /**
- * Executes a schedule's firing. There is no workflow executor wired up yet
- * (see CLAUDE.md's "Planning docs vs. reality") so this records a completed
- * run and notifies listeners rather than actually invoking `workflow_id`.
- * Both the cron ticker and the "Run now" API route call this so run history
- * is identical either way.
+ * Executes a schedule's firing. Schedules bound to a workflow
+ * (`workflow_id`) start a real run and the schedule run records its actual
+ * outcome when it settles; unbound schedules keep the previous record-only
+ * behavior. Both the cron ticker and the "Run now" API route call this so
+ * run history is identical either way.
  */
 export function fireSchedule(schedule: Schedule): ScheduleRun {
   const startedAt = Date.now();
   console.log(`[cron] Running: ${schedule.name}`);
-  const run = recordScheduleRun({
+  if (!schedule.workflow_id) {
+    const run = recordScheduleRun({
+      scheduleId: schedule.id,
+      status: "success",
+      startedAt,
+      finishedAt: Date.now(),
+    });
+    broadcast("schedule:fired", { id: schedule.id, name: schedule.name, run });
+    return run;
+  }
+  const pending = recordScheduleRun({
     scheduleId: schedule.id,
-    status: "success",
+    status: "running",
     startedAt,
     finishedAt: Date.now(),
   });
-  broadcast("schedule:fired", { id: schedule.id, name: schedule.name, run });
-  return run;
+  broadcast("schedule:fired", {
+    id: schedule.id,
+    name: schedule.name,
+    run: pending,
+  });
+  try {
+    launchWorkflowRun(
+      {
+        workflowId: schedule.workflow_id,
+        trigger: "schedule",
+        scheduleId: schedule.id,
+        projectId: schedule.project_id,
+      },
+      undefined,
+      (ok) => {
+        finishScheduleRun(pending.id, ok ? "success" : "failed");
+      },
+    );
+  } catch (err) {
+    console.error(
+      `[cron] Workflow run failed to start: ${String(err).slice(0, 200)}`,
+    );
+    finishScheduleRun(pending.id, "failed");
+  }
+  return pending;
 }
 
 /**

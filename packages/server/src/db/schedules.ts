@@ -197,3 +197,21 @@ export function getScheduleRuns(scheduleId: string, limit = 20): ScheduleRun[] {
   );
   return stmt.all(scheduleId, limit) as ScheduleRun[];
 }
+
+/** Closes a run started as `running` (see fireSchedule) with its real outcome. */
+export function finishScheduleRun(
+  id: string,
+  status: string,
+): ScheduleRun | null {
+  const finishedAt = Date.now();
+  const row = db
+    .prepare("SELECT started_at FROM schedule_runs WHERE id = ?")
+    .get(id) as { started_at: number } | undefined;
+  if (!row) return null;
+  db.prepare(
+    "UPDATE schedule_runs SET status = ?, finished_at = ?, duration_ms = ? WHERE id = ?",
+  ).run(status, finishedAt, finishedAt - row.started_at, id);
+  return db
+    .prepare("SELECT * FROM schedule_runs WHERE id = ?")
+    .get(id) as ScheduleRun;
+}

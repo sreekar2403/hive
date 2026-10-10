@@ -1726,10 +1726,10 @@ ${briefing.text}`
   }
 
   /**
-   * The directory a task's harness should run in. Tasks used to run in
-   * the server's own working directory regardless of which project was
-   * selected, so `filesChanged` described the wrong repository.
-   */
+    * The directory a task's harness should run in. Tasks used to run in
+    * the server's own working directory regardless of which project was
+    * selected, so `filesChanged` described the wrong repository.
+    */
   private workingTreeFor(projectId: string | null): string | undefined {
     if (!projectId) return undefined;
     // The general workspace is synthesised rather than stored, so it is
@@ -1745,6 +1745,11 @@ ${briefing.text}`
       // No database yet (or the row is gone) — fall back to the default.
     }
     return undefined;
+  }
+
+  /** Project working dir for out-of-band callers (workflow executor). */
+  public resolveProjectDir(projectId: string | null): string {
+    return this.workingTreeFor(projectId) ?? process.cwd();
   }
 
   private generateId(): string {

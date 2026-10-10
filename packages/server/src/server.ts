@@ -45,6 +45,7 @@ import taskRoutes from "./routes/tasks";
 import updateRoutes, { startUpdateWatcher } from "./routes/updates";
 import attachmentRoutes from "./routes/attachments";
 import { startCronRunner } from "./scheduler/cronRunner";
+import { recoverInterruptedRuns } from "./workflows/executor";
 import eventsRouter, { broadcast } from "./routes/events";
 import {
   appendMessage,
@@ -437,6 +438,7 @@ class HiveServer {
         ? "token required"
         : "no token — loopback only";
       console.log(`Hive server running on http://${host}:${port} (${scope})`);
+      recoverInterruptedRuns();
       startCronRunner();
       this.stopUpdateWatcher = startUpdateWatcher();
     });
