@@ -802,7 +802,7 @@ function NoteFields({ data, set }: FieldSet<NoteNodeData>) {
 
 function FileReadFields({ data, set }: FieldSet<FileReadNodeData>) {
   return (
-    <Field label="Pattern" hint="File path or glob to load.">
+    <Field label="Pattern" hint="File path, glob, folder, or absolute path. Relative stays in the project.">
       {(id) => (
         <Input
           id={id}

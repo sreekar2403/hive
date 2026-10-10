@@ -171,11 +171,34 @@ function defaultExecCommand(command: string, cwd: string): { ok: boolean; output
   }
 }
 
+/**
+ * Where a run file path points. An explicitly absolute path goes where it
+ * says — the user typed it deliberately, and the harness steps in the same
+ * run can already read the whole machine. Only RELATIVE paths are caged to
+ * the project, which is what stops `..` smuggled in through `{{variables}}`
+ * from walking out of it.
+ */
 export function projectPath(cwd: string, rel: string): string {
+  if (path.isAbsolute(rel)) return path.normalize(rel);
   const abs = path.resolve(cwd, rel);
-  if (abs !== cwd && !abs.startsWith(cwd + path.sep)) throw new Error(`Path escapes the project: ${rel}`);
+  if (abs !== cwd && !abs.startsWith(cwd + path.sep)) {
+    throw new Error(
+      `Path escapes the project folder (${cwd}): "${rel}". Use a path inside the project or an absolute path.`,
+    );
+  }
   return abs;
 }
+
+/** Extensions never useful as LLM context — skipped during folder reads. */
+const BINARY_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".svg",
+  ".pdf", ".zip", ".tar", ".gz", ".7z", ".exe", ".dll", ".so", ".dylib",
+  ".node", ".pyc", ".pyo", ".class", ".o", ".a", ".lib", ".mp3", ".mp4",
+  ".wav", ".avi", ".mov", ".ttf", ".otf", ".woff", ".woff2",
+]);
+
+const MAX_READ_FILES = 20;
+const MAX_READ_BYTES = 200_000;
 
 /**
  * Minimal glob without new deps: exact paths, one-level `dir/<star>.ext`,
@@ -186,9 +209,13 @@ export function projectPath(cwd: string, rel: string): string {
 export function globProjectFiles(cwd: string, pattern: string): string[] {
   const norm = pattern.replace(/\\/g, "/").trim();
   if (!norm) return [];
+  // A bare path: a file reads directly, a directory expands to its text
+  // files (users point File Read at research folders, not just globs).
   if (!norm.includes("*")) {
     const abs = projectPath(cwd, norm);
-    return fs.existsSync(abs) && fs.statSync(abs).isFile() ? [norm] : [];
+    if (!fs.existsSync(abs)) return [];
+    if (fs.statSync(abs).isDirectory()) return readDirFiles(abs);
+    return fs.statSync(abs).isFile() ? [abs] : [];
   }
   const starStar = norm.indexOf("**");
   const baseDir = starStar >= 0 ? norm.slice(0, starStar).replace(/\/$/, "") : norm.slice(0, norm.indexOf("*")).replace(/\/$/, "");
@@ -207,12 +234,39 @@ export function globProjectFiles(cwd: string, pattern: string): string[] {
       const abs = path.join(dir, e.name);
       if (e.isDirectory()) {
         if (recursive && e.name !== "node_modules" && e.name !== ".git") walk(abs);
-      } else if (e.isFile() && (ext === "*" || abs.endsWith(`.${ext}`))) {
-        out.push(path.relative(cwd, abs).replace(/\\/g, "/"));
+      } else if (
+        e.isFile() &&
+        (ext === "*" || abs.endsWith(`.${ext}`)) &&
+        !BINARY_EXTENSIONS.has(path.extname(e.name).toLowerCase())
+      ) {
+        out.push(abs);
       }
     }
   };
   walk(start);
+  return out.sort();
+}
+
+/** Text files under a directory, shallow-capped so a folder can't flood context. */
+function readDirFiles(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (current: string) => {
+    if (out.length >= MAX_READ_FILES) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (out.length >= MAX_READ_FILES) return;
+      if (e.name === "node_modules" || e.name === ".git") continue;
+      const abs = path.join(current, e.name);
+      if (e.isDirectory()) walk(abs);
+      else if (e.isFile() && !BINARY_EXTENSIONS.has(path.extname(e.name).toLowerCase())) out.push(abs);
+    }
+  };
+  walk(dir);
   return out.sort();
 }
 
@@ -770,9 +824,19 @@ async function executeNode(
       const pattern = str(node.data, "pattern").trim();
       if (!pattern) throw new Error(`"${nodeLabel(node)}" needs a file pattern.`);
       const files = await deps.globFiles(cwd, pattern);
-      if (files.length === 0) throw new Error(`"${nodeLabel(node)}" matched no files for "${pattern}".`);
+      if (files.length === 0) {
+        throw new Error(
+          `"${nodeLabel(node)}" matched no files for "${pattern}" in ${cwd}. Check the path, or point it at a folder.`,
+        );
+      }
       const contents = await Promise.all(files.map((f) => deps.readFile(cwd, f)));
-      return contents.join("\n---\n");
+      let content = contents.join("\n---\n");
+      if (content.length > MAX_READ_BYTES) {
+        content =
+          content.slice(0, MAX_READ_BYTES) +
+          `\n…[truncated ${content.length - MAX_READ_BYTES} more characters]`;
+      }
+      return content;
     }
     case "fileWrite": {
       const rel = str(node.data, "path").trim();

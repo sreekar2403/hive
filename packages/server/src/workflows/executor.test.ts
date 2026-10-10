@@ -210,6 +210,54 @@ describe("control flow", () => {
   });
 });
 
+describe("run file paths", () => {
+  it("passes absolute paths through and still cages relative escapes", async () => {
+    const { projectPath } = await import("./executor");
+    expect(projectPath("C:/proj", "C:/elsewhere/a.md")).toMatch(/elsewhere/);
+    expect(() => projectPath("C:/proj", "../outside.md")).toThrow(/project/i);
+  });
+
+  it("expands a directory pattern into its text files", async () => {
+    const { globProjectFiles } = await import("./executor");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfread-"));
+    fs.writeFileSync(path.join(dir, "a.md"), "hello");
+    fs.writeFileSync(path.join(dir, "b.png"), "binary");
+    fs.mkdirSync(path.join(dir, "sub"));
+    fs.writeFileSync(path.join(dir, "sub", "c.txt"), "deep");
+    try {
+      const found = globProjectFiles("C:/proj", dir);
+      expect(found).toContain(path.join(dir, "a.md"));
+      expect(found).toContain(path.join(dir, "sub", "c.txt"));
+      expect(found.some((f) => f.endsWith(".png"))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("names the pattern and folder when nothing matches", async () => {
+    const deps = testDeps();
+    await expect(
+      startWorkflowRun(
+        {
+          workflowId: "wempty",
+          trigger: "manual",
+          graph: {
+            nodes: [
+              { id: "n1", type: "trigger", data: { label: "T" } },
+              { id: "n2", type: "fileRead", data: { label: "R", pattern: "nothing/*.md" } },
+            ],
+            edges: [{ id: "e1", source: "n1", target: "n2" }],
+          },
+        },
+        deps,
+      ),
+    ).rejects.toThrow(/nothing\/\*\.md/);
+  });
+});
+
 describe("web, memory and notify nodes", () => {
   it("fetches http and stores the body", async () => {
     const deps = testDeps();

@@ -221,7 +221,7 @@ export const NODE_DEFS: NodeTypeDef[] = [
   {
     kind: "fileRead",
     label: "File Read",
-    description: "Load text or glob into context",
+    description: "Load a path, glob, or folder into context",
     icon: FolderOpen,
     category: "Data & files",
     createData: () => ({ label: "File Read", pattern: "" }),
