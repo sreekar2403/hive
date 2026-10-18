@@ -19,9 +19,11 @@
   where the metaphor is allowed to be playful.
 */
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 
 /* ---- Light: "paper" -------------------------------------------- */
+/* Ledger light is the pre-hydration fallback; live palettes come from
+   src/themes (ThemeProvider applies --hive-* on <html>). */
 :root {
   --hive-bg: #f3f3f0;
   --hive-surface: #ffffff;
@@ -60,45 +62,6 @@
   --hive-agent-hive: #a9701a;
 
   color-scheme: light;
-}
-
-/* ---- Dark: "after hours" --------------------------------------- */
-[data-theme="dark"] {
-  --hive-bg: #0e1013;
-  --hive-surface: #15181d;
-  --hive-surface-2: #1c2026;
-  --hive-surface-3: #242931;
-  --hive-border: #262b33;
-  --hive-border-strong: #39404b;
-
-  --hive-text: #e9e7e2;
-  --hive-text-muted: #8b919c;
-  --hive-text-faint: #656b75;
-
-  --hive-accent: #e8a33d;
-  --hive-accent-hover: #f2b354;
-  --hive-accent-fg: #16130c;
-  --hive-accent-soft: rgb(232 163 61 / 0.14);
-  --hive-accent-line: rgb(232 163 61 / 0.38);
-
-  --hive-success: #4fa97c;
-  --hive-success-soft: rgb(79 169 124 / 0.15);
-  --hive-info: #5b8dd9;
-  --hive-info-soft: rgb(91 141 217 / 0.15);
-  --hive-warn: #d9a441;
-  --hive-warn-soft: rgb(217 164 65 / 0.15);
-  --hive-danger: #d9584c;
-  --hive-danger-soft: rgb(217 88 76 / 0.15);
-
-  --hive-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.3);
-  --hive-shadow-lg: 0 10px 40px rgb(0 0 0 / 0.55);
-
-  --hive-agent-opencode: #35c9a6;
-  --hive-agent-claude: #ff8a5c;
-  --hive-agent-pi: #8b8ef0;
-  --hive-agent-hive: #e8a33d;
-
-  color-scheme: dark;
 }
 
 @theme inline {
@@ -236,6 +199,21 @@
       linear-gradient(90deg, var(--hive-border) 1px, transparent 1px);
     background-size: 24px 24px;
     opacity: 1;
+  }
+
+  /* Same ruled-paper grid, tinted with the active accent — empty states. */
+  .ruled-accent {
+    background-image:
+      linear-gradient(
+        color-mix(in srgb, var(--hive-accent) 16%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--hive-accent) 16%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 24px 24px;
   }
 
   /*

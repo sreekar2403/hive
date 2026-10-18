@@ -10,7 +10,7 @@ import {
   Select,
   Switch,
 } from "../../components/ui";
-import { useTheme } from "../../components/ui";
+import { AppearanceSection } from "./AppearanceSection";
 import { useProjects } from "../../state/ProjectContext";
 import { useCapacity } from "../../state/useCapacity";
 import type { SettingsConfig } from "./types";
@@ -390,7 +390,6 @@ export function GeneralSection({
   draft: SettingsConfig;
   onChange: Change;
 }) {
-  const { theme, setTheme } = useTheme();
   const { projects } = useProjects();
 
   return (
@@ -401,24 +400,7 @@ export function GeneralSection({
           title="Appearance, projects & storage"
         />
         <div className="divide-y divide-line">
-          <section aria-label="Theme" className="p-4">
-            <div className="eyebrow">Appearance</div>
-            <div className="text-sm font-semibold text-ink mt-0.5 mb-3">
-              Theme
-            </div>
-          <Field label="Colour theme" className="max-w-xs">
-            {(id) => (
-              <Select
-                id={id}
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as "light" | "dark")}
-              >
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-              </Select>
-            )}
-          </Field>
-          </section>
+          <AppearanceSection />
 
           <section aria-label="Projects" className="p-4">
             <div className="eyebrow">Defaults</div>

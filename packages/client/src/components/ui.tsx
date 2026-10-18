@@ -1,6 +1,4 @@
 import {
-  createContext,
-  useContext,
   useEffect,
   useId,
   useRef,
@@ -109,7 +107,7 @@ export function IconButton({
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("bg-surface border border-line rounded-lg", className)}
+      className={cn("bg-surface border border-line rounded-lg shadow-card", className)}
       {...props}
     />
   );
@@ -500,22 +498,26 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex-1 flex flex-col items-center justify-center text-center px-6 py-12",
+        "relative flex-1 flex flex-col items-center justify-center text-center px-6 py-12",
         className,
       )}
     >
+      <div
+        className="ruled-accent absolute inset-0 opacity-60 pointer-events-none rounded-lg"
+        aria-hidden="true"
+      />
       {icon ? (
-        <div className="mb-3 text-faint [&>svg]:size-6" aria-hidden="true">
+        <div className="relative mb-3 text-faint [&>svg]:size-6" aria-hidden="true">
           {icon}
         </div>
       ) : null}
-      <p className="text-sm font-medium text-ink">{title}</p>
+      <p className="relative text-sm font-medium text-ink">{title}</p>
       {description ? (
-        <p className="text-[13px] text-muted mt-1 max-w-[46ch]">
+        <p className="relative text-[13px] text-muted mt-1 max-w-[46ch]">
           {description}
         </p>
       ) : null}
-      {action ? <div className="mt-4">{action}</div> : null}
+      {action ? <div className="relative mt-4">{action}</div> : null}
     </div>
   );
 }
@@ -599,22 +601,3 @@ export function Modal({
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Theme                                                               */
-/* ------------------------------------------------------------------ */
-
-export type Theme = "light" | "dark";
-
-const ThemeContext = createContext<{
-  theme: Theme;
-  setTheme: (t: Theme) => void;
-} | null>(null);
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
-  return ctx;
-}
-
-export { ThemeContext };

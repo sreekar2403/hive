@@ -11,6 +11,10 @@
  * The chunky triple-inset SNES panel is kept for the modal dialog, where
  * weight is the point, and avoided everywhere it would compete with the
  * floor.
+ *
+ * Intentionally fixed (D1): --rp-* values mirror retroTheme.ts and do NOT
+ * track the app theme — the floor is a daylight diorama. React chrome on
+ * the floor uses these vars rather than --hive-* or raw hexes.
  */
 
 .hive-retro {
