@@ -1074,7 +1074,9 @@ function AgentDetail({
             <span
               className="inline-block size-2"
               style={{
-                background: agent.taskId ? "#ffd93d" : "#a899b5",
+                background: agent.taskId
+                  ? "var(--rp-lemon)"
+                  : "var(--rp-ink-300)",
               }}
             />
             <span className="text-[13px]">{zone?.label ?? agent.phase}</span>
@@ -1125,7 +1127,7 @@ function AgentDetail({
                 <li
                   key={f}
                   className="rp-mono text-[14px] truncate"
-                  style={{ color: "#3d2e4a" }}
+                  style={{ color: "var(--rp-ink-900)" }}
                 >
                   {f}
                 </li>
@@ -1144,7 +1146,7 @@ function AgentDetail({
             </div>
             <pre
               className="rp-mono text-[14px] rp-panel rp-panel--inset px-2 py-1 whitespace-pre-wrap break-words max-h-32 overflow-y-auto"
-              style={{ color: "#3d2e4a" }}
+              style={{ color: "var(--rp-ink-900)" }}
             >
               {agent.lastOutput}
             </pre>

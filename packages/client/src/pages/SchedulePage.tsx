@@ -53,6 +53,8 @@ interface ScheduleRun {
   finishedAt: number | null;
 }
 
+// Intentionally fixed: these colours are persisted per schedule in the DB
+// (s.color) and render as swatches/chips in every theme — do not tokenize.
 const PALETTE = [
   "#e8a33d",
   "#4fa97c",

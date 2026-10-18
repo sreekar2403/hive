@@ -154,7 +154,10 @@ export function PermissionDialog(props: {
     >
       <div className="rp-panel rp-panel--dialog w-[26rem] max-w-[90vw]">
         <div className="flex items-center justify-between gap-2 mb-3">
-          <span className="rp-title text-[11px]" style={{ color: "#ff6b6b" }}>
+          <span
+            className="rp-title text-[11px]"
+            style={{ color: "var(--rp-coral)" }}
+          >
             Needs you
           </span>
           <button
