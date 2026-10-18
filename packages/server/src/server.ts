@@ -42,6 +42,7 @@ import { resolveModelRef } from "./models/catalog";
 import { pruneAttachments, resolveAttachments } from "./attachments";
 import { createKanbanCard, finishKanbanCard } from "./kanban";
 import taskRoutes from "./routes/tasks";
+import statsRoutes from "./routes/stats";
 import updateRoutes, { startUpdateWatcher } from "./routes/updates";
 import attachmentRoutes from "./routes/attachments";
 import { startCronRunner } from "./scheduler/cronRunner";
@@ -371,6 +372,9 @@ class HiveServer {
 
     // Kanban task board
     app.use("/api/tasks", taskRoutes);
+
+    // Dashboard observability: daily activity heatmap + growth stats
+    app.use("/api/stats", statsRoutes);
 
     // Is there a newer Hive? (the app updating itself, not the projects)
     app.use("/api/updates", updateRoutes);

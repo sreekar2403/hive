@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Building2, FolderGit2, GitCompare, MessageSquare } from "lucide-react";
+import {
+  Building2,
+  FolderGit2,
+  GitCompare,
+  MessageSquare,
+  Sparkles,
+} from "lucide-react";
 import {
   Badge,
   Card,
@@ -15,6 +21,10 @@ import { cn } from "../lib/cn";
 import { STATUS_LABEL, STATUS_TONE } from "./kanban/constants";
 import type { KanbanTask } from "./kanban/types";
 import { formatRelativeTime } from "./memory/format";
+import { useActivityStats } from "./dashboard/useActivityStats";
+import { ActivityHeatmap } from "./dashboard/ActivityHeatmap";
+import { GrowthPanel } from "./dashboard/GrowthPanel";
+import { SecondBrainPromo } from "./dashboard/SecondBrainPromo";
 
 interface AgentSnapshot {
   id: string;
@@ -39,6 +49,9 @@ interface HarnessProbe {
   version: string | null;
 }
 
+type Scope = "project" | "all";
+type Tab = "activity" | "growth";
+
 export function Dashboard() {
   const { activeProject, activeProjectId } = useProjects();
   const [agents, setAgents] = useState<AgentSnapshot[]>([]);
@@ -46,12 +59,19 @@ export function Dashboard() {
   const [harnesses, setHarnesses] = useState<HarnessProbe[]>([]);
   const [recent, setRecent] = useState<KanbanTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [scope, setScope] = useState<Scope>("project");
+  const [tab, setTab] = useState<Tab>("activity");
+  const [brainEnabled, setBrainEnabled] = useState<boolean | null>(null);
+
+  const statsProjectId = scope === "all" ? null : activeProjectId;
+  const { stats, loading: statsLoading, error: statsError } =
+    useActivityStats(statsProjectId, Boolean(activeProject));
 
   const load = useCallback(async () => {
     // Each panel degrades on its own — one missing endpoint shouldn't
     // blank the whole dashboard.
-    const [agentsRes, gitRes, harnessRes, tasksRes] = await Promise.allSettled(
-      [
+    const [agentsRes, gitRes, harnessRes, tasksRes, settingsRes] =
+      await Promise.allSettled([
         API.get<{ agents: AgentSnapshot[] }>("/api/agents"),
         activeProjectId
           ? API.get<GitStatus>(`/api/git/status?projectId=${activeProjectId}`)
@@ -62,8 +82,8 @@ export function Dashboard() {
               `/api/tasks?projectId=${encodeURIComponent(activeProjectId)}&limit=20`,
             )
           : Promise.reject(new Error("no project")),
-      ],
-    );
+        API.get<{ secondBrain?: { enabled?: boolean } }>("/api/settings"),
+      ]);
 
     setAgents(agentsRes.status === "fulfilled" ? agentsRes.value.agents : []);
     setGit(gitRes.status === "fulfilled" ? gitRes.value : null);
@@ -76,6 +96,11 @@ export function Dashboard() {
             .sort((a, b) => b.updated_at - a.updated_at)
             .slice(0, 5)
         : [],
+    );
+    setBrainEnabled(
+      settingsRes.status === "fulfilled"
+        ? (settingsRes.value.secondBrain?.enabled ?? false)
+        : null,
     );
     setLoading(false);
   }, [activeProjectId]);
@@ -104,48 +129,123 @@ export function Dashboard() {
     );
   }
 
-  const working = agents.filter((a) => a.taskId);
-  const idle = agents.length - working.length;
   const uncommitted = git
     ? git.staged.length + git.unstaged.length + git.untracked.length
     : null;
 
+  const totals = stats?.totals;
+  const heroLine = totals
+    ? `Hive has been working here for ${totals.activeDays} active day${
+        totals.activeDays === 1 ? "" : "s"
+      } across ${totals.runs} run${totals.runs === 1 ? "" : "s"} — ${
+        totals.currentStreak
+      }-day streak`
+    : "Loading activity…";
+
   return (
     <div className="p-6">
-      <PageHeader
-        eyebrow="Floor"
-        title="Dashboard"
-        description={`What the swarm is doing in ${activeProject.name}.`}
-        actions={
-          <Link
-            to="/chat"
-            className="inline-flex items-center justify-center gap-2 h-9 px-3.5 rounded-md border border-transparent bg-accent text-accent-fg text-sm font-medium transition-colors hover:bg-accent-hover"
+      {/* Hero — observability header, Kimi-style */}
+      <div className="flex items-start justify-between gap-6 mb-5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 mb-2">
+            <span
+              className="inline-flex size-9 items-center justify-center rounded-full bg-accent text-accent-fg"
+              aria-hidden="true"
+            >
+              <Sparkles className="size-4" />
+            </span>
+            <h1 className="text-[20px] font-semibold text-ink truncate">
+              {scope === "all" ? "Hive" : `Hive × ${activeProject.name}`}
+            </h1>
+          </div>
+          <p className="text-[13px] text-muted max-w-[70ch]">{heroLine}</p>
+        </div>
+        <div
+          className="inline-flex rounded-md border border-line bg-surface-2 p-0.5 shrink-0"
+          role="group"
+          aria-label="Activity scope"
+        >
+          <ScopeButton
+            active={scope === "project"}
+            onClick={() => setScope("project")}
           >
-            <MessageSquare className="size-4" />
-            Start a task
-          </Link>
-        }
-      />
+            Project
+          </ScopeButton>
+          <ScopeButton active={scope === "all"} onClick={() => setScope("all")}>
+            All
+          </ScopeButton>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <Stat
-          label="Working now"
-          value={working.length}
-          hint={idle > 0 ? `${idle} idle` : "Everyone busy"}
-          tone={working.length > 0 ? "accent" : "neutral"}
-        />
-        <Stat
-          label="Uncommitted changes"
-          value={uncommitted}
-          hint={git?.branch ? `on ${git.branch}` : "Working tree unavailable"}
-          tone={uncommitted ? "warn" : "neutral"}
-        />
-        <Stat
-          label="Harnesses online"
-          value={harnesses.filter((h) => h.available).length}
-          hint={`of ${harnesses.length || 3} installed`}
-          tone={harnesses.some((h) => h.available) ? "ok" : "danger"}
-        />
+      {/* Closeness / Growth tabs */}
+      <div className="flex items-center gap-1 mb-3 border-b border-line">
+        <TabButton
+          active={tab === "activity"}
+          onClick={() => setTab("activity")}
+        >
+          Activity
+        </TabButton>
+        <TabButton active={tab === "growth"} onClick={() => setTab("growth")}>
+          Growth
+        </TabButton>
+      </div>
+
+      <Card className="mb-4">
+        {tab === "activity" ? (
+          <>
+            <p className="px-4 pt-3 text-[13px] text-muted">
+              The more you run tasks, the more you build together.
+            </p>
+            {statsLoading ? (
+              <p className="px-4 py-8 text-[13px] text-muted">Loading…</p>
+            ) : statsError || !stats ? (
+              <EmptyState
+                icon={<Building2 />}
+                title="No activity data yet"
+                description={
+                  statsError ?? "Run a task and the heatmap will light up."
+                }
+                className="py-10"
+              />
+            ) : stats.totals.runs === 0 ? (
+              <EmptyState
+                icon={<MessageSquare />}
+                title="No runs yet"
+                description="Queue work from the board or send it straight from chat — each run adds a square here."
+                className="py-10"
+                action={
+                  <Link
+                    to="/chat"
+                    className="inline-flex items-center justify-center gap-2 h-9 px-3.5 rounded-md border border-transparent bg-accent text-accent-fg text-sm font-medium transition-colors hover:bg-accent-hover"
+                  >
+                    <MessageSquare className="size-4" />
+                    Start a task
+                  </Link>
+                }
+              />
+            ) : (
+              <ActivityHeatmap
+                days={stats.days}
+                periodDays={stats.periodDays}
+              />
+            )}
+          </>
+        ) : statsLoading ? (
+          <p className="px-4 py-8 text-[13px] text-muted">Loading…</p>
+        ) : statsError || !stats ? (
+          <EmptyState
+            icon={<Building2 />}
+            title="No growth data yet"
+            description={statsError ?? "Complete a few tasks to see trends."}
+            className="py-10"
+          />
+        ) : (
+          <GrowthPanel stats={stats} />
+        )}
+      </Card>
+
+      <div className="mb-4">
+        <SecondBrainPromo enabled={brainEnabled} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -212,84 +312,6 @@ export function Dashboard() {
 
         <Card>
           <CardHeader
-            eyebrow="This project"
-            title="Working tree"
-            actions={
-              <Link
-                to="/git-diff"
-                className="text-[12px] text-accent hover:underline"
-              >
-                Review changes
-              </Link>
-            }
-          />
-          {git ? (
-            <div className="p-4 flex flex-col gap-3">
-              <Row label="Branch" value={git.branch ?? "unknown"} mono />
-              <Row label="Staged" value={git.staged.length} />
-              <Row label="Not staged" value={git.unstaged.length} />
-              <Row label="Untracked" value={git.untracked.length} />
-            </div>
-          ) : (
-            <EmptyState
-              icon={<GitCompare />}
-              title="No git data"
-              description={
-                activeProject.isGitRepo
-                  ? "Could not read this repository."
-                  : `${activeProject.name} isn't a git repository.`
-              }
-              className="py-8"
-              action={
-                activeProject.isGitRepo ? (
-                  <Link
-                    to="/git-diff"
-                    className="text-[12px] text-accent hover:underline"
-                  >
-                    Review changes
-                  </Link>
-                ) : undefined
-              }
-            />
-          )}
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader
-            eyebrow="Capacity"
-            title="Harnesses"
-            actions={
-              <Link
-                to="/settings"
-                className="text-[12px] text-accent hover:underline"
-              >
-                Configure
-              </Link>
-            }
-          />
-          {harnesses.length === 0 ? (
-            <p className="px-4 py-5 text-[13px] text-muted">
-              Could not reach the server to check which harnesses are installed.
-            </p>
-          ) : (
-            <ul className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-line">
-              {harnesses.map((h) => (
-                <li key={h.id} className="flex items-center gap-2.5 px-4 py-3">
-                  <StatusDot tone={h.available ? "ok" : "danger"} />
-                  <span className="min-w-0">
-                    <span className="block text-[13px] text-ink">{h.id}</span>
-                    <span className="block font-mono text-[11px] text-muted truncate">
-                      {h.available ? (h.version ?? "available") : "not found"}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader
             eyebrow="Momentum"
             title="Latest activity"
             actions={
@@ -345,43 +367,118 @@ export function Dashboard() {
             </ul>
           )}
         </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader
+            eyebrow="This project"
+            title="Working tree & harnesses"
+            actions={
+              <Link
+                to="/git-diff"
+                className="text-[12px] text-accent hover:underline"
+              >
+                Review changes
+              </Link>
+            }
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-line">
+            <div className="p-4 flex flex-col gap-2">
+              {git ? (
+                <>
+                  <Row label="Branch" value={git.branch ?? "unknown"} mono />
+                  <Row label="Uncommitted" value={uncommitted ?? 0} />
+                </>
+              ) : (
+                <p className="text-[13px] text-muted">
+                  {activeProject.isGitRepo
+                    ? "Could not read this repository."
+                    : `${activeProject.name} isn't a git repository.`}
+                </p>
+              )}
+              <Link
+                to="/git-diff"
+                className="inline-flex items-center gap-1.5 text-[12px] text-accent hover:underline mt-1"
+              >
+                <GitCompare className="size-3.5" />
+                Open diff
+              </Link>
+            </div>
+            <ul className="divide-y divide-line">
+              {harnesses.length === 0 ? (
+                <li className="px-4 py-3 text-[13px] text-muted">
+                  Could not reach the server to check harnesses.
+                </li>
+              ) : (
+                harnesses.map((h) => (
+                  <li key={h.id} className="flex items-center gap-2.5 px-4 py-2">
+                    <StatusDot tone={h.available ? "ok" : "danger"} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] text-ink">{h.id}</span>
+                      <span className="block font-mono text-[11px] text-muted truncate">
+                        {h.available ? (h.version ?? "available") : "not found"}
+                      </span>
+                    </span>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+        </Card>
       </div>
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-  tone,
+function ScopeButton({
+  active,
+  onClick,
+  children,
 }: {
-  label: string;
-  value: number | null;
-  hint: string;
-  tone: "neutral" | "accent" | "ok" | "warn" | "danger";
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
 }) {
-  const accentBar: Record<string, string> = {
-    neutral: "bg-line-strong",
-    accent: "bg-accent",
-    ok: "bg-ok",
-    warn: "bg-warn",
-    danger: "bg-danger",
-  };
   return (
-    <Card className="relative overflow-hidden p-4 pl-5">
-      <span
-        className={cn("absolute left-0 top-0 bottom-0 w-0.5", accentBar[tone])}
-      />
-      <div className="eyebrow mb-2">{label}</div>
-      <div
-        className="text-[28px] leading-none font-semibold text-ink"
-        data-numeric
-      >
-        {value ?? "—"}
-      </div>
-      <div className="text-[12px] text-muted mt-1.5">{hint}</div>
-    </Card>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "px-3 h-7 rounded-[5px] text-[12px] font-medium transition-colors",
+        active
+          ? "bg-surface text-ink shadow-sm"
+          : "text-muted hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-selected={active}
+      role="tab"
+      className={cn(
+        "px-3.5 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors",
+        active
+          ? "border-accent text-ink"
+          : "border-transparent text-muted hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
