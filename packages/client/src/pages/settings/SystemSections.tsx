@@ -10,7 +10,7 @@ import {
   Select,
   Switch,
 } from "../../components/ui";
-import { useTheme, type ThemeMode } from "../../themes";
+import { AppearanceSection } from "./AppearanceSection";
 import { useProjects } from "../../state/ProjectContext";
 import { useCapacity } from "../../state/useCapacity";
 import type { SettingsConfig } from "./types";
@@ -390,7 +390,6 @@ export function GeneralSection({
   draft: SettingsConfig;
   onChange: Change;
 }) {
-  const { mode, setMode } = useTheme();
   const { projects } = useProjects();
 
   return (
@@ -401,25 +400,7 @@ export function GeneralSection({
           title="Appearance, projects & storage"
         />
         <div className="divide-y divide-line">
-          <section aria-label="Theme" className="p-4">
-            <div className="eyebrow">Appearance</div>
-            <div className="text-sm font-semibold text-ink mt-0.5 mb-3">
-              Theme
-            </div>
-          <Field label="Mode" hint="System follows your OS light/dark setting.">
-            {(id) => (
-              <Select
-                id={id}
-                value={mode}
-                onChange={(e) => setMode(e.target.value as ThemeMode)}
-              >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </Select>
-            )}
-          </Field>
-          </section>
+          <AppearanceSection />
 
           <section aria-label="Projects" className="p-4">
             <div className="eyebrow">Defaults</div>
