@@ -139,6 +139,12 @@ describe("falling back when a harness answers with silence", () => {
    * `pi` with a local ollama model that never loaded. pi printed its
    * session header and then nothing at all — no event, no error, no exit.
    * Every remaining iteration would have gone to the same stuck binary.
+   *
+   * Two contracts are pinned here, from the other real run: an *unpinned*
+   * task falls back to another harness, but a task the caller *pinned*
+   * (the composer's harness/model picker) must fail rather than silently
+   * switch providers — that switch replaced a silent local run with
+   * claude-sonnet-4 and an expired OAuth.
    */
   const silent = (name: string): Harness =>
     createMockHarness({
@@ -185,62 +191,67 @@ describe("falling back when a harness answers with silence", () => {
     return base;
   };
 
-  it("hands the task to another harness instead of asking the silent one again", async () => {
+  it("hands an unpinned task to another harness instead of asking the silent one again", async () => {
     const calls: string[] = [];
     const harnesses = new Map<string, Harness>([
-      ["pi", silent("pi")],
-      ["opencode", answers("opencode", calls)],
+      ["opencode", silent("opencode")],
+      ["claude-code", answers("claude-code", calls)],
     ]);
     const cfg = config();
-    cfg.harnesses.pi.enabled = true;
+
+    const engine = new LoopEngine(cfg, harnesses);
+    engine.start("add a project to the portfolio");
+    const state = await engine.run(async () => {});
+
+    expect(calls).toEqual(["claude-code"]);
+    expect(state.success).toBe(true);
+  });
+
+  it("fails a pinned task when the pin goes silent instead of switching harnesses", async () => {
+    // The regression from the real run: opencode was pinned with a local
+    // lmstudio model, went silent, and the loop handed the task to
+    // claude-code — which ran claude-sonnet-4 against expired OAuth. A pin
+    // is the caller's explicit choice; switching providers behind it is
+    // worse than failing.
+    const calls: string[] = [];
+    const harnesses = new Map<string, Harness>([
+      ["opencode", silent("opencode")],
+      ["claude-code", answers("claude-code", calls)],
+    ]);
+    const cfg = config();
 
     const engine = new LoopEngine(cfg, harnesses);
     engine.start("add a project to the portfolio");
     const state = await engine.run(async () => {}, undefined, undefined, null, {
-      harness: "pi",
-      model: "ollama/qwen2.5-coder:7b",
+      harness: "opencode",
+      model: "lmstudio/qwen3.5-4b",
+    });
+
+    expect(calls).toEqual([]);
+    expect(state.success).toBe(false);
+    expect(state.error).toMatch(/pinned|no output/i);
+  });
+
+  it("never runs a pinned harness the user has disabled", async () => {
+    // `harnesses.has()` proves the CLI is installed, not that the user
+    // wants it. A pin must not resurrect a harness turned off in Settings.
+    const calls: string[] = [];
+    const cfg = config();
+    cfg.harnesses["claude-code"].enabled = false;
+
+    const engine = new LoopEngine(
+      cfg,
+      new Map<string, Harness>([
+        ["claude-code", answers("claude-code", calls)],
+        ["opencode", answers("opencode", calls)],
+      ]),
+    );
+    engine.start("fix the failing test");
+    await engine.run(async () => {}, undefined, undefined, null, {
+      harness: "claude-code",
     });
 
     expect(calls).toEqual(["opencode"]);
-    expect(state.success).toBe(true);
-  });
-
-  it("does not carry the dead harness's model over to the next one", async () => {
-    // A model id is written in its own CLI's notation. Passing pi's
-    // `ollama/…` id to the harness that takes over would swap a silent run
-    // for an immediate flag error.
-    let seenModel: string | undefined = "unset";
-    const harnesses = new Map<string, Harness>([
-      ["pi", silent("pi")],
-      [
-        "opencode",
-        createMockHarness({
-          name: "opencode",
-          execute: async (_prompt, options) => {
-            seenModel = options?.model;
-            return {
-              success: true,
-              exitCode: 0,
-              stdout: "",
-              stderr: "",
-              output: "ok",
-              duration: 10,
-            };
-          },
-        }),
-      ],
-    ]);
-    const cfg = config();
-    cfg.harnesses.pi.enabled = true;
-
-    const engine = new LoopEngine(cfg, harnesses);
-    engine.start("add a project to the portfolio");
-    await engine.run(async () => {}, undefined, undefined, null, {
-      harness: "pi",
-      model: "ollama/qwen2.5-coder:7b",
-    });
-
-    expect(seenModel).not.toBe("ollama/qwen2.5-coder:7b");
   });
 
   it("stops once every harness has gone silent rather than burning iterations", async () => {
@@ -284,15 +295,14 @@ describe("falling back when a harness answers with silence", () => {
     // about somebody else's failure stapled to it.
     let seenPrompt = "";
     const cfg = config();
-    cfg.harnesses.pi.enabled = true;
     const engine = new LoopEngine(
       cfg,
       new Map<string, Harness>([
-        ["pi", silent("pi")],
+        ["opencode", silent("opencode")],
         [
-          "opencode",
+          "claude-code",
           createMockHarness({
-            name: "opencode",
+            name: "claude-code",
             execute: async (prompt) => {
               seenPrompt = prompt;
               return {
@@ -309,9 +319,7 @@ describe("falling back when a harness answers with silence", () => {
       ]),
     );
     engine.start("add a project to the portfolio");
-    await engine.run(async () => {}, undefined, undefined, null, {
-      harness: "pi",
-    });
+    await engine.run(async () => {});
 
     expect(seenPrompt).toContain("add a project to the portfolio");
     expect(seenPrompt).not.toMatch(/previous attempt failed/i);
@@ -319,20 +327,17 @@ describe("falling back when a harness answers with silence", () => {
 
   it("respects loop.harnessFallback: false", async () => {
     const cfg = config();
-    cfg.harnesses.pi.enabled = true;
     cfg.loop.harnessFallback = false;
     const calls: string[] = [];
     const engine = new LoopEngine(
       cfg,
       new Map<string, Harness>([
-        ["pi", silent("pi")],
-        ["opencode", answers("opencode", calls)],
+        ["opencode", silent("opencode")],
+        ["claude-code", answers("claude-code", calls)],
       ]),
     );
     engine.start("add a project to the portfolio");
-    await engine.run(async () => {}, undefined, undefined, null, {
-      harness: "pi",
-    });
+    await engine.run(async () => {});
 
     expect(calls).toEqual([]);
   });

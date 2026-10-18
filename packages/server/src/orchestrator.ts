@@ -4,7 +4,7 @@ import { PermissionManager } from "./permissions";
 import { ResourceManager } from "./resourceManager";
 import { RuntimeGuard } from "./runtimeGuard";
 import { SharedMemory } from "./sharedMemory";
-import { Config } from "./config";
+import { Config, harnessEnabled } from "./config";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
 import type { HarnessAttachment } from "@hive/shared/harness";
 import { describeImagesFor } from "./visionBridge";
@@ -406,7 +406,9 @@ export class Orchestrator {
     if (!explicit && task.prompt.trim().length < 80) return null;
 
     const harnessId =
-      task.requestedHarness && this.harnesses.has(task.requestedHarness)
+      task.requestedHarness &&
+      this.harnesses.has(task.requestedHarness) &&
+      harnessEnabled(this.config, task.requestedHarness)
         ? task.requestedHarness
         : task.harness;
     const harness = this.harnesses.get(harnessId);
@@ -416,7 +418,12 @@ export class Orchestrator {
     const plan = await planFanout(task.prompt, {
       harness,
       model: task.model ?? undefined,
-      available: Array.from(this.harnesses.keys()),
+      // Only harnesses the user has left on may be named for a piece:
+      // offering the planner a disabled CLI would either spawn it or force
+      // a mid-plan correction.
+      available: Array.from(this.harnesses.keys()).filter((name) =>
+        harnessEnabled(this.config, name),
+      ),
       conversationHistory: task.conversationHistory,
       maxSubtasks: settings.maxSubtasks,
       timeoutMs: settings.plannerTimeoutMs,
@@ -470,7 +477,16 @@ export class Orchestrator {
         // separate checkouts and would otherwise duplicate shared work and
         // conflict on every file of it.
         prompt: briefSubAgent(subtask, plan.subtasks, parent.prompt),
-        harness: subtask.harness ?? parent.requestedHarness ?? undefined,
+        // The planner only knows enabled harnesses (see planFanoutFor), but
+        // the inherited parent pin takes the same route a direct pin does:
+        // a disabled harness is dropped, not spawned.
+        harness:
+          subtask.harness ??
+          (parent.requestedHarness &&
+          this.harnesses.has(parent.requestedHarness) &&
+          harnessEnabled(this.config, parent.requestedHarness)
+            ? parent.requestedHarness
+            : undefined),
         // The model the user picked applies to the whole request, sub-agents
         // included — picking opencode/ornith in the composer and getting a
         // different model on the actual work would be a surprise.
@@ -757,6 +773,26 @@ export class Orchestrator {
     // harness actually finishes this category of work; see Router.applyHints
     // for why that is advice rather than an instruction.
     const routeStart = Date.now();
+    // A pin must not resurrect a harness the user has switched off:
+    // `this.harnesses.has()` only proves the CLI is installed. Fail loudly
+    // rather than silently re-routing — the caller named this harness on
+    // purpose, and a disabled harness must never be spawned.
+    if (
+      task.requestedHarness &&
+      this.harnesses.has(task.requestedHarness) &&
+      !harnessEnabled(this.config, task.requestedHarness)
+    ) {
+      task.status = "failed";
+      task.error = `Harness '${task.requestedHarness}' is disabled in Settings — enable it there or pick another harness`;
+      task.output = task.error;
+      log("warn", "router", task.error, {
+        taskId: task.id,
+        projectId: task.projectId,
+      });
+      endSpan(rootSpan, "failed", { reason: "harness disabled" });
+      this.setPhase(task, "break-room");
+      return task;
+    }
     const pinned =
       task.requestedHarness && this.harnesses.has(task.requestedHarness)
         ? task.requestedHarness

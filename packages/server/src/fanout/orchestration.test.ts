@@ -317,6 +317,68 @@ describe("sub-agent fan-out", () => {
     expect(finished.status).toBe("completed");
     expect(finished.output).toMatch(/1 finished, 1 did not/);
   });
+
+  it("refuses to run a harness the user has disabled, even when it is pinned", async () => {
+    // `harnesses.has()` proves the CLI is installed, not that the user
+    // wants it. A composer pin must not resurrect a harness turned off in
+    // Settings — and failing loudly beats silently re-routing, because the
+    // caller named this harness on purpose.
+    const harness = scriptedHarness({ plan: { parallel: false } });
+    const config = configFor();
+    config.harnesses["claude-code"].enabled = false;
+    const orchestrator = new Orchestrator(
+      config,
+      new Map([["claude-code", harness]]),
+    );
+    (
+      orchestrator as unknown as {
+        workingTreeFor: (id: string | null) => string | undefined;
+      }
+    ).workingTreeFor = () => repo;
+
+    const parent = await orchestrator.createTask(
+      "s9",
+      "fix the failing test",
+      "claude-code",
+    );
+    const finished = await orchestrator.executeTask(parent.id);
+
+    expect(finished.status).toBe("failed");
+    expect(finished.error).toMatch(/disabled/i);
+    expect(harness.workPrompts).toHaveLength(0);
+  });
+
+  it("does not offer disabled harnesses to the fan-out planner", async () => {
+    let plannerPrompt = "";
+    const base = scriptedHarness({ plan: { parallel: false } });
+    const spy: Harness = {
+      ...base,
+      execute: async (prompt: string, opts?: HarnessOptions) => {
+        if (prompt.includes("You are a dispatcher")) plannerPrompt = prompt;
+        return base.execute(prompt, opts);
+      },
+    };
+    const config = configFor();
+    config.harnesses["claude-code"].enabled = false;
+    const orchestrator = new Orchestrator(
+      config,
+      new Map([
+        ["scripted", spy],
+        ["claude-code", scriptedHarness({ plan: { parallel: false } })],
+      ]),
+    );
+    (
+      orchestrator as unknown as {
+        workingTreeFor: (id: string | null) => string | undefined;
+      }
+    ).workingTreeFor = () => repo;
+
+    const parent = await orchestrator.createTask("s10", REQUEST, "scripted");
+    await orchestrator.executeTask(parent.id);
+
+    expect(plannerPrompt).toContain("scripted");
+    expect(plannerPrompt).not.toContain("claude-code");
+  });
 });
 
 /**

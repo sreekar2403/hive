@@ -1,4 +1,4 @@
-import { Config, HarnessId } from "./config";
+import { Config, HarnessId, wasConfigLoadedFresh } from "./config";
 import type { Harness } from "@hive/shared/harness";
 import {
   OpenCodeHarness,
@@ -93,8 +93,14 @@ export async function registerHarnesses(
 
   // Anything not installed is forced off, so Settings and the routing table
   // never offer an agent that cannot run.
+  //
+  // Turning installed harnesses *on* is first-run bootstrap only. It used
+  // to key off `setup.completed` alone, so a config file whose setup had
+  // never been completed (a stray hive.config.json in a subdirectory, say)
+  // re-enabled every installed CLI on every boot — silently undoing
+  // harnesses the user had switched off in Settings.
   syncHarnessAvailability(config, installed, {
-    enableInstalled: !config.setup?.completed,
+    enableInstalled: !config.setup?.completed && wasConfigLoadedFresh(),
     persist: true,
   });
 
