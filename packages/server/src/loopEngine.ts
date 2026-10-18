@@ -1,7 +1,7 @@
 import { LoopState } from "@hive/shared";
 import { Harness, HarnessEvent } from "@hive/shared/harness";
 import type { HarnessAttachment } from "@hive/shared/harness";
-import { Config } from "./config";
+import { Config, harnessEnabled } from "./config";
 import { Router, type RoutingResult } from "./router";
 import type { SoulRoutingGuidance } from "./secondBrain/starterSoul";
 import type { RoutingHint } from "./secondBrain/types";
@@ -168,14 +168,12 @@ export class LoopEngine {
 
     this.start(this.state.currentPrompt, options?.conversationHistory);
 
-    // A pin is a preference, not a contract. If the pinned harness answers
-    // with silence there is nothing to honour — it isn't running the work —
-    // so the fallback below drops the pin and lets the router choose again.
-    //
-    // The model pin goes with it, and has to: a model id is written in its
-    // CLI's own notation and names a provider that harness knows. Carrying
-    // `ollama/qwen2.5-coder:7b` from pi over to Claude Code would replace a
-    // silent run with an immediate flag error.
+    // A pin is a contract, not a preference. The caller named this harness
+    // on purpose (the Chat composer's picker, or a fan-out child's assigned
+    // piece), so the silence branch below fails the task rather than handing
+    // the work to another provider behind their back. It used to drop the
+    // pin and re-route, which replaced a silent local run with
+    // claude-sonnet-4 and someone else's expired OAuth.
     let pinnedHarness = options?.harness;
     let pinnedModel = options?.model;
 
@@ -330,12 +328,37 @@ export class LoopEngine {
       ) {
         this.silentHarnesses.add(decision.harness);
         const alternatives = this.routableHarnesses();
+        // A caller pin stops the fallback outright: switching providers
+        // behind an explicit choice is worse than failing the task. The
+        // message names the harness that went quiet so the next step is
+        // obvious (restart its CLI, pick its model, or unpin).
+        const pinned = Boolean(options?.harness);
 
         if (iterationSpan) {
           endSpan(iterationSpan, "failed", {
             silent: true,
-            switched: alternatives.length > 0,
+            pinned,
+            switched: !pinned && alternatives.length > 0,
           });
+        }
+
+        if (pinned) {
+          this.state.error =
+            result.stderr ||
+            `${decision.harness} produced no output — this task was pinned to ${decision.harness}, so it was not handed to another harness`;
+          if (taskId) {
+            log(
+              "error",
+              "loop",
+              `Pinned to ${decision.harness} and it went silent — not switching harnesses`,
+              {
+                taskId,
+                projectId,
+                context: { model: pinnedModel || decision.model },
+              },
+            );
+          }
+          break;
         }
 
         if (alternatives.length > 0) {
@@ -500,6 +523,11 @@ export class LoopEngine {
     if (
       pinned &&
       this.harnesses.has(pinned) &&
+      // Defence in depth: a pin must not resurrect a harness the user
+      // turned off in Settings. The orchestrator refuses disabled pins
+      // before we get here; this keeps the guarantee even if another
+      // caller (headless `hive run`, a future entry point) does not.
+      harnessEnabled(this.config, pinned) &&
       !this.silentHarnesses.has(pinned)
     ) {
       return {

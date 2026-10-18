@@ -411,6 +411,14 @@ export interface Config {
 }
 
 let cachedConfig: Config | null = null;
+/**
+ * Whether the cached config was built from defaults because no
+ * hive.config.json existed — i.e. this is a first run. Startup uses it to
+ * tell "bootstrap a fresh install" (turn on every installed harness) apart
+ * from "a config the user already wrote" (whose enabled flags must be left
+ * alone; re-enabling everything on every boot silently undoes Settings).
+ */
+let lastLoadWasFresh = false;
 
 /**
  * Loads configuration by layering, in increasing priority:
@@ -431,8 +439,10 @@ export function loadConfig(configPath?: string): Config {
 
   const configFilePath =
     configPath || path.join(process.cwd(), "hive.config.json");
+  let foundFile = false;
   try {
     if (fs.existsSync(configFilePath)) {
+      foundFile = true;
       const raw = fs.readFileSync(configFilePath, "utf8");
       const overrides = JSON.parse(raw);
       deepMerge(config, overrides);
@@ -443,6 +453,7 @@ export function loadConfig(configPath?: string): Config {
       err instanceof Error ? err.message : err,
     );
   }
+  lastLoadWasFresh = !foundFile;
 
   if (process.env.PORT) {
     const port = parseInt(process.env.PORT, 10);
@@ -514,6 +525,28 @@ export function saveConfig(config: Config, configPath?: string): void {
 /** Only exposed for tests that need to force a fresh load from disk. */
 export function resetConfigCache(): void {
   cachedConfig = null;
+  lastLoadWasFresh = false;
+}
+
+/** Whether the cached load found no config file and used built-in defaults. */
+export function wasConfigLoadedFresh(): boolean {
+  return lastLoadWasFresh;
+}
+
+/**
+ * Whether config lets this harness run.
+ *
+ * `enabled: false` is the user saying no, and every spawn path must honour
+ * it — a pin, a fan-out subtask, the silence fallback. A harness with no
+ * config block at all (the local-model direct ones, which are not in
+ * HARNESS_IDS) counts as enabled: there is no switch to have been turned
+ * off.
+ */
+export function harnessEnabled(config: Config, name: string): boolean {
+  const block = (
+    config.harnesses as Record<string, { enabled?: boolean } | undefined>
+  )[name];
+  return block?.enabled !== false;
 }
 
 export function deepMerge(target: any, source: any): void {
