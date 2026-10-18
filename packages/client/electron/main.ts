@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, nativeTheme } from "electron";
 import * as path from "path";
 
 let mainWindow: BrowserWindow | null = null;
@@ -57,6 +57,14 @@ if (process.platform === "win32") {
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Keep OS chrome (scrollbars, titlebar accents) on the app's resolved mode.
+  // themeSource is global; the renderer sends on every resolved-mode change.
+  ipcMain.on("nativeTheme:set", (_event, mode: unknown) => {
+    if (mode === "light" || mode === "dark") {
+      nativeTheme.themeSource = mode;
+    }
+  });
 
   const toggleDevTools = () => {
     const contents = BrowserWindow.getFocusedWindow()?.webContents;
