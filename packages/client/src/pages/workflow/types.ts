@@ -14,12 +14,44 @@ export type HiveNodeKind =
   | "join"
   | "approval"
   | "tool"
-  | "output";
+  | "output"
+  | "loop"
+  | "delay"
+  | "subflow"
+  | "reviewer"
+  | "chatInput"
+  | "chatOutput"
+  | "promptTemplate"
+  | "llmCall"
+  | "structuredOutput"
+  | "note"
+  | "fileRead"
+  | "fileWrite"
+  | "transform"
+  | "setVariable"
+  | "jsonParse"
+  | "httpRequest"
+  | "webSearch"
+  | "urlFetch"
+  | "notify"
+  | "vectorSearch";
 
 export type NodeStatus = "idle" | "running" | "ok" | "failed";
 
 export type TriggerKind = "manual" | "cron" | "webhook" | "file-change";
-export type HarnessKind = "opencode" | "claude-code" | "pi";
+export type HarnessKind =
+  | "opencode"
+  | "claude-code"
+  | "pi"
+  | "codex"
+  | "gemini"
+  | "qwen"
+  | "cursor-agent"
+  | "aider"
+  | "amp"
+  | "goose"
+  | "crush"
+  | "copilot";
 export type WaitPolicy = "all" | "any" | "first";
 export type ToolKind = "shell" | "git" | "http";
 
@@ -69,6 +101,101 @@ export interface OutputNodeData extends BaseNodeData {
   resultKey: string;
 }
 
+export interface LoopNodeData extends BaseNodeData {
+  items: string;
+  maxIterations: number;
+}
+
+export interface DelayNodeData extends BaseNodeData {
+  waitSec: number;
+  waitFor: string;
+}
+
+export interface SubflowNodeData extends BaseNodeData {
+  workflowName: string;
+  input: string;
+}
+
+export interface ReviewerNodeData extends BaseNodeData {
+  harness: string;
+  model: string;
+  rubric: string;
+}
+
+export interface ChatInputNodeData extends BaseNodeData {
+  placeholder: string;
+}
+
+export interface ChatOutputNodeData extends BaseNodeData {
+  message: string;
+}
+
+export interface PromptTemplateNodeData extends BaseNodeData {
+  template: string;
+}
+
+export interface LlmCallNodeData extends BaseNodeData {
+  harness: string;
+  model: string;
+  prompt: string;
+}
+
+export interface StructuredOutputNodeData extends BaseNodeData {
+  schema: string;
+}
+
+export interface NoteNodeData extends BaseNodeData {
+  text: string;
+}
+
+export interface FileReadNodeData extends BaseNodeData {
+  pattern: string;
+}
+
+export interface FileWriteNodeData extends BaseNodeData {
+  path: string;
+  content: string;
+}
+
+export interface TransformNodeData extends BaseNodeData {
+  expression: string;
+}
+
+export interface SetVariableNodeData extends BaseNodeData {
+  name: string;
+  value: string;
+}
+
+export interface JsonParseNodeData extends BaseNodeData {
+  source: string;
+  path: string;
+}
+
+export interface HttpRequestNodeData extends BaseNodeData {
+  method: string;
+  url: string;
+  body: string;
+}
+
+export interface WebSearchNodeData extends BaseNodeData {
+  query: string;
+  maxResults: number;
+}
+
+export interface UrlFetchNodeData extends BaseNodeData {
+  url: string;
+}
+
+export interface NotifyNodeData extends BaseNodeData {
+  channel: string;
+  message: string;
+}
+
+export interface VectorSearchNodeData extends BaseNodeData {
+  query: string;
+  maxResults: number;
+}
+
 export type HiveNodeData =
   | TriggerNodeData
   | AgentTaskNodeData
@@ -77,7 +204,27 @@ export type HiveNodeData =
   | JoinNodeData
   | ApprovalNodeData
   | ToolNodeData
-  | OutputNodeData;
+  | OutputNodeData
+  | LoopNodeData
+  | DelayNodeData
+  | SubflowNodeData
+  | ReviewerNodeData
+  | ChatInputNodeData
+  | ChatOutputNodeData
+  | PromptTemplateNodeData
+  | LlmCallNodeData
+  | StructuredOutputNodeData
+  | NoteNodeData
+  | FileReadNodeData
+  | FileWriteNodeData
+  | TransformNodeData
+  | SetVariableNodeData
+  | JsonParseNodeData
+  | HttpRequestNodeData
+  | WebSearchNodeData
+  | UrlFetchNodeData
+  | NotifyNodeData
+  | VectorSearchNodeData;
 
 export type HiveNode = Node<HiveNodeData, HiveNodeKind>;
 

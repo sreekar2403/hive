@@ -120,7 +120,11 @@ export type HiveEventType =
   | "agent:activity"
   | "permission:request"
   | "permission:resolved"
-  | "update:available";
+  | "update:available"
+  | "workflow:run:started"
+  | "workflow:run:step"
+  | "workflow:run:finished"
+  | "workflow:run:approval";
 
 const EVENT_TYPES: HiveEventType[] = [
   "task:started",
@@ -137,6 +141,11 @@ const EVENT_TYPES: HiveEventType[] = [
   "permission:resolved",
   // A newer Hive was published, consumed by the top bar's update notice.
   "update:available",
+  // Workflow run progress, consumed by the builder's run panel + canvas.
+  "workflow:run:started",
+  "workflow:run:step",
+  "workflow:run:finished",
+  "workflow:run:approval",
 ];
 
 export type StreamStatus = "connecting" | "open" | "offline";

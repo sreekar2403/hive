@@ -19,7 +19,7 @@ export function ToolNode({
         { type: "source", position: Position.Right, id: "out" },
       ]}
     >
-      <span className="font-mono">
+      <span className="font-mono break-all [overflow-wrap:anywhere]">
         {data.command ? truncate(data.command, 60) : "No command set"}
       </span>
     </NodeShell>

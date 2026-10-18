@@ -31,6 +31,7 @@ import logRoutes from "./routes/logs";
 import settingsRoutes from "./routes/settings";
 import setupRoutes from "./routes/setup";
 import memoryRoutes, { setSharedMemory } from "./routes/memory";
+import { setGenerateDeps } from "./workflows/generate";
 import agentRoutes from "./routes/agents";
 import brainRoutes from "./routes/brain";
 import modelRoutes from "./routes/models";
@@ -41,9 +42,11 @@ import { resolveModelRef } from "./models/catalog";
 import { pruneAttachments, resolveAttachments } from "./attachments";
 import { createKanbanCard, finishKanbanCard } from "./kanban";
 import taskRoutes from "./routes/tasks";
+import statsRoutes from "./routes/stats";
 import updateRoutes, { startUpdateWatcher } from "./routes/updates";
 import attachmentRoutes from "./routes/attachments";
 import { startCronRunner } from "./scheduler/cronRunner";
+import { recoverInterruptedRuns } from "./workflows/executor";
 import eventsRouter, { broadcast } from "./routes/events";
 import {
   appendMessage,
@@ -68,12 +71,15 @@ class HiveServer {
   private orchestrator: Orchestrator;
   private sharedMemory: SharedMemory;
   private config: Config;
+  private harnesses: Map<string, Harness>;
 
   constructor(config: Config, harnesses: Map<string, Harness>) {
     this.config = config;
+    this.harnesses = harnesses;
     this.sharedMemory = new SharedMemory(config);
     this.orchestrator = new Orchestrator(config, harnesses);
     this.app = express();
+    setGenerateDeps({ config, harnesses });
   }
 
   async start(): Promise<void> {
@@ -367,6 +373,9 @@ class HiveServer {
     // Kanban task board
     app.use("/api/tasks", taskRoutes);
 
+    // Dashboard observability: daily activity heatmap + growth stats
+    app.use("/api/stats", statsRoutes);
+
     // Is there a newer Hive? (the app updating itself, not the projects)
     app.use("/api/updates", updateRoutes);
 
@@ -433,6 +442,7 @@ class HiveServer {
         ? "token required"
         : "no token — loopback only";
       console.log(`Hive server running on http://${host}:${port} (${scope})`);
+      recoverInterruptedRuns();
       startCronRunner();
       this.stopUpdateWatcher = startUpdateWatcher();
     });

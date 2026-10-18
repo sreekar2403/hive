@@ -30,7 +30,7 @@ export function GateNode({
         },
       ]}
     >
-      <div className="font-mono mb-2">
+      <div className="font-mono mb-2 break-all [overflow-wrap:anywhere]">
         {data.condition ? truncate(data.condition, 60) : "No condition set"}
       </div>
       <div className="flex items-center justify-between text-[9px] font-mono uppercase tracking-wide text-faint">

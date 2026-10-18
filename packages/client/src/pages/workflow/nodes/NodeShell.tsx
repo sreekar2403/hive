@@ -88,7 +88,7 @@ export function NodeShell({
       </div>
 
       {children ? (
-        <div className="px-2.5 pb-2.5 -mt-0.5 text-[11px] text-muted">
+        <div className="px-2.5 pb-2.5 -mt-0.5 text-[11px] text-muted min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] line-clamp-3">
           {children}
         </div>
       ) : null}

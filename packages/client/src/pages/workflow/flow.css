@@ -106,6 +106,45 @@
   box-shadow: var(--hive-shadow);
 }
 
+/* ---- AI generate button glow ----------------------------------------- */
+.hive-ai-glow {
+  border-color: var(--hive-accent-line);
+  background:
+    linear-gradient(var(--hive-surface), var(--hive-surface)) padding-box,
+    linear-gradient(135deg, var(--hive-accent), var(--hive-accent-soft)) border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 0 0 2px var(--hive-accent-soft),
+    0 0 14px 1px var(--hive-accent-soft);
+  animation: hive-ai-pulse 2.4s ease-in-out infinite;
+}
+
+.hive-ai-glow:hover {
+  box-shadow:
+    0 0 0 3px var(--hive-accent-soft),
+    0 0 22px 4px var(--hive-accent-soft);
+}
+
+@keyframes hive-ai-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px var(--hive-accent-soft),
+      0 0 12px 1px var(--hive-accent-soft);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px var(--hive-accent-soft),
+      0 0 24px 5px var(--hive-accent-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hive-ai-glow {
+    animation: none;
+  }
+}
+
 /* ---- Attribution ----------------------------------------------------- */
 .react-flow__attribution {
   background: transparent;

@@ -44,6 +44,17 @@ router.get("/", (req: Request, res: Response) => {
   res.json({ schedules: schedules.map(decorate), total });
 });
 
+// GET /api/schedules/preview?cron= - server-computed next runs + summary.
+router.get("/preview", (req: Request, res: Response) => {
+  const cron = typeof req.query.cron === "string" ? req.query.cron : "";
+  if (!cron.trim()) return res.status(400).json({ error: "cron is required." });
+  const validation = validateCronExpression(cron);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error ?? "Invalid cron expression" });
+  }
+  res.json({ nextRuns: getNextRunTimes(cron, 5), cronSummary: describeCronExpression(cron) });
+});
+
 // GET /api/schedules/:id - Get a single schedule
 router.get("/:id", (req: Request, res: Response) => {
   const schedule = getSchedule(req.params.id);

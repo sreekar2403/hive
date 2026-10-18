@@ -101,3 +101,4 @@ mem/
 docs/ToDo.md
 hive.config.json
 .impeccable/
+graphify-out/
