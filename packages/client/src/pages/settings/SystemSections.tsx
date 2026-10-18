@@ -10,7 +10,7 @@ import {
   Select,
   Switch,
 } from "../../components/ui";
-import { useTheme } from "../../components/ui";
+import { useTheme, type ThemeMode } from "../../themes";
 import { useProjects } from "../../state/ProjectContext";
 import { useCapacity } from "../../state/useCapacity";
 import type { SettingsConfig } from "./types";
@@ -390,7 +390,7 @@ export function GeneralSection({
   draft: SettingsConfig;
   onChange: Change;
 }) {
-  const { theme, setTheme } = useTheme();
+  const { mode, setMode } = useTheme();
   const { projects } = useProjects();
 
   return (
@@ -406,15 +406,16 @@ export function GeneralSection({
             <div className="text-sm font-semibold text-ink mt-0.5 mb-3">
               Theme
             </div>
-          <Field label="Colour theme" className="max-w-xs">
+          <Field label="Mode" hint="System follows your OS light/dark setting.">
             {(id) => (
               <Select
                 id={id}
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as "light" | "dark")}
+                value={mode}
+                onChange={(e) => setMode(e.target.value as ThemeMode)}
               >
-                <option value="dark">Dark</option>
+                <option value="system">System</option>
                 <option value="light">Light</option>
+                <option value="dark">Dark</option>
               </Select>
             )}
           </Field>

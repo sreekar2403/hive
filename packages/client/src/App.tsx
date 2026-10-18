@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense } from "react";
 import { HashRouter, Routes, Route, Outlet } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { SetupDialog } from "./components/SetupDialog";
-import { ThemeContext, type Theme } from "./components/ui";
+import { ThemeProvider } from "./themes";
 import { ProjectProvider } from "./state/ProjectContext";
 import { ChatProvider } from "./state/ChatContext";
 import { LogsProvider } from "./state/LogsContext";
@@ -26,34 +26,6 @@ const OfficeFloorPage = lazy(() =>
     default: m.OfficeFloorPage,
   })),
 );
-
-const THEME_KEY = "hive.theme";
-
-function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      const stored = localStorage.getItem(THEME_KEY);
-      if (stored === "light" || stored === "dark") return stored;
-    } catch {
-      /* storage unavailable */
-    }
-    return "dark";
-  });
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    try {
-      localStorage.setItem(THEME_KEY, theme);
-    } catch {
-      /* storage unavailable */
-    }
-  }, [theme]);
-
-  const value = useMemo(() => ({ theme, setTheme }), [theme]);
-  return (
-    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-  );
-}
 
 function Layout() {
   return (

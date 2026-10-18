@@ -1,6 +1,4 @@
 import {
-  createContext,
-  useContext,
   useEffect,
   useId,
   useRef,
@@ -599,22 +597,3 @@ export function Modal({
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Theme                                                               */
-/* ------------------------------------------------------------------ */
-
-export type Theme = "light" | "dark";
-
-const ThemeContext = createContext<{
-  theme: Theme;
-  setTheme: (t: Theme) => void;
-} | null>(null);
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
-  return ctx;
-}
-
-export { ThemeContext };

@@ -1,6 +1,7 @@
 import { Moon, Sun, Wifi, WifiOff } from "lucide-react";
 import { ProjectSwitcher } from "./ProjectSwitcher";
-import { IconButton, StatusDot, useTheme } from "./ui";
+import { IconButton, StatusDot } from "./ui";
+import { useTheme } from "../themes";
 import { useServerStatus } from "../state/useServerStatus";
 import { UpdateNotice } from "./UpdateNotice";
 
@@ -10,7 +11,7 @@ import { UpdateNotice } from "./UpdateNotice";
  * actions belong in each page's own header.
  */
 export function TopBar() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedMode, toggleMode } = useTheme();
   const { online, activeTasks } = useServerStatus();
 
   return (
@@ -47,12 +48,14 @@ export function TopBar() {
 
         <IconButton
           size="sm"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={toggleMode}
           aria-label={
-            theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+            resolvedMode === "dark"
+              ? "Switch to light mode"
+              : "Switch to dark mode"
           }
         >
-          {theme === "dark" ? (
+          {resolvedMode === "dark" ? (
             <Sun className="size-4" />
           ) : (
             <Moon className="size-4" />
