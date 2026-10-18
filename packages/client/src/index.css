@@ -201,6 +201,21 @@
     opacity: 1;
   }
 
+  /* Same ruled-paper grid, tinted with the active accent — empty states. */
+  .ruled-accent {
+    background-image:
+      linear-gradient(
+        color-mix(in srgb, var(--hive-accent) 16%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--hive-accent) 16%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 24px 24px;
+  }
+
   /*
     Fixed soul.md editor pane (BrainPage): the card holds a set height and
     the text scrolls inside it instead of pushing the page.
