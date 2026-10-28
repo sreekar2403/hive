@@ -237,6 +237,36 @@ describe("run file paths", () => {
     }
   });
 
+  it("matches *.ext glob patterns (no double-dot extension)", async () => {
+    const { globProjectFiles } = await import("./executor");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfglob-"));
+    fs.writeFileSync(path.join(dir, "a.ts"), "export {}");
+    fs.writeFileSync(path.join(dir, "b.md"), "# doc");
+    fs.writeFileSync(path.join(dir, "c.png"), "binary");
+    fs.mkdirSync(path.join(dir, "sub"));
+    fs.writeFileSync(path.join(dir, "sub", "d.ts"), "export {}");
+    try {
+      const ts = globProjectFiles(dir, "*.ts");
+      expect(ts).toEqual([path.join(dir, "a.ts")]);
+
+      const md = globProjectFiles(dir, "*.md");
+      expect(md).toEqual([path.join(dir, "b.md")]);
+
+      const recursive = globProjectFiles(dir, "**/*.ts");
+      expect(recursive).toContain(path.join(dir, "a.ts"));
+      expect(recursive).toContain(path.join(dir, "sub", "d.ts"));
+      expect(recursive.some((f) => f.endsWith(".png"))).toBe(false);
+
+      const inSub = globProjectFiles(dir, "sub/*.ts");
+      expect(inSub).toEqual([path.join(dir, "sub", "d.ts")]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("names the pattern and folder when nothing matches", async () => {
     const deps = testDeps();
     await expect(

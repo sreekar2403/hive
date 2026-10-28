@@ -3,11 +3,13 @@ const router: Router = Router();
 const clients = new Set<Response>();
 
 router.get("/", (req: Request, res: Response) => {
+  // CORS is handled by the cors(corsOptions(config)) middleware in server.ts
+  // — never set Access-Control-Allow-Origin here. A wildcard on the event
+  // stream would let any website read prompts, agent activity and secrets.
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
-    "Access-Control-Allow-Origin": "*",
   });
   res.write('data: {"type":"connected"}\n\n');
   clients.add(res);
