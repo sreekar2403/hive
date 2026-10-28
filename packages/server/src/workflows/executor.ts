@@ -7,6 +7,7 @@ import { broadcast } from "../routes/events";
 import { getDb } from "../db/database";
 import { extractJsonObject } from "../llmJson";
 import { Orchestrator } from "../orchestrator";
+import { createDefaultConfig, loadConfig } from "../config";
 import {
   createWorkflowRun,
   getWorkflowRun,
@@ -91,6 +92,19 @@ export interface WorkflowExecDeps {
     instructions: string,
   ): Promise<{ approved: boolean; note?: string }>;
   resolveApproval(runId: string, nodeId: string, approved: boolean, note?: string): void;
+}
+
+/**
+ * Destructive patterns for the workflow command gate, shared by the HTTP
+ * and cron launch paths. Fails closed: an unreadable config falls back to
+ * the built-in defaults rather than disabling the approval gate.
+ */
+export function destructivePatternsFromConfig(): string[] {
+  try {
+    return loadConfig().permission.destructiveActions ?? [];
+  } catch {
+    return createDefaultConfig().permission.destructiveActions;
+  }
 }
 
 /**
@@ -219,7 +233,10 @@ export function globProjectFiles(cwd: string, pattern: string): string[] {
   }
   const starStar = norm.indexOf("**");
   const baseDir = starStar >= 0 ? norm.slice(0, starStar).replace(/\/$/, "") : norm.slice(0, norm.indexOf("*")).replace(/\/$/, "");
-  const ext = norm.slice(norm.lastIndexOf("*.") + 1);
+  // Extension suffix including its dot: "*.ts" -> ".ts". A pattern with no
+  // "*.ext" segment (bare "*", "**") matches every text file.
+  const dotStar = norm.lastIndexOf("*.");
+  const extSuffix = dotStar >= 0 ? norm.slice(dotStar + 1) : null;
   const start = baseDir ? projectPath(cwd, baseDir) : cwd;
   const recursive = starStar >= 0;
   const out: string[] = [];
@@ -236,7 +253,7 @@ export function globProjectFiles(cwd: string, pattern: string): string[] {
         if (recursive && e.name !== "node_modules" && e.name !== ".git") walk(abs);
       } else if (
         e.isFile() &&
-        (ext === "*" || abs.endsWith(`.${ext}`)) &&
+        (extSuffix === null || abs.endsWith(extSuffix)) &&
         !BINARY_EXTENSIONS.has(path.extname(e.name).toLowerCase())
       ) {
         out.push(abs);
@@ -1054,7 +1071,7 @@ function defaultDeps(): WorkflowExecDeps {
       const names = Orchestrator.getActive()?.getHarnessNames() ?? [];
       return ["opencode", "claude-code", "codex", "pi", "gemini"].find((h) => names.includes(h)) ?? null;
     },
-    destructivePatterns: [],
+    destructivePatterns: destructivePatternsFromConfig(),
     requestApproval,
     resolveApproval,
   };

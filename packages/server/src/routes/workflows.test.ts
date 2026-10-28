@@ -5,6 +5,8 @@ import workflowRoutes from "./workflows";
 import scheduleRoutes from "./schedules";
 import { createSchedule, getScheduleRuns } from "../db/schedules";
 import { fireSchedule } from "../scheduler/cronRunner";
+import { getDb } from "../db/database";
+import { randomUUID } from "node:crypto";
 
 /**
  * Run API + schedule wiring, tested over real HTTP against an in-process
@@ -132,5 +134,137 @@ describe("schedule preview + firing", () => {
       const runs = getScheduleRuns(schedule.id, 5);
       expect(runs.some((r) => r.status === "success")).toBe(true);
     });
+  });
+
+  it("scheduled runs of a destructive command wait for approval instead of executing", async () => {
+    const created = await api("/workflows", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "destructive-scheduled",
+        nodes: [
+          { id: "n1", type: "trigger", data: { label: "T", triggerKind: "schedule" } },
+          { id: "n2", type: "tool", data: { label: "C", toolKind: "shell", command: "rm -rf build-dir" } },
+        ],
+        edges: [{ id: "e1", source: "n1", target: "n2" }],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const schedule = createSchedule({
+      name: "destructive every minute",
+      cron_expression: "* * * * *",
+      workflow_id: created.body.id,
+      status: "active",
+    });
+    fireSchedule(schedule);
+    await vi.waitFor(async () => {
+      const runs = getScheduleRuns(schedule.id, 5);
+      expect(runs.some((r) => r.status === "running")).toBe(true);
+    });
+    const runId = getDb()
+      .prepare(
+        "SELECT id FROM workflow_runs WHERE workflow_id = ? ORDER BY started_at DESC LIMIT 1",
+      )
+      .get(created.body.id) as { id: string };
+    await vi.waitFor(async () => {
+      const detail = await api(`/workflows/runs/${runId.id}`);
+      expect(detail.body.run.status).toBe("waiting_approval");
+    });
+    const denied = await api(`/workflows/runs/${runId.id}/steps/n2/deny`, {
+      method: "POST",
+      body: JSON.stringify({ note: "no" }),
+    });
+    expect(denied.body).toEqual({ ok: true });
+    await vi.waitFor(async () => {
+      const detail = await api(`/workflows/runs/${runId.id}`);
+      expect(detail.body.run.status).toBe("failed");
+    });
+  });
+});
+
+describe("workflow projectId persistence", () => {
+  function seedProject(): string {
+    const id = randomUUID();
+    getDb()
+      .prepare(
+        "INSERT INTO projects (id, name, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(id, "p", "/tmp/p", Date.now(), Date.now());
+    return id;
+  }
+
+  it("stores projectId on create, filters the list, and updates it", async () => {
+    const projectId = seedProject();
+    const created = await api("/workflows", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "scoped",
+        projectId,
+        nodes: NOTE_GRAPH.nodes,
+        edges: NOTE_GRAPH.edges,
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.project_id).toBe(projectId);
+
+    const list = await api(`/workflows?projectId=${projectId}`);
+    expect(list.body.workflows.map((w: any) => w.id)).toContain(created.body.id);
+
+    const otherList = await api("/workflows?projectId=no-such-project");
+    expect(otherList.body.workflows.map((w: any) => w.id)).not.toContain(created.body.id);
+
+    const updated = await api(`/workflows/${created.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ projectId: null }),
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.project_id).toBeNull();
+
+    const afterClear = await api(`/workflows?projectId=${projectId}`);
+    expect(afterClear.body.workflows.map((w: any) => w.id)).not.toContain(created.body.id);
+  });
+
+  it("rejects an unknown projectId on create and update", async () => {
+    const badCreate = await api("/workflows", {
+      method: "POST",
+      body: JSON.stringify({ name: "bad", projectId: "missing-project" }),
+    });
+    expect(badCreate.status).toBe(400);
+
+    const created = await api("/workflows", {
+      method: "POST",
+      body: JSON.stringify({ name: "ok", nodes: [], edges: [] }),
+    });
+    const badUpdate = await api(`/workflows/${created.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ projectId: "missing-project" }),
+    });
+    expect(badUpdate.status).toBe(400);
+  });
+});
+
+describe("schedule list pagination validation", () => {
+  it("clamps malformed limit/offset instead of 500ing", async () => {
+    const badLimit = await api("/schedules?limit=abc");
+    expect(badLimit.status).toBe(200);
+    expect(Array.isArray(badLimit.body.schedules)).toBe(true);
+
+    const negative = await api("/schedules?limit=-1&offset=-5");
+    expect(negative.status).toBe(200);
+
+    const huge = await api("/schedules?limit=999999");
+    expect(huge.status).toBe(200);
+
+    const emptyOffset = await api("/schedules?offset=");
+    expect(emptyOffset.status).toBe(200);
+  });
+
+  it("clamps a malformed run-history limit", async () => {
+    const schedule = createSchedule({
+      name: "runs-limit",
+      status: "active",
+    });
+    const bad = await api(`/schedules/${schedule.id}/runs?limit=abc`);
+    expect(bad.status).toBe(200);
+    expect(Array.isArray(bad.body.runs)).toBe(true);
   });
 });

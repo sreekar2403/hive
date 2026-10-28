@@ -1,7 +1,6 @@
 import { Router, Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { getDb } from "../db/database";
-import { loadConfig } from "../config";
 import {
   GenerateError,
   generateWorkflowGraph,
@@ -11,6 +10,7 @@ import {
   approveStep,
   cancelRun,
   denyStep,
+  destructivePatternsFromConfig,
   launchWorkflowRun,
 } from "../workflows/executor";
 import {
@@ -40,14 +40,10 @@ router.post("/generate", async (req: Request, res: Response) => {
   }
 });
 
+// Shared by the manual-run route and the cron path (see cronRunner): both
+// must gate destructive commands on the configured patterns. Fails closed.
 function runDeps(): { destructivePatterns: string[] } {
-  let patterns: string[] = [];
-  try {
-    patterns = loadConfig().permission.destructiveActions ?? [];
-  } catch {
-    // Config unreadable — run without destructive gating rather than refuse.
-  }
-  return { destructivePatterns: patterns };
+  return { destructivePatterns: destructivePatternsFromConfig() };
 }
 
 function runError(res: Response, err: unknown): void {
@@ -130,16 +126,38 @@ router.post("/runs/:runId/cancel", async (req: Request, res: Response) => {
   }
 });
 
+function projectExists(id: string): boolean {
+  return !!getDb().prepare("SELECT id FROM projects WHERE id = ?").get(id);
+}
+
+function parseProjectId(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
 router.get("/", (req: Request, res: Response) => {
   const db = getDb();
+  const projectId =
+    typeof req.query.projectId === "string" && req.query.projectId
+      ? req.query.projectId
+      : null;
   const total = (
-    db.prepare("SELECT COUNT(*) as total FROM workflows").get() as {
-      total: number;
-    }
+    projectId
+      ? (db
+          .prepare("SELECT COUNT(*) as total FROM workflows WHERE project_id = ?")
+          .get(projectId) as { total: number })
+      : (db.prepare("SELECT COUNT(*) as total FROM workflows").get() as {
+          total: number;
+        })
   ).total;
-  const workflows = db
-    .prepare("SELECT * FROM workflows ORDER BY created_at DESC")
-    .all();
+  const workflows = (
+    projectId
+      ? db
+          .prepare(
+            "SELECT * FROM workflows WHERE project_id = ? ORDER BY created_at DESC",
+          )
+          .all(projectId)
+      : db.prepare("SELECT * FROM workflows ORDER BY created_at DESC").all()
+  ) as any[];
   res.json({
     workflows: workflows.map((w: any) => ({
       ...w,
@@ -164,21 +182,39 @@ router.get("/:id", (req: Request, res: Response) => {
 });
 
 router.post("/", (req: Request, res: Response) => {
-  const { name, nodes = [], edges = [] } = req.body;
+  const { name, nodes = [], edges = [], projectId } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
+  const projectIdVal = parseProjectId(projectId);
+  if (projectIdVal && !projectExists(projectIdVal)) {
+    return res.status(400).json({ error: "Unknown projectId." });
+  }
   const db = getDb();
   const id = randomUUID();
   const now = Date.now();
   db.prepare(
-    "INSERT INTO workflows (id, name, nodes, edges, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(id, name, JSON.stringify(nodes), JSON.stringify(edges), now, now);
-  res
-    .status(201)
-    .json({ id, name, nodes, edges, created_at: now, updated_at: now });
+    "INSERT INTO workflows (id, name, nodes, edges, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id,
+    name,
+    JSON.stringify(nodes),
+    JSON.stringify(edges),
+    projectIdVal,
+    now,
+    now,
+  );
+  res.status(201).json({
+    id,
+    name,
+    nodes,
+    edges,
+    project_id: projectIdVal,
+    created_at: now,
+    updated_at: now,
+  });
 });
 
 router.put("/:id", (req: Request, res: Response) => {
-  const { name, nodes, edges } = req.body;
+  const { name, nodes, edges, projectId } = req.body;
   const db = getDb();
   const existing = db
     .prepare("SELECT * FROM workflows WHERE id = ?")
@@ -187,13 +223,22 @@ router.put("/:id", (req: Request, res: Response) => {
   const updatedName = name ?? existing.name;
   const updatedNodes = nodes ?? JSON.parse(existing.nodes || "[]");
   const updatedEdges = edges ?? JSON.parse(existing.edges || "[]");
+  let updatedProjectId = existing.project_id ?? null;
+  if (projectId !== undefined) {
+    const p = parseProjectId(projectId);
+    if (p && !projectExists(p)) {
+      return res.status(400).json({ error: "Unknown projectId." });
+    }
+    updatedProjectId = p;
+  }
   const now = Date.now();
   db.prepare(
-    "UPDATE workflows SET name = ?, nodes = ?, edges = ?, updated_at = ? WHERE id = ?",
+    "UPDATE workflows SET name = ?, nodes = ?, edges = ?, project_id = ?, updated_at = ? WHERE id = ?",
   ).run(
     updatedName,
     JSON.stringify(updatedNodes),
     JSON.stringify(updatedEdges),
+    updatedProjectId,
     now,
     req.params.id,
   );
@@ -202,6 +247,7 @@ router.put("/:id", (req: Request, res: Response) => {
     name: updatedName,
     nodes: updatedNodes,
     edges: updatedEdges,
+    project_id: updatedProjectId,
     created_at: existing.created_at,
     updated_at: now,
   });

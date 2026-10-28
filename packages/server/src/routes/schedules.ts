@@ -19,6 +19,25 @@ import {
 
 const router: Router = Router();
 
+/**
+ * Clamp a query-string integer into range. Non-numeric, NaN, and Infinity
+ * fall back to `fallback`; values outside [min, max] are clamped so SQLite
+ * never receives a datatype that makes it throw a 500.
+ */
+function clampInt(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const n =
+    typeof value === "string" || typeof value === "number"
+      ? Number.parseInt(String(value), 10)
+      : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 /** Attaches server-computed cron facts so the client never parses cron itself. */
 function decorate(schedule: Schedule) {
   if (!schedule.cron_expression) {
@@ -34,8 +53,8 @@ function decorate(schedule: Schedule) {
 // GET /api/schedules - List schedules, optionally scoped to a project
 router.get("/", (req: Request, res: Response) => {
   const { limit = "100", offset = "0", projectId } = req.query;
-  const limitNum = parseInt(limit as string, 10);
-  const offsetNum = parseInt(offset as string, 10);
+  const limitNum = clampInt(limit, 100, 1, 500);
+  const offsetNum = clampInt(offset, 0, 0, Number.MAX_SAFE_INTEGER);
   const { schedules, total } = getSchedules(
     limitNum,
     offsetNum,
@@ -66,8 +85,7 @@ router.get("/:id", (req: Request, res: Response) => {
 router.get("/:id/runs", (req: Request, res: Response) => {
   const schedule = getSchedule(req.params.id);
   if (!schedule) return res.status(404).json({ error: "Not found" });
-  const { limit = "20" } = req.query;
-  const runs = getScheduleRuns(req.params.id, parseInt(limit as string, 10));
+  const runs = getScheduleRuns(req.params.id, clampInt(req.query.limit, 20, 1, 500));
   res.json({ runs });
 });
 
