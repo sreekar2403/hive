@@ -345,6 +345,8 @@ export interface Config {
      * origin", which covers Vite's dev server and the Electron shell.
      */
     allowedOrigins: string[];
+    /** Token scope: "full" (default, all /api/*) or "read-only" (dashboards/logs only). */
+    tokenScopes: readonly string[];
   };
   storage: {
     cacheDir: string;
@@ -819,6 +821,7 @@ export function createDefaultConfig(): Config {
       host: "127.0.0.1",
       authToken: "",
       allowedOrigins: [],
+      tokenScopes: ["full"],
     },
     storage: {
       cacheDir: "./.hive-cache",
