@@ -140,6 +140,23 @@ export function initDb(): Database.Database {
     )
   `);
 
+  // Budget spend events: cumulative token/cost spend per project per UTC day,
+  // used by BudgetManager to enforce spend ceilings before runs are admitted.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS spend_events (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      task_id TEXT,
+      at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+    )
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_spend_events_project_date ON spend_events(project_id, date)`,
+  );
+
   // Permission audit log: durable record of every approve/deny/timeout
   // decision for destructive commands. Each row captures the request context
   // and decision, so the Permissions page can query history.

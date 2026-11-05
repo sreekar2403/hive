@@ -300,6 +300,27 @@ export class PermissionManager {
     }
   }
 
+  /** Write an audit event (public for callers such as the revert endpoint). */
+  logAuditEvent(
+    requestId: string,
+    sessionId: string,
+    action: string,
+    command: string | null,
+    decision: "approved" | "denied" | "timeout",
+    reason?: string,
+    decidedBy: string | null = null,
+  ): void {
+    logPermissionEvent(
+      requestId,
+      sessionId,
+      action,
+      command,
+      decision,
+      reason,
+      decidedBy,
+    );
+  }
+
   isDestructive(action: string): boolean {
     return this.matchDestructive(action).length > 0;
   }

@@ -57,6 +57,9 @@ import {
 } from "./chatSessions";
 import { registerTaskSession } from "./telemetry";
 import { assertBindingIsSafe, authMiddleware, corsOptions } from "./auth";
+import { getDb } from "./db/database";
+import { getConfigPath } from "./config";
+import { runGit } from "./branches";
 
 // Serve static files from public directory (works in both dev and compiled modes)
 const publicDir = (() => {
@@ -85,6 +88,20 @@ class HiveServer {
   async start(): Promise<void> {
     const app = this.app;
 
+    // Log the resolved config path so operators can see which
+    // hive.config.json is in effect. Warn if process.cwd() differs from
+    // the config's directory — starting from elsewhere silently loads a
+    // different (or no) config.
+    const configPath = getConfigPath();
+    console.log(`Using config: ${configPath}`);
+    if (path.dirname(configPath) !== process.cwd()) {
+      console.warn(
+        `[config] hive.config.json resolved from ${configPath}, but ` +
+          `process.cwd() is ${process.cwd()}. Start Hive from the repo root ` +
+          "or run `hive` (which guarantees the right cwd) to avoid silent config drift.",
+      );
+    }
+
     // Attachments live in temp and are never referenced again once their
     // run is over, but nothing else would ever delete them — a daily
     // screenshot habit would quietly fill a disk.
@@ -111,7 +128,7 @@ class HiveServer {
     // Basic abuse protection — generous for local use, but stops a retry storm
     // or a misbehaving script from hammering the model loop.
     app.use(
-      "/api/",
+      "/api/v1/",
       rateLimit({
         windowMs: 60 * 1000,
         max: 120,
@@ -120,7 +137,7 @@ class HiveServer {
       }),
     );
     app.use(
-      "/api/chat",
+      "/api/v1/chat",
       rateLimit({
         windowMs: 60 * 1000,
         max: 20,
@@ -130,11 +147,19 @@ class HiveServer {
       }),
     );
     // Gates /api/* whenever a token is configured; /health stays open.
+    // Compatibility shim: redirect pre-v1 /api/* to /api/v1/* so existing
+    // clients and MCP clients keep working after the versioned mount.
+    // Placed before auth so unauthenticated callers are redirected rather
+    // than rejected with 401.
+    app.use("/api", (req, res) => {
+      if (req.path.startsWith("/api/v1")) return;
+      res.redirect(308, req.originalUrl.replace(/^\/api/, "/api/v1"));
+    });
     app.use(authMiddleware(this.config));
     app.use(express.static(publicDir));
 
     // Chat endpoint
-    app.post("/api/chat", async (req, res) => {
+    app.post("/api/v1/chat", async (req, res) => {
       const parsed = chatSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({
@@ -318,7 +343,7 @@ class HiveServer {
     });
 
     // Session status endpoint
-    app.get("/api/session/:sessionId", async (req, res) => {
+    app.get("/api/v1/session/:sessionId", async (req, res) => {
       const session = getSession(req.params.sessionId);
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
@@ -327,62 +352,62 @@ class HiveServer {
     });
 
     // Workflow CRUD endpoints
-    app.use("/api/workflows", workflowRoutes);
+    app.use("/api/v1/workflows", workflowRoutes);
 
     // Schedule CRUD endpoints
-    app.use("/api/schedules", scheduleRoutes);
+    app.use("/api/v1/schedules", scheduleRoutes);
 
     // Projects — the git working trees Hive operates on
-    app.use("/api/projects", projectRoutes);
+    app.use("/api/v1/projects", projectRoutes);
 
     // Per-project git inspection (status, diff, branches)
-    app.use("/api/git", gitRoutes);
+    app.use("/api/v1/git", gitRoutes);
 
     // Structured logs and execution traces
-    app.use("/api/logs", logRoutes);
+    app.use("/api/v1/logs", logRoutes);
 
     // Providers, harnesses and task-model routing
-    app.use("/api/settings", settingsRoutes);
+    app.use("/api/v1/settings", settingsRoutes);
 
     // First-run setup: the router-model question and the soul.md it seeds.
-    app.use("/api/setup", setupRoutes);
+    app.use("/api/v1/setup", setupRoutes);
 
     // What this machine can run at once, and what it is running
-    app.use("/api/capacity", capacityRoutes);
+    app.use("/api/v1/capacity", capacityRoutes);
 
     // Are the CLIs installed, and do they still speak the stream we parse
-    app.use("/api/harnesses", harnessRoutes);
+    app.use("/api/v1/harnesses", harnessRoutes);
 
     // Messages between agents working the same session
-    app.use("/api/messages", messageRoutes);
-    app.use("/api/attachments", attachmentRoutes);
+    app.use("/api/v1/messages", messageRoutes);
+    app.use("/api/v1/attachments", attachmentRoutes);
 
     // Shared memory browsing/editing
     setSharedMemory(this.sharedMemory);
-    app.use("/api/memory", memoryRoutes);
+    app.use("/api/v1/memory", memoryRoutes);
 
     // Live agent roster powering the Office floor
-    app.use("/api/agents", agentRoutes);
+    app.use("/api/v1/agents", agentRoutes);
 
     // Second Brain — soul.md, the learned stores and the knowledge graph
-    app.use("/api/brain", brainRoutes);
+    app.use("/api/v1/brain", brainRoutes);
 
     // Which models each harness and local server can actually run
-    app.use("/api/models", modelRoutes);
+    app.use("/api/v1/models", modelRoutes);
 
     // Kanban task board
-    app.use("/api/tasks", taskRoutes);
+    app.use("/api/v1/tasks", taskRoutes);
 
     // Dashboard observability: daily activity heatmap + growth stats
-    app.use("/api/stats", statsRoutes);
+    app.use("/api/v1/stats", statsRoutes);
 
     // Is there a newer Hive? (the app updating itself, not the projects)
-    app.use("/api/updates", updateRoutes);
+    app.use("/api/v1/updates", updateRoutes);
 
     // Permission request endpoints
     const permissionManager = this.orchestrator.getPermissionManager();
 
-    app.get("/api/permissions", (req, res) => {
+    app.get("/api/v1/permissions", (req, res) => {
       const sessionId =
         typeof req.query.sessionId === "string"
           ? req.query.sessionId
@@ -390,20 +415,20 @@ class HiveServer {
       res.json(permissionManager.getPending(sessionId));
     });
 
-    app.post("/api/permissions/:id/approve", (req, res) => {
+    app.post("/api/v1/permissions/:id/approve", (req, res) => {
       const ok = permissionManager.approve(req.params.id);
       if (!ok) return res.status(404).json({ error: "Not found" });
       res.json({ approved: true });
     });
 
-    app.post("/api/permissions/:id/deny", (req, res) => {
+    app.post("/api/v1/permissions/:id/deny", (req, res) => {
       const ok = permissionManager.deny(req.params.id, req.body?.reason);
       if (!ok) return res.status(404).json({ error: "Not found" });
       res.json({ approved: false });
     });
 
     // Durable audit log of destructive-command decisions (full token scope only).
-    app.get("/api/permissions/audit", (req, res) => {
+    app.get("/api/v1/permissions/audit", (req, res) => {
       const rawLimit = req.query.limit;
       const limit =
         typeof rawLimit === "string" && /^\d+$/.test(rawLimit)
@@ -412,8 +437,103 @@ class HiveServer {
       res.json({ events: permissionManager.getAuditEvents(limit) });
     });
 
+    // Revert a task's changes: restores the files a task touched via git
+    // checkout / restore. Gated by the permission system (destructive) and
+    // audit-logged. Only terminal tasks with recorded filesChanged can be
+    // reverted.
+    app.post("/api/v1/tasks/:id/revert", async (req, res) => {
+      const taskId = req.params.id;
+      const db = getDb();
+      const row = db
+        .prepare("SELECT * FROM kanban_tasks WHERE id = ?")
+        .get(taskId) as
+        | {
+            id: string;
+            project_id: string;
+            files: string | null;
+            status: string;
+          }
+        | undefined;
+      if (!row) return res.status(404).json({ error: "Task not found" });
+
+      let files: string[];
+      try {
+        const parsed = row.files ? JSON.parse(row.files) : [];
+        files = Array.isArray(parsed)
+          ? parsed.filter((f) => typeof f === "string")
+          : [];
+      } catch {
+        files = [];
+      }
+      if (files.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "Task has no recorded files to revert" });
+      }
+
+      // Gate the revert through the permission system (destructive git op).
+      const sessionId = `revert_${taskId}`;
+      const command = `git checkout -- ${files.join(" ")}`;
+      const approved = await permissionManager.checkPermission(
+        sessionId,
+        "revert",
+        `Revert changes from task ${taskId} (${files.length} file(s))`,
+        command,
+        files,
+      );
+      if (!approved) {
+        permissionManager.logAuditEvent(
+          `revert_${Date.now()}`,
+          sessionId,
+          "revert",
+          command,
+          "denied",
+          "permission denied or timed out",
+          sessionId,
+        );
+        return res.status(403).json({ error: "Revert not approved" });
+      }
+
+      // Resolve the project's working tree.
+      const project = db
+        .prepare("SELECT path FROM projects WHERE id = ?")
+        .get(row.project_id) as { path: string } | undefined;
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Run git checkout -- <files> in the project working tree.
+      const result = runGit(["checkout", "--", ...files], project.path);
+      if (!result.ok) {
+        permissionManager.logAuditEvent(
+          `revert_${Date.now()}`,
+          sessionId,
+          "revert",
+          command,
+          "denied",
+          `git checkout failed: ${result.output}`,
+          sessionId,
+        );
+        return res
+          .status(500)
+          .json({ error: `git checkout failed: ${result.output}` });
+      }
+
+      permissionManager.logAuditEvent(
+        `revert_${Date.now()}`,
+        sessionId,
+        "revert",
+        command,
+        "approved",
+        `Reverted ${files.length} file(s)`,
+        sessionId,
+      );
+
+      res.json({ reverted: true, files });
+    });
+
     // SSE events endpoint
-    app.use("/api/events", eventsRouter);
+    app.use("/api/v1/events", eventsRouter);
 
     // Root - serve the chat UI
     app.get("/", (req, res) => {

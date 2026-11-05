@@ -192,6 +192,11 @@ export interface LayaVerifyConfig {
 }
 
 export interface Config {
+  budget: {
+    enabled: boolean;
+    daily: { maxTokens: number; maxCostUsd: number };
+    perProject: Record<string, { maxTokens: number; maxCostUsd: number }>;
+  };
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
     default: string;
@@ -860,6 +865,11 @@ export function createDefaultConfig(): Config {
     },
     mcp: {
       allowedRoots: [],
+    },
+    budget: {
+      enabled: false,
+      daily: { maxTokens: 0, maxCostUsd: 0 },
+      perProject: {},
     },
   };
 }
