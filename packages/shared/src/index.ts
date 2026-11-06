@@ -23,6 +23,16 @@ export interface LoopState {
   success: boolean;
   error: string | null;
   /**
+   * Aggregated token/cost usage across all iterations of this loop run.
+   * Populated from each iteration's HarnessExecutionResult.usage.
+   */
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    costUsd?: number;
+  };
+  /**
    * The native session the last harness run lived in, in the CLI's own
    * id notation — for the chat handler to resume next turn. Null until a
    * run reports one (see `HarnessExecutionResult.sessionId`).

@@ -97,6 +97,8 @@ ${bold("hive")} — start the Hive desktop app
   ${bold("hive stop")}            stop whatever is already listening on Hive's ports
   ${bold("hive doctor")}          check this machine can run all of the above
   ${bold("hive doctor --deep")}   also run one real prompt per CLI ${dim("(costs tokens)")}
+  ${bold("hive permissions ...")}   manage permission requests
+  ${bold("hive schedules ...")}     manage schedules
 
 Options
   -p, --port <n>       API server port          ${dim(`(default ${DEFAULT_API_PORT})`)}
@@ -105,6 +107,7 @@ Options
       --no-window      same as ${bold("hive web")}
       --deep           doctor: verify each CLI's event stream still parses
       --json           doctor: machine-readable report on stdout
+  -t, --token <string>  Authorization token ${dim(`(or HIVE_AUTH_TOKEN env)`)}
   -h, --help           this message
   -v, --version        print the version
 
@@ -139,6 +142,7 @@ function parseArgs(argv) {
     devtools: false,
     deep: false,
     json: false,
+    token: process.env.HIVE_AUTH_TOKEN || null,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -149,11 +153,17 @@ function parseArgs(argv) {
       case "server":
       case "stop":
       case "doctor":
+      case "permissions":
+      case "schedules":
         options.mode = arg;
         break;
       case "-p":
       case "--port":
         options.apiPort = Number(argv[++i]);
+        break;
+      case "-t":
+      case "--token":
+        options.token = argv[++i];
         break;
       case "--ui-port":
         options.uiPort = Number(argv[++i]);
@@ -183,10 +193,10 @@ function parseArgs(argv) {
         break;
       }
       default:
-        fail(
-          `Unknown argument: ${arg}`,
-          "Run `hive --help` to see what it takes.",
-        );
+        // Subcommands like `list`, `approve`, `deny`, `enable`, `disable`
+        // and their ids are captured as extraArgs.
+        if (!options.extraArgs) options.extraArgs = [];
+        options.extraArgs.push(arg);
     }
   }
 
@@ -208,6 +218,90 @@ function get(url, timeoutMs = 1500) {
     });
     req.setTimeout(timeoutMs, () => req.destroy());
     req.on("error", () => resolve(null));
+  });
+}
+
+/** GET with auth headers, returns { statusCode, body } or null on error. */
+function getJson(url, token, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      url,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+        res.on("end", () => {
+          resolve({
+            statusCode: res.statusCode ?? 0,
+            body: data,
+          });
+        });
+      },
+    );
+    req.setTimeout(timeoutMs, () => req.destroy());
+    req.on("error", () => resolve(null));
+  });
+}
+
+/** POST with JSON body, return status code. */
+function post(url, body, token, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify(body);
+    const headers = {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(payload),
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const req = http.request(
+      {
+        hostname: new URL(url).hostname,
+        port: new URL(url).port || 80,
+        path: new URL(url).pathname + new URL(url).search,
+        method: "POST",
+        headers,
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      },
+    );
+    req.setTimeout(timeoutMs, () => req.destroy());
+    req.on("error", () => resolve(null));
+    req.write(payload);
+    req.end();
+  });
+}
+
+/** PUT with JSON body, return status code. */
+function put(url, body, token, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify(body);
+    const headers = {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(payload),
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const req = http.request(
+      {
+        hostname: new URL(url).hostname,
+        port: new URL(url).port || 80,
+        path: new URL(url).pathname,
+        method: "PUT",
+        headers,
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      },
+    );
+    req.setTimeout(timeoutMs, () => req.destroy());
+    req.on("error", () => resolve(null));
+    req.write(payload);
+    req.end();
   });
 }
 
@@ -887,6 +981,158 @@ async function mcpCommand() {
   process.exitCode = code;
 }
 
+async function permissionsCommand(options) {
+  const base = `http://127.0.0.1:${options.apiPort}`;
+  const token = options.token;
+  const [sub, id] = options.extraArgs ?? [];
+
+  if (sub === "list") {
+    const res = await getJson(`${base}/api/v1/permissions`, token);
+    if (!res) {
+      fail(`Cannot reach Hive server at ${base}. Is it running?`);
+    }
+    if (res.statusCode === 401) {
+      fail(
+        "Unauthorized: invalid or missing token.",
+        "Set -t/--token or HIVE_AUTH_TOKEN.",
+      );
+    }
+    if (res.statusCode !== 200) {
+      fail(`Unexpected status ${res.statusCode}: ${res.body}`);
+    }
+    let events;
+    try {
+      events = JSON.parse(res.body);
+    } catch {
+      fail("Could not parse server response.");
+    }
+    const requests = events.events || [];
+    if (requests.length === 0) {
+      console.log("No pending permission requests.");
+      return;
+    }
+    console.log("Pending permission requests:");
+    console.log(`  ${"ID".padEnd(24)} ${"Session".padEnd(20)} Action  Command`);
+    for (const r of requests) {
+      console.log(
+        `  ${(r.id || "").padEnd(24)} ${(r.sessionId || "").padEnd(20)} ${(r.action || "").padEnd(7)} ${r.command || ""}`,
+      );
+    }
+    return;
+  }
+
+  if (sub === "approve" || sub === "deny") {
+    if (!id) {
+      fail(`Usage: hive permissions ${sub} <id>`);
+    }
+    const body =
+      sub === "deny" ? { reason: options.extraArgs?.[2] || undefined } : {};
+    const res = await post(
+      `${base}/api/v1/permissions/${id}/${sub}`,
+      body,
+      token,
+    );
+    if (!res) {
+      fail(`Cannot reach Hive server at ${base}. Is it running?`);
+    }
+    if (res === 401) {
+      fail(
+        "Unauthorized: invalid or missing token.",
+        "Set -t/--token or HIVE_AUTH_TOKEN.",
+      );
+    }
+    if (res === 404) {
+      fail(`Permission request ${id} not found.`);
+    }
+    if (res !== 200) {
+      fail(`Unexpected status ${res}.`);
+    }
+    console.log(
+      `${sub.charAt(0).toUpperCase() + sub.slice(1)}d permission request ${id}.`,
+    );
+    return;
+  }
+
+  fail(
+    `Unknown permissions subcommand: ${sub || "(none)"}`,
+    "Usage: hive permissions [list|approve <id>|deny <id> [reason]]",
+  );
+}
+
+async function schedulesCommand(options) {
+  const base = `http://127.0.0.1:${options.apiPort}`;
+  const token = options.token;
+  const [sub, id] = options.extraArgs ?? [];
+
+  if (sub === "list") {
+    const res = await getJson(`${base}/api/v1/schedules`, token);
+    if (!res) {
+      fail(`Cannot reach Hive server at ${base}. Is it running?`);
+    }
+    if (res.statusCode === 401) {
+      fail(
+        "Unauthorized: invalid or missing token.",
+        "Set -t/--token or HIVE_AUTH_TOKEN.",
+      );
+    }
+    if (res.statusCode !== 200) {
+      fail(`Unexpected status ${res.statusCode}: ${res.body}`);
+    }
+    let data;
+    try {
+      data = JSON.parse(res.body);
+    } catch {
+      fail("Could not parse server response.");
+    }
+    const schedules = data.schedules || data || [];
+    if (!Array.isArray(schedules) || schedules.length === 0) {
+      console.log("No schedules.");
+      return;
+    }
+    console.log("Schedules:");
+    console.log(`  ${"ID".padEnd(24)} ${"Name".padEnd(30)} Status    Cron`);
+    for (const s of schedules) {
+      console.log(
+        `  ${(s.id || "").padEnd(24)} ${(s.name || "").padEnd(30)} ${(s.status || "").padEnd(9)} ${s.cron_expression || ""}`,
+      );
+    }
+    return;
+  }
+
+  if (sub === "enable" || sub === "disable") {
+    if (!id) {
+      fail(`Usage: hive schedules ${sub} <id>`);
+    }
+    const res = await put(
+      `${base}/api/v1/schedules/${id}`,
+      { status: sub === "enable" ? "active" : "inactive" },
+      token,
+    );
+    if (!res) {
+      fail(`Cannot reach Hive server at ${base}. Is it running?`);
+    }
+    if (res === 401) {
+      fail(
+        "Unauthorized: invalid or missing token.",
+        "Set -t/--token or HIVE_AUTH_TOKEN.",
+      );
+    }
+    if (res === 404) {
+      fail(`Schedule ${id} not found.`);
+    }
+    if (res !== 200) {
+      fail(`Unexpected status ${res}.`);
+    }
+    console.log(`Schedule ${id} ${sub === "enable" ? "enabled" : "disabled"}.`);
+    return;
+  }
+
+  fail(
+    `Unknown schedules subcommand: ${sub || "(none)"}`,
+    "Usage: hive schedules [list|enable <id>|disable <id>]",
+  );
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === "run") return await runCommand(argv.slice(1));
@@ -896,6 +1142,8 @@ async function main() {
 
   if (options.mode === "stop") return stopCommand(options);
   if (options.mode === "doctor") return await doctorCommand(options);
+  if (options.mode === "permissions") return permissionsCommand(options);
+  if (options.mode === "schedules") return schedulesCommand(options);
 
   if (!fs.existsSync(path.join(ROOT, "node_modules"))) {
     fail("Dependencies are not installed.", INSTALL_HINT);
