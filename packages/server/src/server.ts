@@ -402,6 +402,16 @@ class HiveServer {
       res.json({ approved: false });
     });
 
+    // Durable audit log of destructive-command decisions (full token scope only).
+    app.get("/api/permissions/audit", (req, res) => {
+      const rawLimit = req.query.limit;
+      const limit =
+        typeof rawLimit === "string" && /^\d+$/.test(rawLimit)
+          ? Math.min(Math.max(1, parseInt(rawLimit, 10)), 1000)
+          : 200;
+      res.json({ events: permissionManager.getAuditEvents(limit) });
+    });
+
     // SSE events endpoint
     app.use("/api/events", eventsRouter);
 
