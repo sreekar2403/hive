@@ -366,6 +366,14 @@ export interface Config {
   };
   secondBrain: SecondBrainConfig;
   /**
+   * Simple mode — progressive disclosure for first-time setups. Off by
+   * default. When on, Hive pins a single default harness, keeps the staged
+   * pipeline off, keeps fan-out off, and hides advanced settings in the UI.
+   * The permission gate and the budget check always stay on — simple mode
+   * never loosens either of them.
+   */
+  simpleMode: boolean;
+  /**
    * First-run state. `completed` gates the setup screen, which asks the one
    * question Hive cannot discover — which model to route with — and seeds
    * soul.md from what it finds. See setup.ts.
@@ -904,6 +912,7 @@ export function createDefaultConfig(): Config {
       },
     },
     secondBrain: createDefaultSecondBrainConfig(),
+    simpleMode: false,
     setup: {
       completed: false,
       completedAt: 0,

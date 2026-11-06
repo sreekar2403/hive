@@ -54,6 +54,29 @@ instead of eight terminals.
 
 [![Hive launch video — 20s, click for full version with sound](docs/assets/brag.gif)](https://github.com/sreekar2403/hive/releases/download/readme-assets/brag.mp4)
 
+## 5-minute start
+
+```bash
+pnpm install
+hive            # API + UI + desktop window — or `hive web` for browser-only
+```
+
+That's it. The first start writes `hive.config.json` from built-in defaults,
+so there is no config file to create by hand; `hive doctor` then lists the
+agent CLIs it found on your PATH. Install at least one (Claude Code, opencode,
+Codex, …) and routing picks it up. Open http://localhost:3000, or use the
+Electron window Hive opened.
+
+**Docker.** `pnpm build` compiles `packages/server/dist/index.js`, which is
+the Dockerfile's `CMD`:
+
+```bash
+docker build -t hive .
+docker run -p 3001:3001 -p 3000:3000 hive
+```
+
+`hive.config.json` is not required in the image — defaults apply until the
+first start creates it. Non-loopback binding requires `HIVE_AUTH_TOKEN`.
 
 ## Quick start
 
@@ -493,6 +516,11 @@ HIVE_AUTH_TOKEN=$(openssl rand -hex 32) HIVE_HOST=0.0.0.0 hive server
 The client sends that token from `VITE_HIVE_TOKEN` at build time, or `localStorage["hive.token"]` at
 runtime.
 
+**Tunnels.** ngrok or cloudflared can expose that same port to the internet —
+run `hive server` behind one with `HIVE_AUTH_TOKEN` set and share the tunnel
+URL instead of opening your firewall. Treat the tunnel URL like a password:
+anyone who has it can reach the API.
+
 **Where state lives**
 
 | What                                               | Where                                 |
@@ -604,6 +632,13 @@ hive.config.json                     configuration, read and written by the app
 | "not a git repository"                     | The scope's folder isn't a repo. Changed-file detection needs one — that's why the General workspace `git init`s itself.       |
 | Ports already in use                       | `hive stop`, or start with `-p` / `--ui-port`.                                                                                 |
 | Settings look stale after editing the file | The config is a cached singleton. Restart the server, or edit through the Settings screen, which updates it in place.          |
+
+## Project
+
+- [Roadmap](ROADMAP.md) — near, medium and longer-term plans
+- [Release notes](RELEASENOTES.md) — how releases are cut from PR titles and
+  conventional commits
+- [Contributing](CONTRIBUTING.md) — how to propose a change
 
 ## License
 

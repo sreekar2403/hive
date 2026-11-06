@@ -1,0 +1,34 @@
+# Build outputs and caches
+node_modules/
+dist/
+packages/*/dist/
+*.tsbuildinfo
+.hive-cache/
+.cache/
+coverage/
+
+# Runtime data
+storage/
+mem/
+wiki/
+*.log
+release/
+brag-output/
+brag-output-*/
+
+# Git and platform
+.git/
+.github/
+
+# Generated assets and standalone docs.
+# Keep README.md, ROADMAP.md and RELEASENOTES.md; the rest are agent
+# memory, build output or one-off docs that don't belong in the image.
+*.png
+DESIGN.md
+PRODUCT.md
+install.sh
+start-server.js
+*.md
+!README.md
+!ROADMAP.md
+!RELEASENOTES.md
