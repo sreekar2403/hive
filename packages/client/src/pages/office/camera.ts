@@ -169,6 +169,14 @@ export class Camera {
     return this.panLast !== null;
   }
 
+  /** Project a world point to view-local screen pixels. */
+  worldToScreen(wx: number, wy: number): { x: number; y: number } {
+    return {
+      x: Math.round(this.viewW / 2 - (wx - this.current.x) * this.current.zoom),
+      y: Math.round(this.viewH / 2 - (wy - this.current.y) * this.current.zoom),
+    };
+  }
+
   update(dt: number): void {
     let next = stepCamera(this.current, this.target, dt);
 

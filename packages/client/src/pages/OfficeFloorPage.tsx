@@ -195,6 +195,15 @@ export function OfficeFloorPage() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  /** Tooltip over a hovered character: which agent and where on screen. */
+  const [tip, setTip] = useState<{
+    id: string;
+    name: string;
+    phase: string;
+    iteration: number | null;
+    x: number;
+    y: number;
+  } | null>(null);
   /*
     "Expand" folds away the page header and the roster so the floor gets
     the whole pane, with Fit kept as its own control.
@@ -447,6 +456,22 @@ export function OfficeFloorPage() {
 
           // Ambient life (coffee runs / errands) for anyone idle.
           runDirectorTick(id, character, now);
+        }
+
+        // Keep the hover tooltip pinned to its character as the camera moves.
+        if (tip && cameraRef.current) {
+          const char = charactersRef.current.get(tip.id);
+          if (char) {
+            const { x, y } = cameraRef.current.worldToScreen(
+              char.currentTile.x,
+              char.currentTile.y,
+            );
+            setTip((prev) =>
+              prev && prev.id === tip.id && prev.x === x && prev.y === y
+                ? prev
+                : { ...tip, x, y },
+            );
+          }
         }
 
         // Envelopes fly themselves; drop finished ones.
@@ -727,12 +752,27 @@ export function OfficeFloorPage() {
         });
         // Idle characters keep their name tag hidden; pointing at one is
         // how you ask who it is.
-        character.root.on("pointerover", () =>
-          character?.setLabelHovered(true),
-        );
-        character.root.on("pointerout", () =>
-          character?.setLabelHovered(false),
-        );
+        character.root.on("pointerover", () => {
+          character?.setLabelHovered(true);
+          if (character && cameraRef.current) {
+            const { x, y } = cameraRef.current.worldToScreen(
+              character.currentTile.x,
+              character.currentTile.y,
+            );
+            setTip({
+              id: agent.id,
+              name: agent.name,
+              phase: ZONES_BY_ID[agent.phase]?.label ?? agent.phase,
+              iteration: agent.iteration ?? null,
+              x,
+              y,
+            });
+          }
+        });
+        character.root.on("pointerout", () => {
+          character?.setLabelHovered(false);
+          setTip(null);
+        });
         characters.set(agent.id, character);
         world.addChild(character.root);
         // Bubbles ride above the whole floor, so they are siblings of the
@@ -855,6 +895,21 @@ export function OfficeFloorPage() {
       <div className="flex-1 min-h-0 flex border-t border-[var(--rp-ink-300)]">
         <div className="flex-1 min-w-0 relative bg-[var(--rp-cream-100)]">
           <div ref={containerRef} className="absolute inset-0" />
+          {tip && (
+            <div
+              className="absolute pointer-events-none z-50 rp-card__head px-2 py-1 text-[11px] text-ink shadow-card"
+              style={{
+                left: tip.x,
+                top: tip.y - 24,
+              }}
+            >
+              {tip.name}
+              <span className="block rp-mono text-[10px] text-faint mt-0.5">
+                {tip.phase}
+                {tip.iteration != null ? ` · ${tip.iteration}× iter` : ""}
+              </span>
+            </div>
+          )}
 
           {expanded ? (
             <div className="absolute top-3 right-3 flex items-center gap-1.5">

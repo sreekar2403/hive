@@ -40,6 +40,8 @@ export interface RouterModelCandidate {
   label: string;
   /** Why this one is being offered. */
   note: string;
+  /** Estimated per-token cost indicator for onboarding guidance. */
+  costNote?: string;
   /** True for the one Hive would choose unprompted. */
   recommended: boolean;
 }
@@ -154,6 +156,66 @@ export async function getSetupStatus(
  * Only harnesses that are actually installed contribute, because offering a
  * model the machine cannot run turns the one setup question into a dead end.
  */
+const costNotes: Record<string, string> = {
+  // Local models — no per-token cost since they run on the user's hardware
+  ollama: "free (local)",
+  lmstudio: "free (local)",
+
+  // Small / cheap tiers
+  haiku: "~$0.25–1/M input tokens",
+  "claude-opus-4-6": "~$3–15/M input tokens",
+  "claude-3-5-sonnet": "~$3–15/M input tokens",
+  "claude-3-haiku": "~$0.25–1/M input tokens",
+  "gpt-4o-mini": "~$0.15–0.60/M input tokens",
+  "gpt-4o": "~$3–15/M input tokens",
+  "gpt-4": "~$3–15/M input tokens",
+  "gpt-3.5-turbo": "~$0.5–1.5/M input tokens",
+  "gemini-1.5-flash": "~$0.10–0.35/M input tokens",
+  "gemini-1.5-pro": "~$0.5–2/M input tokens",
+  "mixtral-8b": "~$0.25–1/M input tokens",
+  "mixtral-7b": "~$0.25–1/M input tokens",
+  "llama-3.1-8b": "~$0.10–0.30/M input tokens (if hosted)",
+  "llama-3.1-7b": "~$0.10–0.30/M input tokens (if hosted)",
+  "llama-3.1-8b-instruct": "~$0.10–0.30/M input tokens (if hosted)",
+  "phi-3": "~$0.10–0.30/M input tokens",
+  "phi-3.5": "~$0.10–0.30/M input tokens",
+
+  // Default catch-all for anything not explicitly listed
+  default: "~$3–15/M input tokens (approx)",
+};
+
+/** Annotate a candidate with a cost note based on its model ID. */
+function annotateCost(option: { model: string }): string {
+  const lower = option.model.toLowerCase();
+  // Check for local model servers first
+  if (/ollama/.test(lower) || /lmstudio/.test(lower)) {
+    return "free (local)";
+  }
+  // Check small model keywords
+  const smallKeywords = [
+    "haiku",
+    "flash-lite",
+    "flash",
+    "mini",
+    "nano",
+    "small",
+    "8b",
+    "7b",
+    "4b",
+    "3b",
+    "phi",
+    "mixtral",
+    "gemini",
+    "gpt-3",
+    "gpt-4o-mini",
+    "gpt-4o",
+  ];
+  if (smallKeywords.some((kw) => lower.includes(kw))) {
+    return "~$0.25–1/M input tokens (approx)";
+  }
+  return costNotes.default;
+}
+
 export async function routerCandidates(
   installed: string[],
 ): Promise<RouterModelCandidate[]> {
@@ -175,6 +237,7 @@ export async function routerCandidates(
         rank === -1
           ? "larger model — accurate, but you pay it on every task"
           : ROUTER_PREFERENCES[rank].note,
+      costNote: annotateCost(option),
     };
   });
 
@@ -184,12 +247,13 @@ export async function routerCandidates(
 
   return scored
     .slice(0, MAX_CANDIDATES)
-    .map(({ option, rank, note }, index) => ({
+    .map(({ option, rank, note, costNote }, index) => ({
       id: option.id,
       harness: option.harness,
       model: option.model,
       label: `${harnessProfile(option.harness).label} · ${option.model}`,
       note,
+      costNote,
       // Recommend the top-ranked entry only when it actually matched a small
       // family. If nothing small is installed, recommend nothing and let the
       // automatic setting stand — see pickRoutingModel in router.ts, which
