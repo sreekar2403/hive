@@ -475,13 +475,13 @@ export function KanbanPage() {
                   ) : items.length === 0 ? (
                     /* A visible target, so an empty column can still be
                        dropped onto rather than looking inert. */
-                      <p
-                        className={cn(
-                          "rounded-lg border border-dashed px-2 py-6 text-center text-[12px] transition-colors",
-                          dragOver === col.id
-                            ? "border-accent text-accent"
-                            : "border-line text-muted",
-                        )}
+                    <p
+                      className={cn(
+                        "rounded-lg border border-dashed px-2 py-6 text-center text-[12px] transition-colors",
+                        dragOver === col.id
+                          ? "border-accent text-accent"
+                          : "border-line text-muted",
+                      )}
                     >
                       {dragOver === col.id
                         ? `Drop in ${col.title}`
@@ -519,6 +519,7 @@ export function KanbanPage() {
         onClose={() => setSelected(null)}
         onMove={(s) => selected && void move(selected, s)}
         onDelete={() => selected && void remove(selected)}
+        onRevert={() => void load()}
       />
 
       <CreateTaskModal
@@ -883,17 +884,21 @@ function TaskDetail({
   onClose,
   onMove,
   onDelete,
+  onRevert,
 }: {
   task: KanbanTask | null;
   onClose: () => void;
   onMove: (status: TaskStatus) => void;
   onDelete: () => void;
+  onRevert?: () => void;
 }) {
   const [tab, setTab] = useState<"overview" | "files" | "activity" | "output">(
     "overview",
   );
   const [detail, setDetail] = useState<TaskDetailPayload | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [reverting, setReverting] = useState(false);
+  const [revertMessage, setRevertMessage] = useState<string | null>(null);
   const taskId = task?.id ?? null;
 
   useEffect(() => {
@@ -916,6 +921,32 @@ function TaskDetail({
       cancelled = true;
     };
   }, [taskId]);
+
+  const revert = useCallback(async () => {
+    if (!taskId) return;
+    setReverting(true);
+    setRevertMessage(null);
+    try {
+      await API.post<{ reverted: boolean; files: string[] }>(
+        `/api/tasks/${taskId}/revert`,
+        {},
+      );
+      setRevertMessage("Changes reverted — the working tree is restored.");
+      onRevert?.();
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Could not revert the changes";
+      if (msg.includes("403")) {
+        setRevertMessage(
+          "Revert not approved — the permission gate blocked it (or nobody answered in time).",
+        );
+      } else {
+        setRevertMessage(msg);
+      }
+    } finally {
+      setReverting(false);
+    }
+  }, [taskId, onRevert]);
 
   if (!task) return null;
 
@@ -949,11 +980,36 @@ function TaskDetail({
               </option>
             ))}
           </Select>
+          {task.files_changed > 0 && TERMINAL_STATUSES.includes(task.status) ? (
+            <Button
+              variant="default"
+              onClick={revert}
+              disabled={reverting}
+              aria-label="Revert this task&rsquo;s changes"
+              title="Revert this task&rsquo;s changes"
+            >
+              {reverting ? "Reverting…" : <span>Revert changes</span>}
+            </Button>
+          ) : null}
           <Button onClick={onClose}>Close</Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
+        {revertMessage ? (
+          <p
+            className={cn(
+              "text-[12px]",
+              revertMessage.startsWith("Revert not approved")
+                ? "text-warn"
+                : revertMessage.startsWith("Changes reverted")
+                  ? "text-ok"
+                  : "text-danger",
+            )}
+          >
+            {revertMessage}
+          </p>
+        ) : null}
         <div className="flex items-center gap-2 flex-wrap">
           <Badge tone={STATUS_TONE[task.status]}>
             {COLUMNS_BY_ID[task.status]?.title ?? task.status}

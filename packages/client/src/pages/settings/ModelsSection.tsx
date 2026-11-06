@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Code, RefreshCw, Search, Terminal } from "lucide-react";
 import {
   Badge,
   Button,
@@ -95,6 +95,41 @@ export function ModelsSection({
         <p className="text-[13px] text-muted">
           Asking each harness and local server what it can run…
         </p>
+      ) : null}
+
+      {!loading && total === 0 && !error ? (
+        <div className="px-3 py-4 rounded-lg border border-dashed border-line bg-surface-2 text-[13px] text-muted">
+          <div className="flex items-center gap-2 mb-2">
+            <Terminal className="size-4 text-faint shrink-0" />
+            <span className="font-semibold text-ink">
+              No runnable models yet
+            </span>
+          </div>
+          <p className="mb-3">
+            Hive couldn&rsquo;t find any agent CLI or local model server.
+            Install one and it will appear here — then rediscover.
+          </p>
+          <div className="flex flex-col gap-1 text-[11px] font-mono text-ink">
+            <div>
+              <Code className="size-3.5 shrink-0 mr-1 text-muted" />
+              npm i -g @anthropic-ai/claude-code{" "}
+              <span className="text-faint">(# claude-code)</span>
+            </div>
+            <div>
+              <Code className="size-3.5 shrink-0 mr-1 text-muted" />
+              npm i -g opencode-ai{" "}
+              <span className="text-faint">(# opencode)</span>
+            </div>
+            <div>
+              <Code className="size-3.5 shrink-0 mr-1 text-muted" /># or start
+              Ollama / LM Studio for local models
+            </div>
+          </div>
+          <p className="mt-3 text-[12px] text-muted">
+            Run <Code className="size-3">hive doctor</Code> to see what this
+            machine can run.
+          </p>
+        </div>
       ) : null}
 
       <Card>
