@@ -511,7 +511,62 @@ export function loadConfig(configPath?: string): Config {
   }
 
   cachedConfig = config;
+
+  // Start fs.watch on the config file if it actually exists on disk.
+  // This allows in-process updates when hive.config.json is edited without
+  // requiring a restart. The watch handle is unref()'d so it doesn't hold
+  // the Node process open.
+  if (foundFile) {
+    startConfigWatch(configFilePath);
+  }
+
   return config;
+}
+
+/** Starts fs.watch on the given config file path. Best-effort: some
+ *  environments (CI, locked-down containers) don't permit inotify; that
+ *  must not prevent the server from starting. */
+function startConfigWatch(configFilePath: string): void {
+  let watcher: fs.FSWatcher | null;
+  try {
+    watcher = fs.watch(configFilePath, (eventType, filename) => {
+      // fs.watch emits 'rename' when the watched file is deleted/renamed away.
+      if (eventType === "rename" && !filename) {
+        console.warn(
+          `Config file ${configFilePath} was removed; keeping cached config.`,
+        );
+        return;
+      }
+      // Re-read the file and deep-merge into the same cached object so
+      // existing in-memory references see the updates immediately.
+      try {
+        if (fs.existsSync(configFilePath)) {
+          const raw = fs.readFileSync(configFilePath, "utf8");
+          const overrides = JSON.parse(raw);
+          deepMerge(cachedConfig, overrides);
+          console.log(`Config reloaded from ${configFilePath}`);
+        }
+      } catch (err) {
+        console.warn(
+          `Could not reload config from ${configFilePath}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    });
+  } catch (err) {
+    console.warn(
+      `Could not watch config file ${configFilePath} for changes (config reload disabled):`,
+      err instanceof Error ? err.message : err,
+    );
+    return;
+  }
+  // Swallow watch errors (e.g. EPERM in CI / locked-down containers) so a
+  // failed file watch never crashes the process.
+  watcher.on("error", () => {
+    // Intentionally no-op: config reload is best-effort.
+  });
+  // unref() the watch handle so it doesn't keep the Node process open.
+  watcher.unref();
 }
 
 /** Resolves the on-disk path hive.config.json is read from and saved to. */
