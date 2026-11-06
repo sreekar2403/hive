@@ -244,6 +244,17 @@ export class LoopEngine {
         this.state.sessionId = result.sessionId;
         this.state.sessionHarness = decision.harness;
       }
+      // Aggregate usage across iterations for budget tracking.
+      if (result.usage) {
+        const u = this.state.usage ?? { totalTokens: 0, costUsd: 0 };
+        u.totalTokens = (u.totalTokens ?? 0) + (result.usage.totalTokens ?? 0);
+        u.costUsd = (u.costUsd ?? 0) + (result.usage.costUsd ?? 0);
+        if (result.usage.inputTokens)
+          u.inputTokens = (u.inputTokens ?? 0) + result.usage.inputTokens;
+        if (result.usage.outputTokens)
+          u.outputTokens = (u.outputTokens ?? 0) + result.usage.outputTokens;
+        this.state.usage = u;
+      }
       if (traced && taskId) {
         recordSpan(
           taskId,

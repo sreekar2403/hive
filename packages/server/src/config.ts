@@ -192,6 +192,11 @@ export interface LayaVerifyConfig {
 }
 
 export interface Config {
+  budget: {
+    enabled: boolean;
+    daily: { maxTokens: number; maxCostUsd: number };
+    perProject: Record<string, { maxTokens: number; maxCostUsd: number }>;
+  };
   harnesses: Record<HarnessId, HarnessConfig>;
   routing: {
     default: string;
@@ -345,6 +350,8 @@ export interface Config {
      * origin", which covers Vite's dev server and the Electron shell.
      */
     allowedOrigins: string[];
+    /** Token scope: "full" (default, all /api/*) or "read-only" (dashboards/logs only). */
+    tokenScopes: readonly string[];
   };
   storage: {
     cacheDir: string;
@@ -819,6 +826,7 @@ export function createDefaultConfig(): Config {
       host: "127.0.0.1",
       authToken: "",
       allowedOrigins: [],
+      tokenScopes: ["full"],
     },
     storage: {
       cacheDir: "./.hive-cache",
@@ -857,6 +865,11 @@ export function createDefaultConfig(): Config {
     },
     mcp: {
       allowedRoots: [],
+    },
+    budget: {
+      enabled: false,
+      daily: { maxTokens: 0, maxCostUsd: 0 },
+      perProject: {},
     },
   };
 }

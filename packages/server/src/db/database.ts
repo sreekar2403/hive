@@ -37,8 +37,16 @@ export function initDb(): Database.Database {
   const file = databaseFile();
   db = new Database(file, { readonly: false });
 
-  // WAL is a file-level mode; an in-memory database has no file to journal.
+  // Restrictive file permissions on the SQLite DB so any other local user
+  // cannot read prompts, messages, or trace data at rest. Best-effort on
+  // Windows (0600 maps to owner read/write there).
   if (file !== ":memory:") {
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch {
+      // Best-effort; permissions still default to a reasonable umask.
+    }
+    // WAL is a file-level mode; an in-memory database has no file to journal.
     db.pragma("journal_mode = WAL");
     db.pragma("synchronous = NORMAL");
   }
@@ -129,6 +137,40 @@ export function initDb(): Database.Database {
       color TEXT,
       created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000),
       updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+    )
+  `);
+
+  // Budget spend events: cumulative token/cost spend per project per UTC day,
+  // used by BudgetManager to enforce spend ceilings before runs are admitted.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS spend_events (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      task_id TEXT,
+      at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+    )
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_spend_events_project_date ON spend_events(project_id, date)`,
+  );
+
+  // Permission audit log: durable record of every approve/deny/timeout
+  // decision for destructive commands. Each row captures the request context
+  // and decision, so the Permissions page can query history.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS permission_events (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      command TEXT,
+      decision TEXT NOT NULL,
+      reason TEXT,
+      timestamp INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000),
+      decided_by TEXT
     )
   `);
 
