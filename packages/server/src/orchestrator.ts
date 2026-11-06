@@ -1,3 +1,4 @@
+import { BudgetManager } from "./budget";
 import { LoopEngine, LoopCallback } from "./loopEngine";
 import { Router, type RoutingResult } from "./router";
 import { PermissionManager } from "./permissions";
@@ -262,6 +263,7 @@ export class Orchestrator {
   private brains: Map<string, SecondBrain>;
   /** Caps how many harness runs execute at once. See ConcurrencyGate. */
   private gate: ConcurrencyGate;
+  private budgetManager: BudgetManager;
   /** Isolated checkouts held by parallel tasks, keyed by task id. */
   private worktrees: Map<string, Worktree> = new Map();
 
@@ -270,6 +272,7 @@ export class Orchestrator {
     this.harnesses = harnesses;
     this.router = new Router(config, harnesses);
     this.permissionManager = new PermissionManager(config);
+    this.budgetManager = new BudgetManager(config);
     this.resourceManager = new ResourceManager(config);
     // Read through a function so a Settings change takes effect on the next
     // admission rather than needing a restart.
@@ -351,6 +354,28 @@ export class Orchestrator {
     // one. The parent never runs a harness itself, so it never needs a slot.
     const plan = await this.planFanoutFor(task);
     if (plan) return await this.runFanout(task, plan, onIteration);
+
+    // Budget admission: refuse to spend a concurrency slot on a run that
+    // would exceed the configured daily / per-project ceiling. Checked
+    // before ConcurrencyGate.acquire() so a budget-capped task never holds
+    // a slot while waiting. Budget is off by default (enabled: false).
+    // Passes (0, 0) because the cost of this run is unknown up front — the
+    // check answers "is there any headroom left?" Actual spend is recorded
+    // after the run finishes (see runTask).
+    if (this.config.budget?.enabled && task.projectId) {
+      const admit = this.budgetManager.canAdmit(task.projectId, 0, 0);
+      if (!admit.allowed) {
+        task.status = "failed";
+        task.error = `Budget exceeded for ${task.projectId} today: ${admit.reason}`;
+        task.output = task.error;
+        log("warn", "budget", task.error, {
+          taskId: task.id,
+          projectId: task.projectId,
+        });
+        this.setPhase(task, "break-room");
+        return task;
+      }
+    }
 
     // Wait for a slot before anything else happens. A task holding one is
     // "running"; until then it is queued in Intake, which is exactly what
@@ -1120,6 +1145,16 @@ ${briefing.text}`
     task.iteration = result.iteration;
     task.error = result.error;
 
+    // Record spend against the budget ceiling (best-effort; never fails a
+    // completed task). Usage may be undefined for plain-text harnesses.
+    if (this.config.budget?.enabled && task.projectId && result.usage) {
+      this.budgetManager.recordSpend(
+        task.projectId,
+        result.usage.totalTokens ?? 0,
+        result.usage.costUsd ?? 0,
+      );
+    }
+
     // The chat's next turn resumes this native session when it stays on
     // the same harness. Written for failed runs too — a session that died
     // mid-task still holds the context the follow-up needs. Bookkeeping
@@ -1328,6 +1363,16 @@ ${briefing.text}`
           },
         },
       );
+
+      // Record spend against the budget ceiling (best-effort). Usage may be
+      // undefined for plain-text harnesses.
+      if (this.config.budget?.enabled && task.projectId && state.usage) {
+        this.budgetManager.recordSpend(
+          task.projectId,
+          state.usage.totalTokens ?? 0,
+          state.usage.costUsd ?? 0,
+        );
+      }
 
       endSpan(stageSpan, state.success ? "ok" : "failed");
       // Same write-back as the direct path: the chat's live session is
@@ -1762,10 +1807,10 @@ ${briefing.text}`
   }
 
   /**
-    * The directory a task's harness should run in. Tasks used to run in
-    * the server's own working directory regardless of which project was
-    * selected, so `filesChanged` described the wrong repository.
-    */
+   * The directory a task's harness should run in. Tasks used to run in
+   * the server's own working directory regardless of which project was
+   * selected, so `filesChanged` described the wrong repository.
+   */
   private workingTreeFor(projectId: string | null): string | undefined {
     if (!projectId) return undefined;
     // The general workspace is synthesised rather than stored, so it is
